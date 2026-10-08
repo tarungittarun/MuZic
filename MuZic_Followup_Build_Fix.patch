@@ -1,0 +1,51 @@
+diff --git a/serverless_music_player/lib/services/music_api_service.dart b/serverless_music_player/lib/services/music_api_service.dart
+--- a/serverless_music_player/lib/services/music_api_service.dart
++++ b/serverless_music_player/lib/services/music_api_service.dart
+@@ -129,7 +129,7 @@
+ 
+   Future<String> resolveStream(SongModel song) async {
+     final direct = song.streamUrl;
+-    if (direct != null && _isHttpUrl(direct)) {
++    if (direct != null && MusicApiService._isHttpUrl(direct)) {
+       return direct.replaceFirst(RegExp(r'^http://'), 'https://');
+     }
+     if (song.source == SongSource.youtube) return resolveYouTube(song);
+@@ -144,7 +144,7 @@
+           ? exact.first
+           : (matches.isEmpty ? null : matches.first);
+       if (candidate?.streamUrl != null &&
+-          _isHttpUrl(candidate!.streamUrl!)) {
++          MusicApiService._isHttpUrl(candidate!.streamUrl!)) {
+         return candidate.streamUrl!;
+       }
+     } catch (_) {
+@@ -234,7 +234,7 @@
+     }
+     final url = utf8.decode(plaintext.sublist(0, end), allowMalformed: false).trim();
+     final secureUrl = url.replaceFirst(RegExp(r'^http://'), 'https://');
+-    if (!_isHttpUrl(secureUrl)) {
++    if (!MusicApiService._isHttpUrl(secureUrl)) {
+       throw const FormatException('The decrypted media URL is not an HTTP URL.');
+     }
+     return secureUrl;
+@@ -399,7 +399,7 @@
+     return text.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+   }
+ 
+-  bool _isHttpUrl(String value) {
++  static bool _isHttpUrl(String value) {
+     final uri = Uri.tryParse(value);
+     return uri != null && (uri.scheme == 'http' || uri.scheme == 'https') && uri.host.isNotEmpty;
+   }
+diff --git a/serverless_music_player/pubspec.yaml b/serverless_music_player/pubspec.yaml
+--- a/serverless_music_player/pubspec.yaml
++++ b/serverless_music_player/pubspec.yaml
+@@ -20,7 +20,7 @@
+   just_audio_background: ^0.0.1-beta.17
+   path: ^1.9.1
+   path_provider: ^2.1.5
+-  permission_handler: ^13.0.2
++  permission_handler: ^12.0.3 # v13 requires compileSdk 37; stay compatible with this AGP 8/API 36 build.
+   pointycastle: ^4.0.0
+   provider: ^6.1.5+1
+   youtube_explode_dart: ^3.1.0

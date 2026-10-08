@@ -129,7 +129,7 @@ class MusicApiService {
 
   Future<String> resolveStream(SongModel song) async {
     final direct = song.streamUrl;
-    if (direct != null && _isHttpUrl(direct)) {
+    if (direct != null && MusicApiService._isHttpUrl(direct)) {
       return direct.replaceFirst(RegExp(r'^http://'), 'https://');
     }
     if (song.source == SongSource.youtube) return resolveYouTube(song);
@@ -143,7 +143,7 @@ class MusicApiService {
       final candidate = exact.isNotEmpty
           ? exact.first
           : (matches.isEmpty ? null : matches.first);
-      if (candidate?.streamUrl != null && _isHttpUrl(candidate!.streamUrl!)) {
+      if (candidate?.streamUrl != null && MusicApiService._isHttpUrl(candidate!.streamUrl!)) {
         return candidate.streamUrl!;
       }
     } catch (_) {
@@ -233,7 +233,7 @@ class MusicApiService {
     }
     final url = utf8.decode(plaintext.sublist(0, end), allowMalformed: false).trim();
     final secureUrl = url.replaceFirst(RegExp(r'^http://'), 'https://');
-    if (!_isHttpUrl(secureUrl)) {
+    if (!MusicApiService._isHttpUrl(secureUrl)) {
       throw const FormatException('The decrypted media URL is not an HTTP URL.');
     }
     return secureUrl;
@@ -398,7 +398,7 @@ class MusicApiService {
     return text.replaceAll(RegExp(r'<[^>]*>'), '').trim();
   }
 
-  bool _isHttpUrl(String value) {
+  static bool _isHttpUrl(String value) {
     final uri = Uri.tryParse(value);
     return uri != null && (uri.scheme == 'http' || uri.scheme == 'https') && uri.host.isNotEmpty;
   }
