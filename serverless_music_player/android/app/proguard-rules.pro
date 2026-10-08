@@ -1,0 +1,3 @@
+-keep class com.ryanheise.audioservice.** { *; }
+-keep class androidx.media.** { *; }
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
