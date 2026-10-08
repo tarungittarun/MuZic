@@ -34,7 +34,7 @@ jobs:
         run: flutter pub get
 
       - name: Build per-ABI release APKs
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release --target-platform=android-arm,android-arm64 --split-per-abi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7.0.2
