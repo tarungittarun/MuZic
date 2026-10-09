@@ -19,6 +19,10 @@ class MusicApiService {
 
   final http.Client _http;
   final YoutubeExplode _youtube;
+  final Map<String, Future<LyricsModel>> _lyricsCache = <String, Future<LyricsModel>>{};
+  Future<void> _lyricsRequestQueue = Future<void>.value();
+  DateTime? _lastLyricsRequestAt;
+  DateTime? _lyricsRetryAfter;
 
   Future<List<SongModel>> search(
     String query, {
@@ -123,6 +127,8 @@ class MusicApiService {
               artworkUrl: video.thumbnails.highResUrl,
               source: SongSource.youtube,
               durationMs: video.duration?.inMilliseconds,
+              releaseDate: _formatDate(video.publishDate ?? video.uploadDate),
+              sourceUrl: video.url,
             ))
         .toList(growable: false);
   }
@@ -143,7 +149,8 @@ class MusicApiService {
       final candidate = exact.isNotEmpty
           ? exact.first
           : (matches.isEmpty ? null : matches.first);
-      if (candidate?.streamUrl != null && MusicApiService._isHttpUrl(candidate!.streamUrl!)) {
+      if (candidate?.streamUrl != null &&
+          MusicApiService._isHttpUrl(candidate!.streamUrl!)) {
         return candidate.streamUrl!;
       }
     } catch (_) {
@@ -180,31 +187,211 @@ class MusicApiService {
   }
 
   Future<LyricsModel> fetchLyrics(SongModel song) async {
-    final uri = Uri.https('lrclib.net', '/api/get', <String, String>{
-      'track_name': song.title,
-      'artist_name': song.artist,
-      if (song.duration != null)
-        'duration': '${song.duration!.inSeconds}',
-    });
-    final response = await _http.get(uri, headers: <String, String>{
+    final cached = _lyricsCache[song.id];
+    if (cached != null) return cached;
+    final request = _fetchLyrics(song);
+    _lyricsCache[song.id] = request;
+    try {
+      return await request;
+    } catch (_) {
+      _lyricsCache.remove(song.id);
+      rethrow;
+    }
+  }
+
+  Future<LyricsModel> _fetchLyrics(SongModel song) async {
+    final artists = _artistCandidates(song.artist);
+    final headers = <String, String>{
       'Accept': 'application/json',
-      'User-Agent': 'Auralis/1.0 (Flutter Android music player)',
-    }).timeout(_timeout);
-    if (response.statusCode == 404) return const LyricsModel();
-    if (response.statusCode != 200) {
+      'User-Agent': 'Auralis/1.0.0 (https://github.com/tarungittarun/MuZic)',
+    };
+    final duration = song.duration?.inSeconds;
+
+    // LRCLIB's exact matcher needs the correct track duration whenever it is
+    // available. Try the credited artist first, then a cleaned lead-artist
+    // variant for catalogues that append channel or feature credits.
+    for (final artist in artists.take(2)) {
+      final params = <String, String>{
+        'track_name': song.title,
+        'artist_name': artist,
+        if (song.album.trim().isNotEmpty) 'album_name': song.album,
+        if (duration != null && duration > 0 && duration <= 3600)
+          'duration': '$duration',
+      };
+      final uri = Uri.https('lrclib.net', '/api/get', params);
+      final response = await _getLyrics(uri, headers);
+      if (response.statusCode == 200) {
+        final data = _asMap(jsonDecode(response.body));
+        final lyrics = _lyricsFromMap(data);
+        if (!lyrics.isEmpty) return lyrics;
+      } else if (response.statusCode != 404 && response.statusCode != 400) {
+        throw http.ClientException(
+          'Lyrics service returned HTTP ${response.statusCode}.',
+          uri,
+        );
+      }
+    }
+
+    // The exact endpoint is intentionally strict (including duration). Fall
+    // back to the catalogue search so a slightly different release, title
+    // punctuation, or artist credit can still find usable lyrics.
+    final fallbackArtist = artists.length > 1 ? artists[1] : artists.first;
+    final searchUri = Uri.https('lrclib.net', '/api/search', <String, String>{
+      'track_name': song.title,
+      'artist_name': fallbackArtist,
+      if (song.album.trim().isNotEmpty) 'album_name': song.album,
+    });
+    final searchResponse = await _getLyrics(searchUri, headers);
+    if (searchResponse.statusCode == 404) return const LyricsModel();
+    if (searchResponse.statusCode != 200) {
       throw http.ClientException(
-        'Lyrics service returned HTTP ${response.statusCode}.',
-        uri,
+        'Lyrics search returned HTTP ${searchResponse.statusCode}.',
+        searchUri,
       );
     }
-    final data = _asMap(jsonDecode(response.body));
-    if (data == null) return const LyricsModel();
+    final decoded = jsonDecode(searchResponse.body);
+    if (decoded is! Iterable) return const LyricsModel();
+    final matches = decoded.whereType<Map>().map(
+      (value) => Map<String, dynamic>.from(value),
+    );
+    final best = _bestLyricsMatch(matches, song, artists);
+    return _lyricsFromMap(best);
+  }
+
+  Future<http.Response> _getLyrics(
+    Uri uri,
+    Map<String, String> headers,
+  ) {
+    final request = _lyricsRequestQueue.then((_) async {
+      final now = DateTime.now();
+      var waitUntil = _lastLyricsRequestAt?.add(const Duration(milliseconds: 250));
+      final retryAfter = _lyricsRetryAfter;
+      if (retryAfter != null &&
+          retryAfter.isAfter(now) &&
+          (waitUntil == null || retryAfter.isAfter(waitUntil))) {
+        waitUntil = retryAfter;
+      }
+      if (waitUntil != null && waitUntil.isAfter(now)) {
+        await Future<void>.delayed(waitUntil.difference(now));
+      }
+
+      _lastLyricsRequestAt = DateTime.now();
+      final response = await _http.get(uri, headers: headers).timeout(_timeout);
+      if (response.statusCode == 429 || response.statusCode == 503) {
+        String? retryHeader;
+        for (final entry in response.headers.entries) {
+          if (entry.key.toLowerCase() == 'retry-after') {
+            retryHeader = entry.value;
+            break;
+          }
+        }
+        final retrySeconds = int.tryParse(retryHeader ?? '');
+        _lyricsRetryAfter = DateTime.now().add(
+          Duration(seconds: retrySeconds != null && retrySeconds >= 0 ? retrySeconds : 1),
+        );
+      }
+      return response;
+    });
+    _lyricsRequestQueue = request.then<void>((_) {}).catchError((Object _) {});
+    return request;
+  }
+
+  LyricsModel _lyricsFromMap(Map<String, dynamic>? data) {
+    if (data == null || data['instrumental'] == true) {
+      return const LyricsModel();
+    }
     final synced = data['syncedLyrics']?.toString() ?? '';
     final plain = data['plainLyrics']?.toString() ?? '';
     return LyricsModel(
       syncedLines: _parseLrc(synced),
       plainLyrics: plain,
     );
+  }
+
+  Map<String, dynamic>? _bestLyricsMatch(
+    Iterable<Map<String, dynamic>> matches,
+    SongModel song,
+    List<String> artistCandidates,
+  ) {
+    final wantedTitle = _normalizeForMatch(song.title);
+    final wantedAlbum = _normalizeForMatch(song.album);
+    final wantedArtists = artistCandidates.map(_normalizeForMatch).toSet();
+    final wantedDuration = song.duration?.inSeconds;
+    Map<String, dynamic>? best;
+    var bestScore = -1;
+
+    for (final match in matches) {
+      if (match['instrumental'] == true) continue;
+      final lyrics = _lyricsFromMap(match);
+      if (lyrics.isEmpty) continue;
+      final title = _normalizeForMatch(
+        match['trackName'] ?? match['name'] ?? '',
+      );
+      final artist = _normalizeForMatch(match['artistName'] ?? '');
+      final album = _normalizeForMatch(match['albumName'] ?? '');
+      final titleMatches = title.isNotEmpty &&
+          wantedTitle.isNotEmpty &&
+          (title == wantedTitle ||
+              title.contains(wantedTitle) ||
+              wantedTitle.contains(title));
+      if (!titleMatches) continue;
+      var score = 0;
+      if (title == wantedTitle) {
+        score += 8;
+      } else {
+        score += 4;
+      }
+      if (wantedArtists.contains(artist) && artist.isNotEmpty) score += 6;
+      if (wantedAlbum.isNotEmpty && album == wantedAlbum) score += 2;
+      final matchDuration = _toInt(match['duration']);
+      if (wantedDuration != null && matchDuration != null) {
+        final delta = (wantedDuration - matchDuration).abs();
+        if (delta <= 2) {
+          score += 4;
+        } else if (delta <= 10) {
+          score += 1;
+        }
+      }
+      if (score > bestScore) {
+        best = match;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  List<String> _artistCandidates(String artist) {
+    final raw = _cleanText(artist).trim();
+    final withoutTopic = raw.replaceFirst(
+      RegExp(r'\s*[-–]\s*Topic$', caseSensitive: false),
+      '',
+    ).trim();
+    final leadArtist = withoutTopic
+        .split(RegExp(r'\s+(?:feat\.?|ft\.?|featuring)\s+', caseSensitive: false))
+        .first
+        .trim();
+    final primaryArtist = leadArtist.split(RegExp(r'\s*,\s*')).first.trim();
+    final candidates = <String>{raw, withoutTopic, leadArtist, primaryArtist}
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    return candidates.isEmpty ? const <String>['Unknown artist'] : candidates;
+  }
+
+  String _normalizeForMatch(dynamic value) => _cleanText(value)
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '');
+
+  int? _toInt(dynamic value) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  String? _formatDate(DateTime? value) {
+    if (value == null) return null;
+    final date = value.toLocal();
+    return '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
   }
 
   static String decryptSaavnMediaUrl(String encryptedMediaUrl) {
@@ -276,14 +463,27 @@ class MusicApiService {
     }
 
     final image = _imageUrl(moreInfo['image'] ?? row['image']);
-    final artist = _cleanText(
+    final artist = _artistText(
       row['primary_artists'] ??
           row['singers'] ??
           moreInfo['artistMap'] ??
+          moreInfo['artists'] ??
           moreInfo['music'],
     );
     final album = _cleanText(row['album'] ?? moreInfo['album'] ?? '');
-    final durationSeconds = int.tryParse((row['duration'] ?? '').toString());
+    final durationSeconds = _toInt(moreInfo['duration'] ?? row['duration']);
+    final artistMap = _asMap(moreInfo['artists'] ?? moreInfo['artistMap']);
+    final featuredArtists = _artistNames(
+      artistMap?['featured'] ??
+          moreInfo['featured_artists'] ??
+          row['featured_artists'],
+    );
+    final releaseDate = _cleanText(
+      row['release_date'] ??
+          moreInfo['release_date'] ??
+          row['year'] ??
+          moreInfo['year'],
+    );
     return SongModel(
       id: 'saavn:$sourceId',
       sourceId: sourceId,
@@ -293,7 +493,28 @@ class MusicApiService {
       artworkUrl: image,
       source: SongSource.jioSaavn,
       streamUrl: streamUrl,
-      durationMs: durationSeconds == null ? null : durationSeconds * 1000,
+      durationMs: durationSeconds == null || durationSeconds <= 0
+          ? null
+          : durationSeconds * 1000,
+      releaseDate: releaseDate.isEmpty ? null : releaseDate,
+      language: _cleanText(row['language'] ?? moreInfo['language']),
+      label: _cleanText(row['label'] ?? moreInfo['label']),
+      copyright: _cleanText(
+        row['copyright_text'] ??
+            row['copyright'] ??
+            moreInfo['copyright_text'] ??
+            moreInfo['copyright'],
+      ),
+      composer: _artistText(moreInfo['music'] ?? row['music']),
+      featuredArtists: featuredArtists,
+      playCount: _toInt(row['play_count'] ?? moreInfo['play_count']),
+      hasLyrics: _toBool(
+        row['has_lyrics'] ?? row['hasLyrics'] ?? moreInfo['has_lyrics'],
+      ),
+      isExplicit: _toBool(
+        row['explicit_content'] ?? row['isExplicit'] ?? moreInfo['explicit_content'],
+      ),
+      sourceUrl: _cleanText(row['perma_url'] ?? row['url'] ?? moreInfo['perma_url']),
     );
   }
 
@@ -349,6 +570,64 @@ class MusicApiService {
       } on FormatException {
         return null;
       }
+    }
+    return null;
+  }
+
+  String _artistText(dynamic value) {
+    if (value is Map) {
+      final map = Map<String, dynamic>.from(value);
+      final artists = map['primary'] ??
+          map['primary_artists'] ??
+          map['artists'] ??
+          map['names'];
+      if (artists != null) return _artistText(artists);
+      value = map['name'] ?? map['artist'] ?? map['title'] ?? map['music'];
+    }
+    if (value is Iterable) {
+      final names = value
+          .map((dynamic item) {
+            if (item is Map) {
+              return _cleanText(item['name'] ?? item['artist'] ?? item['title']);
+            }
+            return _cleanText(item);
+          })
+          .where((name) => name.isNotEmpty)
+          .toList(growable: false);
+      return names.join(', ');
+    }
+    return _cleanText(value);
+  }
+
+  List<String> _artistNames(dynamic value) {
+    if (value is Map) {
+      final map = Map<String, dynamic>.from(value);
+      value = map['name'] ??
+          map['artist'] ??
+          map['featured'] ??
+          map['featured_artists'] ??
+          map['artists'];
+    }
+    if (value is Iterable) {
+      return value
+          .map((dynamic item) => item is Map
+              ? _cleanText(item['name'] ?? item['artist'] ?? item['title'])
+              : _cleanText(item))
+          .where((name) => name.isNotEmpty)
+          .toList(growable: false);
+    }
+    final text = _cleanText(value);
+    return text.isEmpty ? const <String>[] : <String>[text];
+  }
+
+  bool? _toBool(dynamic value) {
+    if (value is bool) return value;
+    final normalized = value?.toString().trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1' || normalized == 'yes') {
+      return true;
+    }
+    if (normalized == 'false' || normalized == '0' || normalized == 'no') {
+      return false;
     }
     return null;
   }

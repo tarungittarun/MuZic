@@ -10,6 +10,7 @@ import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/library_service.dart';
 import '../services/music_api_service.dart';
+import '../services/usage_service.dart';
 
 class PlayerController extends ChangeNotifier {
   PlayerController({
@@ -17,14 +18,29 @@ class PlayerController extends ChangeNotifier {
     required MusicApiService musicApi,
     required DownloadService downloads,
     required LibraryService library,
+    required UsageService usage,
   })  : _audio = audio,
         _musicApi = musicApi,
         _downloads = downloads,
-        _library = library {
+        _library = library,
+        _usage = usage {
     _subscriptions.add(_audio.player.playerStateStream.listen((_) {
+      if (_audio.player.playing && _currentSong != null) {
+        _recordPlaybackStart(_currentSong!);
+      } else {
+        _flushListeningTime();
+      }
       notifyListeners();
     }));
     _subscriptions.add(_audio.player.positionStream.listen((value) {
+      final delta = value - _position;
+      if (_audio.player.playing &&
+          _currentSong != null &&
+          delta > Duration.zero &&
+          delta <= const Duration(seconds: 2)) {
+        _pendingListeningMs += delta.inMilliseconds;
+        if (_pendingListeningMs >= 10000) _flushListeningTime();
+      }
       _position = value;
       notifyListeners();
     }));
@@ -37,6 +53,7 @@ class PlayerController extends ChangeNotifier {
       _currentIndex = value;
       _currentSong = _queue[value];
       unawaited(_library.addRecent(_currentSong!));
+      _recordPlaybackStart(_currentSong!);
       notifyListeners();
     }));
     _subscriptions.add(_audio.player.loopModeStream.listen((value) {
@@ -54,6 +71,7 @@ class PlayerController extends ChangeNotifier {
   final MusicApiService _musicApi;
   final DownloadService _downloads;
   final LibraryService _library;
+  final UsageService _usage;
   final List<StreamSubscription<dynamic>> _subscriptions =
       <StreamSubscription<dynamic>>[];
 
@@ -70,6 +88,8 @@ class PlayerController extends ChangeNotifier {
   bool _permissionAsked = false;
   String? _downloadingId;
   double _downloadProgress = 0;
+  int _pendingListeningMs = 0;
+  String? _lastUsageTrackId;
   final Set<String> _fallbackAttempted = <String>{};
 
   SongModel? get currentSong => _currentSong;
@@ -116,6 +136,7 @@ class PlayerController extends ChangeNotifier {
         throw StateError('Unable to resolve the selected track.');
       }
 
+      _lastUsageTrackId = null;
       _queue = resolved.map((track) => track.song).toList();
       _sources = resolved.map((track) => track.source).toList();
       _currentIndex = startIndex;
@@ -123,6 +144,7 @@ class PlayerController extends ChangeNotifier {
       _position = Duration.zero;
       _duration = _currentSong?.duration ?? Duration.zero;
       await _audio.setQueue(_sources, initialIndex: startIndex);
+      if (_currentSong != null) _recordPlaybackStart(_currentSong!);
       await _requestNotificationPermission();
       _startPlayback();
       if (_currentSong != null) unawaited(_library.addRecent(_currentSong!));
@@ -185,8 +207,14 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> toggleFavorite(SongModel song) =>
-      _library.toggleFavorite(song);
+  Future<void> toggleFavorite(SongModel song) async {
+    final wasFavorite = _library.isFavorite(song.id);
+    await _library.toggleFavorite(song);
+    await _usage.recordSongEvent(
+      wasFavorite ? 'favorite_removed' : 'favorite_added',
+      song,
+    );
+  }
 
   Future<void> addToQueue(SongModel song) async {
     if (_queue.isEmpty) {
@@ -198,6 +226,7 @@ class PlayerController extends ChangeNotifier {
     await _audio.append(track.source);
     _queue.add(track.song);
     _sources.add(track.source);
+    await _usage.recordSongEvent('queue_add', song);
     notifyListeners();
   }
 
@@ -270,6 +299,7 @@ class PlayerController extends ChangeNotifier {
           },
         );
       }
+      await _usage.recordSongEvent('download', song);
     } finally {
       _downloadingId = null;
       _downloadProgress = 0;
@@ -277,8 +307,10 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  Future<void> removeDownload(SongModel song) =>
-      _downloads.removeDownload(song);
+  Future<void> removeDownload(SongModel song) async {
+    await _downloads.removeDownload(song);
+    await _usage.recordSongEvent('download_removed', song);
+  }
 
   Future<_ResolvedTrack?> _resolveTrack(SongModel song, int originalIndex) async {
     try {
@@ -312,6 +344,19 @@ class PlayerController extends ChangeNotifier {
     } catch (_) {
       // Notification permission is optional; playback remains available.
     }
+  }
+
+  void _recordPlaybackStart(SongModel song) {
+    if (_lastUsageTrackId == song.id) return;
+    _lastUsageTrackId = song.id;
+    unawaited(_usage.recordSongEvent('play', song));
+  }
+
+  void _flushListeningTime() {
+    if (_pendingListeningMs <= 0) return;
+    final elapsed = _pendingListeningMs;
+    _pendingListeningMs = 0;
+    unawaited(_usage.addListeningTime(Duration(milliseconds: elapsed)));
   }
 
   void _startPlayback() {
@@ -361,6 +406,7 @@ class PlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _flushListeningTime();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +8,7 @@ import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
 import '../services/music_api_service.dart';
+import '../services/usage_service.dart';
 import '../theme/app_theme.dart';
 import 'cover_art.dart';
 
@@ -22,6 +25,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerController>();
+    final palette = context.palette;
     final song = player.currentSong;
     if (song == null) return const SizedBox.shrink();
     final screenHeight = MediaQuery.sizeOf(context).height;
@@ -32,9 +36,9 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
 
     return Container(
       height: screenHeight * 0.94,
-      decoration: const BoxDecoration(
-        color: AppTheme.background,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+      decoration: BoxDecoration(
+        color: palette.background,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
       ),
       child: SafeArea(
         top: false,
@@ -45,7 +49,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
               width: 42,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: palette.outline,
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
@@ -58,12 +62,12 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 30),
                   ),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       children: <Widget>[
-                        Text('NOW PLAYING', style: TextStyle(fontSize: 10, letterSpacing: 2, color: Colors.white54, fontWeight: FontWeight.w700)),
-                        SizedBox(height: 3),
-                        Text('Auralis', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        Text('NOW PLAYING', style: TextStyle(fontSize: 10, letterSpacing: 2, color: palette.textMuted, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 3),
+                        const Text('Auralis', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
@@ -103,7 +107,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                         Text(song.artist,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white60, fontSize: 14)),
+                            style: TextStyle(color: palette.textSecondary, fontSize: 14)),
                       ],
                     ),
                   ),
@@ -112,7 +116,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                     onPressed: () => player.toggleFavorite(song),
                     icon: Icon(
                       player.isFavorite(song) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                      color: player.isFavorite(song) ? AppTheme.accent : Colors.white70,
+                      color: player.isFavorite(song) ? palette.accent : palette.textSecondary,
                     ),
                   ),
                   IconButton(
@@ -135,7 +139,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                             player.isDownloaded(song)
                                 ? Icons.download_done_rounded
                                 : Icons.download_rounded,
-                            color: player.isDownloaded(song) ? AppTheme.mint : Colors.white70,
+                            color: player.isDownloaded(song) ? palette.mint : palette.textSecondary,
                           ),
                   ),
                 ],
@@ -158,8 +162,8 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: <Widget>[
-                        Text(_format(player.position), style: const TextStyle(fontSize: 11, color: Colors.white54)),
-                        Text(_format(player.duration), style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                        Text(_format(player.position), style: TextStyle(fontSize: 11, color: palette.textMuted)),
+                        Text(_format(player.duration), style: TextStyle(fontSize: 11, color: palette.textMuted)),
                       ],
                     ),
                   ),
@@ -175,7 +179,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                     tooltip: 'Shuffle',
                     onPressed: player.toggleShuffle,
                     icon: Icon(Icons.shuffle_rounded,
-                        color: player.shuffleEnabled ? AppTheme.mint : Colors.white54),
+                        color: player.shuffleEnabled ? palette.mint : palette.textMuted),
                   ),
                   IconButton(
                     tooltip: 'Previous track',
@@ -187,17 +191,17 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                     height: 68,
                     child: FilledButton(
                       style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.accent,
-                        foregroundColor: AppTheme.background,
+                        backgroundColor: palette.accent,
+                        foregroundColor: palette.background,
                         shape: const CircleBorder(),
                         padding: EdgeInsets.zero,
                       ),
                       onPressed: player.togglePlayback,
                       child: player.isBuffering || player.isResolving
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 25,
                               height: 25,
-                              child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.background),
+                              child: CircularProgressIndicator(strokeWidth: 2.5, color: palette.background),
                             )
                           : Icon(
                               player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
@@ -217,7 +221,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                       player.repeatMode == LoopMode.one
                           ? Icons.repeat_one_rounded
                           : Icons.repeat_rounded,
-                      color: player.repeatMode == LoopMode.off ? Colors.white54 : AppTheme.mint,
+                      color: player.repeatMode == LoopMode.off ? palette.textMuted : palette.mint,
                     ),
                   ),
                 ],
@@ -226,10 +230,16 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: TextButton.icon(
-                onPressed: () => setState(() => _showLyrics = !_showLyrics),
+                onPressed: () {
+                  final showLyrics = !_showLyrics;
+                  if (showLyrics) {
+                    unawaited(context.read<UsageService>().recordSongEvent('lyrics_check', song));
+                  }
+                  setState(() => _showLyrics = showLyrics);
+                },
                 icon: Icon(_showLyrics ? Icons.album_rounded : Icons.lyrics_outlined, size: 18),
                 label: Text(_showLyrics ? 'Show artwork' : 'Lyrics'),
-                style: TextButton.styleFrom(foregroundColor: AppTheme.accent),
+                style: TextButton.styleFrom(foregroundColor: palette.accent),
               ),
             ),
           ],
@@ -254,7 +264,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppTheme.surface,
+      backgroundColor: context.palette.surface,
       showDragHandle: true,
       builder: (_) => const _QueueSheet(),
     );
@@ -280,6 +290,7 @@ class _ArtworkPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return LayoutBuilder(
       builder: (context, constraints) {
         final dimension = (constraints.biggest.shortestSide - 28).clamp(0.0, 420.0).toDouble();
@@ -290,7 +301,7 @@ class _ArtworkPanel extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(28),
                 boxShadow: <BoxShadow>[
-                  BoxShadow(color: AppTheme.accent.withValues(alpha: 0.12), blurRadius: 42, spreadRadius: 2),
+                  BoxShadow(color: palette.accent.withValues(alpha: 0.12), blurRadius: 42, spreadRadius: 2),
                 ],
               ),
               child: CoverArt(song: song, size: dimension, radius: 28),
@@ -330,6 +341,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return FutureBuilder<LyricsModel>(
       future: _lyrics,
       builder: (context, snapshot) {
@@ -337,7 +349,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return const Center(child: Text('Lyrics are unavailable right now.', style: TextStyle(color: Colors.white54)));
+          return Center(child: Text('Lyrics are unavailable right now.', style: TextStyle(color: palette.textMuted)));
         }
         final lyrics = snapshot.data ?? const LyricsModel();
         if (lyrics.syncedLines.isNotEmpty) {
@@ -352,7 +364,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
                 fontSize: index == active ? 22 : 17,
                 height: 1.45,
                 fontWeight: index == active ? FontWeight.w800 : FontWeight.w500,
-                color: index == active ? AppTheme.accent : Colors.white38,
+                color: index == active ? palette.accent : palette.textMuted.withValues(alpha: 0.55),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -362,10 +374,10 @@ class _LyricsPanelState extends State<_LyricsPanel> {
           );
         }
         if (lyrics.plainLyrics.trim().isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
-              padding: EdgeInsets.all(28),
-              child: Text('No lyrics found for this track.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white54)),
+              padding: const EdgeInsets.all(28),
+              child: Text('No lyrics found for this track.', textAlign: TextAlign.center, style: TextStyle(color: palette.textMuted)),
             ),
           );
         }
@@ -374,7 +386,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
           child: Text(
             lyrics.plainLyrics,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 17, height: 1.75, color: Colors.white70),
+            style: TextStyle(fontSize: 17, height: 1.75, color: palette.textSecondary),
           ),
         );
       },
@@ -400,6 +412,7 @@ class _QueueSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerController>();
+    final palette = context.palette;
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.72,
@@ -412,7 +425,7 @@ class _QueueSheet extends StatelessWidget {
                   const Expanded(
                     child: Text('Up next', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
                   ),
-                  Text('${player.queue.length} tracks', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                  Text('${player.queue.length} tracks', style: TextStyle(color: palette.textMuted, fontSize: 12)),
                   const SizedBox(width: 8),
                   TextButton(
                     onPressed: player.queue.length <= 1 ? null : player.clearUpNext,
@@ -423,7 +436,7 @@ class _QueueSheet extends StatelessWidget {
             ),
             Expanded(
               child: player.queue.isEmpty
-                  ? const Center(child: Text('Queue is empty.', style: TextStyle(color: Colors.white54)))
+                  ? Center(child: Text('Queue is empty.', style: TextStyle(color: palette.textMuted)))
                   : ReorderableListView.builder(
                       itemCount: player.queue.length,
                       onReorder: (oldIndex, newIndex) {
@@ -438,10 +451,10 @@ class _QueueSheet extends StatelessWidget {
                           leading: CoverArt(song: song, size: 44, radius: 12),
                           title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                           subtitle: Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          titleTextStyle: TextStyle(color: active ? AppTheme.accent : Colors.white, fontWeight: active ? FontWeight.w700 : FontWeight.w500),
+                          titleTextStyle: TextStyle(color: active ? palette.accent : palette.textPrimary, fontWeight: active ? FontWeight.w700 : FontWeight.w500),
                           trailing: ReorderableDragStartListener(
                             index: index,
-                            child: const Icon(Icons.drag_handle_rounded, color: Colors.white38),
+                            child: Icon(Icons.drag_handle_rounded, color: palette.textMuted),
                           ),
                         );
                       },

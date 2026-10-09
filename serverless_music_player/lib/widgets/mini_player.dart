@@ -12,6 +12,7 @@ class MiniPlayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerController>();
+    final palette = context.palette;
     final song = player.currentSong;
     if (song == null) return const SizedBox.shrink();
     final max = player.duration.inMilliseconds;
@@ -23,9 +24,9 @@ class MiniPlayer extends StatelessWidget {
       height: 72,
       margin: const EdgeInsets.fromLTRB(10, 4, 10, 5),
       decoration: BoxDecoration(
-        color: AppTheme.surfaceRaised,
+        color: palette.surfaceRaised,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        border: Border.all(color: palette.outline.withValues(alpha: 0.5)),
       ),
       child: Stack(
         children: <Widget>[
@@ -53,7 +54,7 @@ class MiniPlayer extends StatelessWidget {
                           Text(song.artist,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                              style: TextStyle(color: palette.textMuted, fontSize: 11)),
                         ],
                       ),
                     ),
@@ -72,7 +73,7 @@ class MiniPlayer extends StatelessWidget {
                         onPressed: player.togglePlayback,
                         icon: Icon(
                           player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                          color: AppTheme.accent,
+                          color: palette.accent,
                           size: 30,
                         ),
                       ),
@@ -97,7 +98,7 @@ class MiniPlayer extends StatelessWidget {
                 value: value,
                 minHeight: 2,
                 backgroundColor: Colors.transparent,
-                color: AppTheme.mint,
+                color: palette.mint,
               ),
             ),
           ),

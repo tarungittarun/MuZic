@@ -3,10 +3,12 @@ import 'package:just_audio_background/just_audio_background.dart';
 
 import 'app.dart';
 import 'providers/player_controller.dart';
+import 'services/app_settings_service.dart';
 import 'services/audio_player_service.dart';
 import 'services/download_service.dart';
 import 'services/library_service.dart';
 import 'services/music_api_service.dart';
+import 'services/usage_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,6 +20,11 @@ Future<void> main() async {
 
   final library = LibraryService();
   await library.init();
+  final settings = AppSettingsService();
+  await settings.init();
+  final usage = UsageService();
+  await usage.init();
+
   final musicApi = MusicApiService();
   final audio = AudioPlayerService();
   final downloads = DownloadService(library: library);
@@ -26,6 +33,7 @@ Future<void> main() async {
     musicApi: musicApi,
     downloads: downloads,
     library: library,
+    usage: usage,
   );
 
   runApp(AuralisApp(
@@ -34,5 +42,7 @@ Future<void> main() async {
     audio: audio,
     downloads: downloads,
     player: player,
+    settings: settings,
+    usage: usage,
   ));
 }

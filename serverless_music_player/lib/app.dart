@@ -3,10 +3,12 @@ import 'package:provider/provider.dart';
 
 import 'providers/player_controller.dart';
 import 'screens/main_shell.dart';
+import 'services/app_settings_service.dart';
 import 'services/audio_player_service.dart';
 import 'services/download_service.dart';
 import 'services/library_service.dart';
 import 'services/music_api_service.dart';
+import 'services/usage_service.dart';
 import 'theme/app_theme.dart';
 
 class AuralisApp extends StatelessWidget {
@@ -16,6 +18,8 @@ class AuralisApp extends StatelessWidget {
     required this.audio,
     required this.downloads,
     required this.player,
+    required this.settings,
+    required this.usage,
     super.key,
   });
 
@@ -24,6 +28,8 @@ class AuralisApp extends StatelessWidget {
   final AudioPlayerService audio;
   final DownloadService downloads;
   final PlayerController player;
+  final AppSettingsService settings;
+  final UsageService usage;
 
   @override
   Widget build(BuildContext context) {
@@ -34,12 +40,18 @@ class AuralisApp extends StatelessWidget {
         Provider<AudioPlayerService>.value(value: audio),
         Provider<DownloadService>.value(value: downloads),
         ChangeNotifierProvider<PlayerController>.value(value: player),
+        ChangeNotifierProvider<AppSettingsService>.value(value: settings),
+        ChangeNotifierProvider<UsageService>.value(value: usage),
       ],
-      child: MaterialApp(
-        title: 'Auralis',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.dark,
-        home: const MainShell(),
+      child: Consumer<AppSettingsService>(
+        builder: (context, appSettings, _) => MaterialApp(
+          title: 'Auralis',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: appSettings.themeMode,
+          home: const MainShell(),
+        ),
       ),
     );
   }

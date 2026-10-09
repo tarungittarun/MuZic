@@ -6,9 +6,11 @@ import 'package:provider/provider.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
 import '../services/music_api_service.dart';
+import '../services/usage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/song_tile.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<SongModel> _results = <SongModel>[];
   SearchSource _source = SearchSource.automatic;
   bool _loading = false;
+  bool _hasSearched = false;
   String? _error;
   int _requestNumber = 0;
 
@@ -36,19 +39,32 @@ class _HomeScreenState extends State<HomeScreen> {
     if (query.isEmpty) return;
     _queryController.text = query;
     final requestNumber = ++_requestNumber;
+    final source = _source;
+    final usage = context.read<UsageService>();
     setState(() {
       _loading = true;
       _error = null;
+      _hasSearched = true;
     });
     try {
       final results = await context.read<MusicApiService>().search(
             query,
-            source: _source,
+            source: source,
             limit: 10,
           );
+      unawaited(usage.recordSearch(
+        query: query,
+        source: source.name,
+        resultCount: results.length,
+      ));
       if (!mounted || requestNumber != _requestNumber) return;
       setState(() => _results = results);
     } catch (error) {
+      unawaited(usage.recordSearch(
+        query: query,
+        source: source.name,
+        resultCount: 0,
+      ));
       if (!mounted || requestNumber != _requestNumber) return;
       setState(() {
         _results = <SongModel>[];
@@ -63,46 +79,50 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return Column(
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+          padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
           child: Row(
             children: <Widget>[
               Container(
                 width: 43,
                 height: 43,
                 decoration: BoxDecoration(
-                  color: AppTheme.surfaceRaised,
+                  color: palette.surfaceRaised,
                   borderRadius: BorderRadius.circular(15),
                 ),
-                child: const Icon(Icons.graphic_eq_rounded, color: AppTheme.mint),
+                child: Icon(Icons.graphic_eq_rounded, color: palette.mint),
               ),
               const SizedBox(width: 11),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text('AURALIS', style: TextStyle(fontSize: 11, letterSpacing: 2.2, color: Colors.white54, fontWeight: FontWeight.w800)),
-                    SizedBox(height: 4),
-                    Text('Listen your way.', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                    Text(
+                      'AURALIS',
+                      style: TextStyle(
+                        fontSize: 11,
+                        letterSpacing: 2.2,
+                        color: palette.textMuted,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Listen your way.',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    ),
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(
-                  color: AppTheme.mint.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: AppTheme.mint.withValues(alpha: 0.18)),
+              IconButton.filledTonal(
+                tooltip: 'Settings and appearance',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
                 ),
-                child: const Row(
-                  children: <Widget>[
-                    Icon(Icons.cloud_off_rounded, size: 13, color: AppTheme.mint),
-                    SizedBox(width: 5),
-                    Text('NO SERVER', style: TextStyle(fontSize: 9, letterSpacing: 1, color: AppTheme.mint, fontWeight: FontWeight.w800)),
-                  ],
-                ),
+                icon: const Icon(Icons.tune_rounded),
               ),
             ],
           ),
@@ -115,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onSubmitted: _search,
             onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.accent),
+              prefixIcon: Icon(Icons.search_rounded, color: palette.accent),
               hintText: 'Search songs, artists, albums',
               suffixIcon: _queryController.text.isEmpty
                   ? null
@@ -154,13 +174,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: const EdgeInsets.fromLTRB(22, 8, 22, 7),
                         child: Row(
                           children: <Widget>[
-                            Text('${_results.length} tracks', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                            Text(
+                              '${_results.length} tracks',
+                              style: TextStyle(color: palette.textMuted, fontSize: 12),
+                            ),
                             const Spacer(),
                             TextButton.icon(
                               onPressed: _loading ? null : () => _playResults(0),
                               icon: const Icon(Icons.play_arrow_rounded, size: 17),
                               label: const Text('Play all'),
-                              style: TextButton.styleFrom(foregroundColor: AppTheme.accent),
+                              style: TextButton.styleFrom(foregroundColor: palette.accent),
                             ),
                           ],
                         ),
@@ -170,6 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     final song = _results[songIndex];
                     return SongTile(
                       song: song,
+                      showDetails: true,
                       onTap: () => _playResults(songIndex),
                     );
                   },
@@ -181,6 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _sourceChip(SearchSource source, String label) {
+    final palette = context.palette;
     final selected = _source == source;
     return ChoiceChip(
       label: Text(label),
@@ -188,18 +213,19 @@ class _HomeScreenState extends State<HomeScreen> {
       showCheckmark: false,
       onSelected: (_) => setState(() => _source = source),
       labelStyle: TextStyle(
-        color: selected ? AppTheme.accent : Colors.white60,
+        color: selected ? palette.accent : palette.textSecondary,
         fontSize: 12,
         fontWeight: FontWeight.w600,
       ),
-      side: BorderSide(color: selected ? AppTheme.accent.withValues(alpha: 0.45) : Colors.white10),
-      backgroundColor: AppTheme.surface,
-      selectedColor: AppTheme.accent.withValues(alpha: 0.12),
+      side: BorderSide(color: selected ? palette.accent.withValues(alpha: 0.45) : palette.outline),
+      backgroundColor: palette.surface,
+      selectedColor: palette.accent.withValues(alpha: 0.12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
     );
   }
 
   Widget _emptyContent() {
+    final palette = context.palette;
     if (_error != null) {
       return EmptyState(
         icon: Icons.wifi_off_rounded,
@@ -214,33 +240,46 @@ class _HomeScreenState extends State<HomeScreen> {
         message: 'Searching directly from this device.',
       );
     }
-    return const SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(24, 24, 24, 18),
+    if (_hasSearched) {
+      return const EmptyState(
+        icon: Icons.search_off_rounded,
+        title: 'No matches found',
+        message: 'Try another title or artist, or switch the search source.',
+      );
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 18),
       child: Column(
         children: <Widget>[
-          SizedBox(height: 18),
+          const SizedBox(height: 18),
           Align(
             alignment: Alignment.centerLeft,
-            child: Text('Your music, your device.', style: TextStyle(fontSize: 25, height: 1.1, fontWeight: FontWeight.w800)),
+            child: Text(
+              'Your music, your way.',
+              style: TextStyle(color: palette.textPrimary, fontSize: 25, height: 1.1, fontWeight: FontWeight.w800),
+            ),
           ),
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
           Align(
             alignment: Alignment.centerLeft,
-            child: Text('Search online, keep favorites and playlists on-device, and save tracks for offline listening.', style: TextStyle(color: Colors.white54, height: 1.5)),
+            child: Text(
+              'Search online, keep favorites and playlists on-device, and save tracks for offline listening.',
+              style: TextStyle(color: palette.textSecondary, height: 1.5),
+            ),
           ),
-          SizedBox(height: 22),
+          const SizedBox(height: 22),
           _FeatureCard(
             icon: Icons.queue_music_rounded,
             title: 'A queue that stays yours',
             subtitle: 'Add, reorder, shuffle, and repeat.',
           ),
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
           _FeatureCard(
             icon: Icons.offline_bolt_rounded,
             title: 'Take music offline',
             subtitle: 'Downloads live in app-private storage.',
           ),
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
           _FeatureCard(
             icon: Icons.lyrics_rounded,
             title: 'Follow the words',
@@ -272,34 +311,40 @@ class _FeatureCard extends StatelessWidget {
   final String subtitle;
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(15),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(19),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.035)),
-        ),
-        child: Row(
-          children: <Widget>[
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(color: AppTheme.accent.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(13)),
-              child: Icon(icon, size: 20, color: AppTheme.accent),
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(color: palette.outline.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: palette.accent.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(13),
             ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                  const SizedBox(height: 4),
-                  Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                ],
-              ),
+            child: Icon(icon, size: 20, color: palette.accent),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                const SizedBox(height: 4),
+                Text(subtitle, style: TextStyle(color: palette.textMuted, fontSize: 11)),
+              ],
             ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
+  }
 }

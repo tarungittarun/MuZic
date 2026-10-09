@@ -27,24 +27,30 @@ class CoverArt extends StatelessWidget {
             ? CachedNetworkImage(
                 imageUrl: song.artworkUrl,
                 fit: BoxFit.cover,
-                placeholder: (_, __) => _placeholder(),
-                errorWidget: (_, __, ___) => _placeholder(),
+                placeholder: (_, __) => _placeholder(context),
+                errorWidget: (_, __, ___) => _placeholder(context),
               )
-            : _placeholder();
+            : _placeholder(context);
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: SizedBox(width: size, height: size, child: image),
     );
   }
 
-  Widget _placeholder() => Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: <Color>[Color(0xFF282336), Color(0xFF172D32)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+  Widget _placeholder(BuildContext context) {
+    final palette = context.palette;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: <Color>[
+            palette.accent.withValues(alpha: 0.28),
+            palette.mint.withValues(alpha: 0.22),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        child: const Icon(Icons.music_note_rounded, color: AppTheme.mint),
-      );
+      ),
+      child: Icon(Icons.music_note_rounded, color: palette.mint),
+    );
+  }
 }

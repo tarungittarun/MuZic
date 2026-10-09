@@ -1,0 +1,3635 @@
+diff --git a/lib/app.dart b/lib/app.dart
+index 02bbf19..0a2ef51 100644
+--- a/lib/app.dart
++++ b/lib/app.dart
+@@ -3,10 +3,12 @@ import 'package:provider/provider.dart';
+ 
+ import 'providers/player_controller.dart';
+ import 'screens/main_shell.dart';
++import 'services/app_settings_service.dart';
+ import 'services/audio_player_service.dart';
+ import 'services/download_service.dart';
+ import 'services/library_service.dart';
+ import 'services/music_api_service.dart';
++import 'services/usage_service.dart';
+ import 'theme/app_theme.dart';
+ 
+ class AuralisApp extends StatelessWidget {
+@@ -16,6 +18,8 @@ class AuralisApp extends StatelessWidget {
+     required this.audio,
+     required this.downloads,
+     required this.player,
++    required this.settings,
++    required this.usage,
+     super.key,
+   });
+ 
+@@ -24,6 +28,8 @@ class AuralisApp extends StatelessWidget {
+   final AudioPlayerService audio;
+   final DownloadService downloads;
+   final PlayerController player;
++  final AppSettingsService settings;
++  final UsageService usage;
+ 
+   @override
+   Widget build(BuildContext context) {
+@@ -34,12 +40,18 @@ class AuralisApp extends StatelessWidget {
+         Provider<AudioPlayerService>.value(value: audio),
+         Provider<DownloadService>.value(value: downloads),
+         ChangeNotifierProvider<PlayerController>.value(value: player),
++        ChangeNotifierProvider<AppSettingsService>.value(value: settings),
++        ChangeNotifierProvider<UsageService>.value(value: usage),
+       ],
+-      child: MaterialApp(
+-        title: 'Auralis',
+-        debugShowCheckedModeBanner: false,
+-        theme: AppTheme.dark,
+-        home: const MainShell(),
++      child: Consumer<AppSettingsService>(
++        builder: (context, appSettings, _) => MaterialApp(
++          title: 'Auralis',
++          debugShowCheckedModeBanner: false,
++          theme: AppTheme.light,
++          darkTheme: AppTheme.dark,
++          themeMode: appSettings.themeMode,
++          home: const MainShell(),
++        ),
+       ),
+     );
+   }
+diff --git a/lib/main.dart b/lib/main.dart
+index c9c7c18..7251b4f 100644
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -3,10 +3,12 @@ import 'package:just_audio_background/just_audio_background.dart';
+ 
+ import 'app.dart';
+ import 'providers/player_controller.dart';
++import 'services/app_settings_service.dart';
+ import 'services/audio_player_service.dart';
+ import 'services/download_service.dart';
+ import 'services/library_service.dart';
+ import 'services/music_api_service.dart';
++import 'services/usage_service.dart';
+ 
+ Future<void> main() async {
+   WidgetsFlutterBinding.ensureInitialized();
+@@ -18,6 +20,11 @@ Future<void> main() async {
+ 
+   final library = LibraryService();
+   await library.init();
++  final settings = AppSettingsService();
++  await settings.init();
++  final usage = UsageService();
++  await usage.init();
++
+   final musicApi = MusicApiService();
+   final audio = AudioPlayerService();
+   final downloads = DownloadService(library: library);
+@@ -26,6 +33,7 @@ Future<void> main() async {
+     musicApi: musicApi,
+     downloads: downloads,
+     library: library,
++    usage: usage,
+   );
+ 
+   runApp(AuralisApp(
+@@ -34,5 +42,7 @@ Future<void> main() async {
+     audio: audio,
+     downloads: downloads,
+     player: player,
++    settings: settings,
++    usage: usage,
+   ));
+ }
+diff --git a/lib/models/song_model.dart b/lib/models/song_model.dart
+index 0455857..7c67786 100644
+--- a/lib/models/song_model.dart
++++ b/lib/models/song_model.dart
+@@ -13,6 +13,16 @@ class SongModel {
+     this.artworkUrl = '',
+     this.streamUrl,
+     this.durationMs,
++    this.releaseDate,
++    this.language = '',
++    this.label = '',
++    this.copyright = '',
++    this.composer = '',
++    this.featuredArtists = const <String>[],
++    this.playCount,
++    this.hasLyrics,
++    this.isExplicit,
++    this.sourceUrl,
+     this.localPath,
+     this.localArtworkPath,
+   });
+@@ -26,6 +36,16 @@ class SongModel {
+   final SongSource source;
+   final String? streamUrl;
+   final int? durationMs;
++  final String? releaseDate;
++  final String language;
++  final String label;
++  final String copyright;
++  final String composer;
++  final List<String> featuredArtists;
++  final int? playCount;
++  final bool? hasLyrics;
++  final bool? isExplicit;
++  final String? sourceUrl;
+   final String? localPath;
+   final String? localArtworkPath;
+ 
+@@ -42,6 +62,16 @@ class SongModel {
+     SongSource? source,
+     String? streamUrl,
+     int? durationMs,
++    String? releaseDate,
++    String? language,
++    String? label,
++    String? copyright,
++    String? composer,
++    List<String>? featuredArtists,
++    int? playCount,
++    bool? hasLyrics,
++    bool? isExplicit,
++    String? sourceUrl,
+     String? localPath,
+     String? localArtworkPath,
+     bool clearLocalFiles = false,
+@@ -56,6 +86,16 @@ class SongModel {
+       source: source ?? this.source,
+       streamUrl: streamUrl ?? this.streamUrl,
+       durationMs: durationMs ?? this.durationMs,
++      releaseDate: releaseDate ?? this.releaseDate,
++      language: language ?? this.language,
++      label: label ?? this.label,
++      copyright: copyright ?? this.copyright,
++      composer: composer ?? this.composer,
++      featuredArtists: featuredArtists ?? this.featuredArtists,
++      playCount: playCount ?? this.playCount,
++      hasLyrics: hasLyrics ?? this.hasLyrics,
++      isExplicit: isExplicit ?? this.isExplicit,
++      sourceUrl: sourceUrl ?? this.sourceUrl,
+       localPath: clearLocalFiles ? null : (localPath ?? this.localPath),
+       localArtworkPath:
+           clearLocalFiles ? null : (localArtworkPath ?? this.localArtworkPath),
+@@ -72,6 +112,16 @@ class SongModel {
+         'source': source.name,
+         'streamUrl': streamUrl,
+         'durationMs': durationMs,
++        'releaseDate': releaseDate,
++        'language': language,
++        'label': label,
++        'copyright': copyright,
++        'composer': composer,
++        'featuredArtists': featuredArtists,
++        'playCount': playCount,
++        'hasLyrics': hasLyrics,
++        'isExplicit': isExplicit,
++        'sourceUrl': sourceUrl,
+         'localPath': localPath,
+         'localArtworkPath': localArtworkPath,
+       };
+@@ -86,6 +136,7 @@ class SongModel {
+       (candidate) => candidate.name == sourceName,
+       orElse: () => SongSource.jioSaavn,
+     );
++    final rawFeaturedArtists = map['featuredArtists'];
+     return SongModel(
+       id: map['id']?.toString() ?? '',
+       sourceId: map['sourceId']?.toString() ?? '',
+@@ -98,10 +149,35 @@ class SongModel {
+       durationMs: map['durationMs'] is num
+           ? (map['durationMs'] as num).toInt()
+           : int.tryParse(map['durationMs']?.toString() ?? ''),
++      releaseDate: map['releaseDate']?.toString(),
++      language: map['language']?.toString() ?? '',
++      label: map['label']?.toString() ?? '',
++      copyright: map['copyright']?.toString() ?? '',
++      composer: map['composer']?.toString() ?? '',
++      featuredArtists: rawFeaturedArtists is Iterable
++          ? rawFeaturedArtists.map((dynamic item) => item.toString()).toList()
++          : const <String>[],
++      playCount: _toInt(map['playCount']),
++      hasLyrics: _toBool(map['hasLyrics']),
++      isExplicit: _toBool(map['isExplicit']),
++      sourceUrl: map['sourceUrl']?.toString(),
+       localPath: map['localPath']?.toString(),
+       localArtworkPath: map['localArtworkPath']?.toString(),
+     );
+   }
++
++  static int? _toInt(dynamic value) {
++    if (value is num) return value.toInt();
++    return int.tryParse(value?.toString() ?? '');
++  }
++
++  static bool? _toBool(dynamic value) {
++    if (value is bool) return value;
++    final normalized = value?.toString().trim().toLowerCase();
++    if (normalized == 'true' || normalized == '1') return true;
++    if (normalized == 'false' || normalized == '0') return false;
++    return null;
++  }
+ }
+ 
+ class PlaylistModel {
+diff --git a/lib/providers/player_controller.dart b/lib/providers/player_controller.dart
+index 34b2e67..7271637 100644
+--- a/lib/providers/player_controller.dart
++++ b/lib/providers/player_controller.dart
+@@ -10,6 +10,7 @@ import '../services/audio_player_service.dart';
+ import '../services/download_service.dart';
+ import '../services/library_service.dart';
+ import '../services/music_api_service.dart';
++import '../services/usage_service.dart';
+ 
+ class PlayerController extends ChangeNotifier {
+   PlayerController({
+@@ -17,14 +18,29 @@ class PlayerController extends ChangeNotifier {
+     required MusicApiService musicApi,
+     required DownloadService downloads,
+     required LibraryService library,
++    required UsageService usage,
+   })  : _audio = audio,
+         _musicApi = musicApi,
+         _downloads = downloads,
+-        _library = library {
++        _library = library,
++        _usage = usage {
+     _subscriptions.add(_audio.player.playerStateStream.listen((_) {
++      if (_audio.player.playing && _currentSong != null) {
++        _recordPlaybackStart(_currentSong!);
++      } else {
++        _flushListeningTime();
++      }
+       notifyListeners();
+     }));
+     _subscriptions.add(_audio.player.positionStream.listen((value) {
++      final delta = value - _position;
++      if (_audio.player.playing &&
++          _currentSong != null &&
++          delta > Duration.zero &&
++          delta <= const Duration(seconds: 2)) {
++        _pendingListeningMs += delta.inMilliseconds;
++        if (_pendingListeningMs >= 10000) _flushListeningTime();
++      }
+       _position = value;
+       notifyListeners();
+     }));
+@@ -37,6 +53,7 @@ class PlayerController extends ChangeNotifier {
+       _currentIndex = value;
+       _currentSong = _queue[value];
+       unawaited(_library.addRecent(_currentSong!));
++      _recordPlaybackStart(_currentSong!);
+       notifyListeners();
+     }));
+     _subscriptions.add(_audio.player.loopModeStream.listen((value) {
+@@ -54,6 +71,7 @@ class PlayerController extends ChangeNotifier {
+   final MusicApiService _musicApi;
+   final DownloadService _downloads;
+   final LibraryService _library;
++  final UsageService _usage;
+   final List<StreamSubscription<dynamic>> _subscriptions =
+       <StreamSubscription<dynamic>>[];
+ 
+@@ -70,6 +88,8 @@ class PlayerController extends ChangeNotifier {
+   bool _permissionAsked = false;
+   String? _downloadingId;
+   double _downloadProgress = 0;
++  int _pendingListeningMs = 0;
++  String? _lastUsageTrackId;
+   final Set<String> _fallbackAttempted = <String>{};
+ 
+   SongModel? get currentSong => _currentSong;
+@@ -116,6 +136,7 @@ class PlayerController extends ChangeNotifier {
+         throw StateError('Unable to resolve the selected track.');
+       }
+ 
++      _lastUsageTrackId = null;
+       _queue = resolved.map((track) => track.song).toList();
+       _sources = resolved.map((track) => track.source).toList();
+       _currentIndex = startIndex;
+@@ -123,6 +144,7 @@ class PlayerController extends ChangeNotifier {
+       _position = Duration.zero;
+       _duration = _currentSong?.duration ?? Duration.zero;
+       await _audio.setQueue(_sources, initialIndex: startIndex);
++      if (_currentSong != null) _recordPlaybackStart(_currentSong!);
+       await _requestNotificationPermission();
+       _startPlayback();
+       if (_currentSong != null) unawaited(_library.addRecent(_currentSong!));
+@@ -185,8 +207,14 @@ class PlayerController extends ChangeNotifier {
+     notifyListeners();
+   }
+ 
+-  Future<void> toggleFavorite(SongModel song) =>
+-      _library.toggleFavorite(song);
++  Future<void> toggleFavorite(SongModel song) async {
++    final wasFavorite = _library.isFavorite(song.id);
++    await _library.toggleFavorite(song);
++    await _usage.recordSongEvent(
++      wasFavorite ? 'favorite_removed' : 'favorite_added',
++      song,
++    );
++  }
+ 
+   Future<void> addToQueue(SongModel song) async {
+     if (_queue.isEmpty) {
+@@ -198,6 +226,7 @@ class PlayerController extends ChangeNotifier {
+     await _audio.append(track.source);
+     _queue.add(track.song);
+     _sources.add(track.source);
++    await _usage.recordSongEvent('queue_add', song);
+     notifyListeners();
+   }
+ 
+@@ -270,6 +299,7 @@ class PlayerController extends ChangeNotifier {
+           },
+         );
+       }
++      await _usage.recordSongEvent('download', song);
+     } finally {
+       _downloadingId = null;
+       _downloadProgress = 0;
+@@ -277,8 +307,10 @@ class PlayerController extends ChangeNotifier {
+     }
+   }
+ 
+-  Future<void> removeDownload(SongModel song) =>
+-      _downloads.removeDownload(song);
++  Future<void> removeDownload(SongModel song) async {
++    await _downloads.removeDownload(song);
++    await _usage.recordSongEvent('download_removed', song);
++  }
+ 
+   Future<_ResolvedTrack?> _resolveTrack(SongModel song, int originalIndex) async {
+     try {
+@@ -314,6 +346,19 @@ class PlayerController extends ChangeNotifier {
+     }
+   }
+ 
++  void _recordPlaybackStart(SongModel song) {
++    if (_lastUsageTrackId == song.id) return;
++    _lastUsageTrackId = song.id;
++    unawaited(_usage.recordSongEvent('play', song));
++  }
++
++  void _flushListeningTime() {
++    if (_pendingListeningMs <= 0) return;
++    final elapsed = _pendingListeningMs;
++    _pendingListeningMs = 0;
++    unawaited(_usage.addListeningTime(Duration(milliseconds: elapsed)));
++  }
++
+   void _startPlayback() {
+     unawaited(_audio.player.play().catchError((Object _) {}));
+   }
+@@ -361,6 +406,7 @@ class PlayerController extends ChangeNotifier {
+ 
+   @override
+   void dispose() {
++    _flushListeningTime();
+     for (final subscription in _subscriptions) {
+       unawaited(subscription.cancel());
+     }
+diff --git a/lib/screens/home_screen.dart b/lib/screens/home_screen.dart
+index ef71da0..e017563 100644
+--- a/lib/screens/home_screen.dart
++++ b/lib/screens/home_screen.dart
+@@ -6,9 +6,11 @@ import 'package:provider/provider.dart';
+ import '../models/song_model.dart';
+ import '../providers/player_controller.dart';
+ import '../services/music_api_service.dart';
++import '../services/usage_service.dart';
+ import '../theme/app_theme.dart';
+ import '../widgets/empty_state.dart';
+ import '../widgets/song_tile.dart';
++import 'settings_screen.dart';
+ 
+ class HomeScreen extends StatefulWidget {
+   const HomeScreen({super.key});
+@@ -22,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
+   List<SongModel> _results = <SongModel>[];
+   SearchSource _source = SearchSource.automatic;
+   bool _loading = false;
++  bool _hasSearched = false;
+   String? _error;
+   int _requestNumber = 0;
+ 
+@@ -36,19 +39,32 @@ class _HomeScreenState extends State<HomeScreen> {
+     if (query.isEmpty) return;
+     _queryController.text = query;
+     final requestNumber = ++_requestNumber;
++    final source = _source;
++    final usage = context.read<UsageService>();
+     setState(() {
+       _loading = true;
+       _error = null;
++      _hasSearched = true;
+     });
+     try {
+       final results = await context.read<MusicApiService>().search(
+             query,
+-            source: _source,
++            source: source,
+             limit: 10,
+           );
++      unawaited(usage.recordSearch(
++        query: query,
++        source: source.name,
++        resultCount: results.length,
++      ));
+       if (!mounted || requestNumber != _requestNumber) return;
+       setState(() => _results = results);
+     } catch (error) {
++      unawaited(usage.recordSearch(
++        query: query,
++        source: source.name,
++        resultCount: 0,
++      ));
+       if (!mounted || requestNumber != _requestNumber) return;
+       setState(() {
+         _results = <SongModel>[];
+@@ -63,46 +79,50 @@ class _HomeScreenState extends State<HomeScreen> {
+ 
+   @override
+   Widget build(BuildContext context) {
++    final palette = context.palette;
+     return Column(
+       children: <Widget>[
+         Padding(
+-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
++          padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+           child: Row(
+             children: <Widget>[
+               Container(
+                 width: 43,
+                 height: 43,
+                 decoration: BoxDecoration(
+-                  color: AppTheme.surfaceRaised,
++                  color: palette.surfaceRaised,
+                   borderRadius: BorderRadius.circular(15),
+                 ),
+-                child: const Icon(Icons.graphic_eq_rounded, color: AppTheme.mint),
++                child: Icon(Icons.graphic_eq_rounded, color: palette.mint),
+               ),
+               const SizedBox(width: 11),
+-              const Expanded(
++              Expanded(
+                 child: Column(
+                   crossAxisAlignment: CrossAxisAlignment.start,
+                   children: <Widget>[
+-                    Text('AURALIS', style: TextStyle(fontSize: 11, letterSpacing: 2.2, color: Colors.white54, fontWeight: FontWeight.w800)),
+-                    SizedBox(height: 4),
+-                    Text('Listen your way.', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
++                    Text(
++                      'AURALIS',
++                      style: TextStyle(
++                        fontSize: 11,
++                        letterSpacing: 2.2,
++                        color: palette.textMuted,
++                        fontWeight: FontWeight.w800,
++                      ),
++                    ),
++                    const SizedBox(height: 4),
++                    const Text(
++                      'Listen your way.',
++                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
++                    ),
+                   ],
+                 ),
+               ),
+-              Container(
+-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+-                decoration: BoxDecoration(
+-                  color: AppTheme.mint.withValues(alpha: 0.08),
+-                  borderRadius: BorderRadius.circular(30),
+-                  border: Border.all(color: AppTheme.mint.withValues(alpha: 0.18)),
+-                ),
+-                child: const Row(
+-                  children: <Widget>[
+-                    Icon(Icons.cloud_off_rounded, size: 13, color: AppTheme.mint),
+-                    SizedBox(width: 5),
+-                    Text('NO SERVER', style: TextStyle(fontSize: 9, letterSpacing: 1, color: AppTheme.mint, fontWeight: FontWeight.w800)),
+-                  ],
++              IconButton.filledTonal(
++                tooltip: 'Settings and appearance',
++                onPressed: () => Navigator.of(context).push(
++                  MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
+                 ),
++                icon: const Icon(Icons.tune_rounded),
+               ),
+             ],
+           ),
+@@ -115,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
+             onSubmitted: _search,
+             onChanged: (_) => setState(() {}),
+             decoration: InputDecoration(
+-              prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.accent),
++              prefixIcon: Icon(Icons.search_rounded, color: palette.accent),
+               hintText: 'Search songs, artists, albums',
+               suffixIcon: _queryController.text.isEmpty
+                   ? null
+@@ -154,13 +174,16 @@ class _HomeScreenState extends State<HomeScreen> {
+                         padding: const EdgeInsets.fromLTRB(22, 8, 22, 7),
+                         child: Row(
+                           children: <Widget>[
+-                            Text('${_results.length} tracks', style: const TextStyle(color: Colors.white54, fontSize: 12)),
++                            Text(
++                              '${_results.length} tracks',
++                              style: TextStyle(color: palette.textMuted, fontSize: 12),
++                            ),
+                             const Spacer(),
+                             TextButton.icon(
+                               onPressed: _loading ? null : () => _playResults(0),
+                               icon: const Icon(Icons.play_arrow_rounded, size: 17),
+                               label: const Text('Play all'),
+-                              style: TextButton.styleFrom(foregroundColor: AppTheme.accent),
++                              style: TextButton.styleFrom(foregroundColor: palette.accent),
+                             ),
+                           ],
+                         ),
+@@ -170,6 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
+                     final song = _results[songIndex];
+                     return SongTile(
+                       song: song,
++                      showDetails: true,
+                       onTap: () => _playResults(songIndex),
+                     );
+                   },
+@@ -181,6 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
+   }
+ 
+   Widget _sourceChip(SearchSource source, String label) {
++    final palette = context.palette;
+     final selected = _source == source;
+     return ChoiceChip(
+       label: Text(label),
+@@ -188,18 +213,19 @@ class _HomeScreenState extends State<HomeScreen> {
+       showCheckmark: false,
+       onSelected: (_) => setState(() => _source = source),
+       labelStyle: TextStyle(
+-        color: selected ? AppTheme.accent : Colors.white60,
++        color: selected ? palette.accent : palette.textSecondary,
+         fontSize: 12,
+         fontWeight: FontWeight.w600,
+       ),
+-      side: BorderSide(color: selected ? AppTheme.accent.withValues(alpha: 0.45) : Colors.white10),
+-      backgroundColor: AppTheme.surface,
+-      selectedColor: AppTheme.accent.withValues(alpha: 0.12),
++      side: BorderSide(color: selected ? palette.accent.withValues(alpha: 0.45) : palette.outline),
++      backgroundColor: palette.surface,
++      selectedColor: palette.accent.withValues(alpha: 0.12),
+       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+     );
+   }
+ 
+   Widget _emptyContent() {
++    final palette = context.palette;
+     if (_error != null) {
+       return EmptyState(
+         icon: Icons.wifi_off_rounded,
+@@ -214,33 +240,46 @@ class _HomeScreenState extends State<HomeScreen> {
+         message: 'Searching directly from this device.',
+       );
+     }
+-    return const SingleChildScrollView(
+-      padding: EdgeInsets.fromLTRB(24, 24, 24, 18),
++    if (_hasSearched) {
++      return const EmptyState(
++        icon: Icons.search_off_rounded,
++        title: 'No matches found',
++        message: 'Try another title or artist, or switch the search source.',
++      );
++    }
++    return SingleChildScrollView(
++      padding: const EdgeInsets.fromLTRB(24, 24, 24, 18),
+       child: Column(
+         children: <Widget>[
+-          SizedBox(height: 18),
++          const SizedBox(height: 18),
+           Align(
+             alignment: Alignment.centerLeft,
+-            child: Text('Your music, your device.', style: TextStyle(fontSize: 25, height: 1.1, fontWeight: FontWeight.w800)),
++            child: Text(
++              'Your music, your way.',
++              style: TextStyle(color: palette.textPrimary, fontSize: 25, height: 1.1, fontWeight: FontWeight.w800),
++            ),
+           ),
+-          SizedBox(height: 10),
++          const SizedBox(height: 10),
+           Align(
+             alignment: Alignment.centerLeft,
+-            child: Text('Search online, keep favorites and playlists on-device, and save tracks for offline listening.', style: TextStyle(color: Colors.white54, height: 1.5)),
++            child: Text(
++              'Search online, keep favorites and playlists on-device, and save tracks for offline listening.',
++              style: TextStyle(color: palette.textSecondary, height: 1.5),
++            ),
+           ),
+-          SizedBox(height: 22),
++          const SizedBox(height: 22),
+           _FeatureCard(
+             icon: Icons.queue_music_rounded,
+             title: 'A queue that stays yours',
+             subtitle: 'Add, reorder, shuffle, and repeat.',
+           ),
+-          SizedBox(height: 10),
++          const SizedBox(height: 10),
+           _FeatureCard(
+             icon: Icons.offline_bolt_rounded,
+             title: 'Take music offline',
+             subtitle: 'Downloads live in app-private storage.',
+           ),
+-          SizedBox(height: 10),
++          const SizedBox(height: 10),
+           _FeatureCard(
+             icon: Icons.lyrics_rounded,
+             title: 'Follow the words',
+@@ -272,34 +311,40 @@ class _FeatureCard extends StatelessWidget {
+   final String subtitle;
+ 
+   @override
+-  Widget build(BuildContext context) => Container(
+-        width: double.infinity,
+-        padding: const EdgeInsets.all(15),
+-        decoration: BoxDecoration(
+-          color: AppTheme.surface,
+-          borderRadius: BorderRadius.circular(19),
+-          border: Border.all(color: Colors.white.withValues(alpha: 0.035)),
+-        ),
+-        child: Row(
+-          children: <Widget>[
+-            Container(
+-              width: 40,
+-              height: 40,
+-              decoration: BoxDecoration(color: AppTheme.accent.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(13)),
+-              child: Icon(icon, size: 20, color: AppTheme.accent),
++  Widget build(BuildContext context) {
++    final palette = context.palette;
++    return Container(
++      width: double.infinity,
++      padding: const EdgeInsets.all(15),
++      decoration: BoxDecoration(
++        color: palette.surface,
++        borderRadius: BorderRadius.circular(19),
++        border: Border.all(color: palette.outline.withValues(alpha: 0.55)),
++      ),
++      child: Row(
++        children: <Widget>[
++          Container(
++            width: 40,
++            height: 40,
++            decoration: BoxDecoration(
++              color: palette.accent.withValues(alpha: 0.10),
++              borderRadius: BorderRadius.circular(13),
+             ),
+-            const SizedBox(width: 13),
+-            Expanded(
+-              child: Column(
+-                crossAxisAlignment: CrossAxisAlignment.start,
+-                children: <Widget>[
+-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+-                  const SizedBox(height: 4),
+-                  Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+-                ],
+-              ),
++            child: Icon(icon, size: 20, color: palette.accent),
++          ),
++          const SizedBox(width: 13),
++          Expanded(
++            child: Column(
++              crossAxisAlignment: CrossAxisAlignment.start,
++              children: <Widget>[
++                Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
++                const SizedBox(height: 4),
++                Text(subtitle, style: TextStyle(color: palette.textMuted, fontSize: 11)),
++              ],
+             ),
+-          ],
+-        ),
+-      );
++          ),
++        ],
++      ),
++    );
++  }
+ }
+diff --git a/lib/screens/library_screen.dart b/lib/screens/library_screen.dart
+index 1f1353b..c2337b6 100644
+--- a/lib/screens/library_screen.dart
++++ b/lib/screens/library_screen.dart
+@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
+ import '../models/song_model.dart';
+ import '../providers/player_controller.dart';
+ import '../services/library_service.dart';
++import '../services/usage_service.dart';
+ import '../theme/app_theme.dart';
+ import '../widgets/empty_state.dart';
+ import '../widgets/song_tile.dart';
+@@ -14,6 +15,7 @@ class LibraryScreen extends StatelessWidget {
+   @override
+   Widget build(BuildContext context) {
+     final library = context.watch<LibraryService>();
++    final palette = context.palette;
+     return DefaultTabController(
+       length: 4,
+       child: Builder(
+@@ -23,13 +25,13 @@ class LibraryScreen extends StatelessWidget {
+               padding: const EdgeInsets.fromLTRB(20, 20, 16, 7),
+               child: Row(
+                 children: <Widget>[
+-                  const Expanded(
++                  Expanded(
+                     child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: <Widget>[
+-                        Text('YOUR SPACE', style: TextStyle(fontSize: 10, letterSpacing: 2, color: Colors.white54, fontWeight: FontWeight.w800)),
+-                        SizedBox(height: 4),
+-                        Text('Library', style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800)),
++                        Text('YOUR SPACE', style: TextStyle(fontSize: 10, letterSpacing: 2, color: palette.textMuted, fontWeight: FontWeight.w800)),
++                        const SizedBox(height: 4),
++                        const Text('Library', style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800)),
+                       ],
+                     ),
+                   ),
+@@ -104,11 +106,17 @@ class LibraryScreen extends StatelessWidget {
+     controller.dispose();
+     if (name == null || !context.mounted) return;
+     final id = await context.read<LibraryService>().createPlaylist(name);
++    if (!context.mounted) return;
+     if (id == null) {
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('Use a name that is not already in your library.')),
+       );
+     } else {
++      await context.read<UsageService>().record(
++            type: 'playlist_create',
++            detail: name.trim(),
++          );
++      if (!context.mounted) return;
+       DefaultTabController.of(context).animateTo(3);
+     }
+   }
+@@ -153,6 +161,7 @@ class _PlaylistList extends StatelessWidget {
+ 
+   @override
+   Widget build(BuildContext context) {
++    final palette = context.palette;
+     if (playlists.isEmpty) {
+       return const EmptyState(
+         icon: Icons.queue_music_rounded,
+@@ -171,15 +180,20 @@ class _PlaylistList extends StatelessWidget {
+             leading: Container(
+               width: 42,
+               height: 42,
+-              decoration: BoxDecoration(color: AppTheme.accent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(14)),
+-              child: const Icon(Icons.queue_music_rounded, color: AppTheme.accent),
++              decoration: BoxDecoration(color: palette.accent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(14)),
++              child: Icon(Icons.queue_music_rounded, color: palette.accent),
+             ),
+             title: Text(playlist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+             subtitle: Text('${playlist.songs.length} tracks'),
+             trailing: PopupMenuButton<String>(
+-              onSelected: (value) {
++              onSelected: (value) async {
+                 if (value == 'delete') {
+-                  context.read<LibraryService>().deletePlaylist(playlist.id);
++                  await context.read<LibraryService>().deletePlaylist(playlist.id);
++                  if (!context.mounted) return;
++                  await context.read<UsageService>().record(
++                        type: 'playlist_delete',
++                        detail: playlist.name,
++                      );
+                 }
+               },
+               itemBuilder: (_) => const <PopupMenuEntry<String>>[
+@@ -187,10 +201,10 @@ class _PlaylistList extends StatelessWidget {
+               ],
+             ),
+             children: playlist.songs.isEmpty
+-                ? const <Widget>[
++                ? <Widget>[
+                     Padding(
+-                      padding: EdgeInsets.all(18),
+-                      child: Text('Add tracks from search using the ⋮ menu.', style: TextStyle(color: Colors.white54)),
++                      padding: const EdgeInsets.all(18),
++                      child: Text('Add tracks from search using the ⋮ menu.', style: TextStyle(color: palette.textMuted)),
+                     ),
+                   ]
+                 : playlist.songs
+diff --git a/lib/screens/main_shell.dart b/lib/screens/main_shell.dart
+index 5bf66e0..4e11b9b 100644
+--- a/lib/screens/main_shell.dart
++++ b/lib/screens/main_shell.dart
+@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
+ import '../widgets/mini_player.dart';
+ import 'home_screen.dart';
+ import 'library_screen.dart';
++import 'usage_dashboard_screen.dart';
+ 
+ class MainShell extends StatefulWidget {
+   const MainShell({super.key});
+@@ -17,20 +18,25 @@ class _MainShellState extends State<MainShell> {
+ 
+   @override
+   Widget build(BuildContext context) {
++    final palette = context.palette;
+     return Scaffold(
+       body: SafeArea(
+         bottom: false,
+         child: IndexedStack(
+           index: _tab,
+-          children: const <Widget>[HomeScreen(), LibraryScreen()],
++          children: const <Widget>[
++            HomeScreen(),
++            LibraryScreen(),
++            UsageDashboardScreen(),
++          ],
+         ),
+       ),
+       bottomNavigationBar: SafeArea(
+         top: false,
+         child: Container(
+-          decoration: const BoxDecoration(
+-            color: AppTheme.background,
+-            border: Border(top: BorderSide(color: Colors.white10, width: 0.5)),
++          decoration: BoxDecoration(
++            color: palette.background,
++            border: Border(top: BorderSide(color: palette.outline, width: 0.7)),
+           ),
+           child: Column(
+             mainAxisSize: MainAxisSize.min,
+@@ -51,6 +57,11 @@ class _MainShellState extends State<MainShell> {
+                     selectedIcon: Icon(Icons.library_music_rounded),
+                     label: 'Library',
+                   ),
++                  NavigationDestination(
++                    icon: Icon(Icons.insights_outlined),
++                    selectedIcon: Icon(Icons.insights_rounded),
++                    label: 'Usage',
++                  ),
+                 ],
+               ),
+             ],
+diff --git a/lib/screens/settings_screen.dart b/lib/screens/settings_screen.dart
+new file mode 100644
+index 0000000..9ed0225
+--- /dev/null
++++ b/lib/screens/settings_screen.dart
+@@ -0,0 +1,157 @@
++import 'package:flutter/material.dart';
++import 'package:provider/provider.dart';
++
++import '../services/app_settings_service.dart';
++import '../theme/app_theme.dart';
++
++class SettingsScreen extends StatelessWidget {
++  const SettingsScreen({super.key});
++
++  @override
++  Widget build(BuildContext context) {
++    final settings = context.watch<AppSettingsService>();
++    final palette = context.palette;
++    return Scaffold(
++      appBar: AppBar(
++        title: const Text('Settings'),
++        leading: IconButton(
++          tooltip: 'Back',
++          onPressed: () => Navigator.maybePop(context),
++          icon: const Icon(Icons.arrow_back_rounded),
++        ),
++      ),
++      body: ListView(
++        padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
++        children: <Widget>[
++          Text(
++            'APPEARANCE',
++            style: TextStyle(
++              color: palette.textMuted,
++              fontSize: 10,
++              fontWeight: FontWeight.w800,
++              letterSpacing: 1.8,
++            ),
++          ),
++          const SizedBox(height: 10),
++          Card(
++            child: Column(
++              children: <Widget>[
++                _ThemeOption(
++                  title: 'Follow device',
++                  subtitle: 'Use Android’s current appearance.',
++                  icon: Icons.brightness_auto_rounded,
++                  mode: ThemeMode.system,
++                  selected: settings.themeMode == ThemeMode.system,
++                  onSelected: settings.setThemeMode,
++                ),
++                Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
++                _ThemeOption(
++                  title: 'Light',
++                  subtitle: 'A bright, high-contrast look.',
++                  icon: Icons.light_mode_rounded,
++                  mode: ThemeMode.light,
++                  selected: settings.themeMode == ThemeMode.light,
++                  onSelected: settings.setThemeMode,
++                ),
++                Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
++                _ThemeOption(
++                  title: 'Dark',
++                  subtitle: 'A comfortable low-light look.',
++                  icon: Icons.dark_mode_rounded,
++                  mode: ThemeMode.dark,
++                  selected: settings.themeMode == ThemeMode.dark,
++                  onSelected: settings.setThemeMode,
++                ),
++              ],
++            ),
++          ),
++          const SizedBox(height: 24),
++          Text(
++            'PRIVACY',
++            style: TextStyle(
++              color: palette.textMuted,
++              fontSize: 10,
++              fontWeight: FontWeight.w800,
++              letterSpacing: 1.8,
++            ),
++          ),
++          const SizedBox(height: 10),
++          Card(
++            child: Padding(
++              padding: const EdgeInsets.all(17),
++              child: Row(
++                crossAxisAlignment: CrossAxisAlignment.start,
++                children: <Widget>[
++                  Icon(Icons.shield_outlined, color: palette.mint),
++                  const SizedBox(width: 13),
++                  Expanded(
++                    child: Text(
++                      'Your Usage history is saved only on this device; Auralis does not upload the stored event log. Search terms are sent to the selected music provider when you search. Clear local history from the Usage tab at any time.',
++                      style: TextStyle(
++                        color: palette.textSecondary,
++                        height: 1.5,
++                        fontSize: 13,
++                      ),
++                    ),
++                  ),
++                ],
++              ),
++            ),
++          ),
++          const SizedBox(height: 24),
++          Text(
++            'ABOUT',
++            style: TextStyle(
++              color: palette.textMuted,
++              fontSize: 10,
++              fontWeight: FontWeight.w800,
++              letterSpacing: 1.8,
++            ),
++          ),
++          const SizedBox(height: 10),
++          Card(
++            child: ListTile(
++              leading: Icon(Icons.graphic_eq_rounded, color: palette.accent),
++              title: const Text('Auralis'),
++              subtitle: Text('On-device library and player', style: TextStyle(color: palette.textMuted)),
++              trailing: Text('1.0.0', style: TextStyle(color: palette.textMuted, fontSize: 12)),
++            ),
++          ),
++        ],
++      ),
++    );
++  }
++}
++
++class _ThemeOption extends StatelessWidget {
++  const _ThemeOption({
++    required this.title,
++    required this.subtitle,
++    required this.icon,
++    required this.mode,
++    required this.selected,
++    required this.onSelected,
++  });
++
++  final String title;
++  final String subtitle;
++  final IconData icon;
++  final ThemeMode mode;
++  final bool selected;
++  final ValueChanged<ThemeMode> onSelected;
++
++  @override
++  Widget build(BuildContext context) {
++    final palette = context.palette;
++    return ListTile(
++      onTap: () => onSelected(mode),
++      leading: Icon(icon, color: selected ? palette.accent : palette.textSecondary),
++      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
++      subtitle: Text(subtitle, style: TextStyle(color: palette.textMuted, fontSize: 12)),
++      trailing: Icon(
++        selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
++        color: selected ? palette.accent : palette.textMuted,
++      ),
++    );
++  }
++}
+diff --git a/lib/screens/usage_dashboard_screen.dart b/lib/screens/usage_dashboard_screen.dart
+new file mode 100644
+index 0000000..d7626ef
+--- /dev/null
++++ b/lib/screens/usage_dashboard_screen.dart
+@@ -0,0 +1,353 @@
++import 'package:flutter/material.dart';
++import 'package:provider/provider.dart';
++
++import '../services/usage_service.dart';
++import '../theme/app_theme.dart';
++
++class UsageDashboardScreen extends StatelessWidget {
++  const UsageDashboardScreen({super.key});
++
++  @override
++  Widget build(BuildContext context) {
++    final usage = context.watch<UsageService>();
++    final palette = context.palette;
++    final recentEvents = usage.recentEvents;
++    final topTracks = usage.topTracks;
++    final topSearches = usage.topSearches;
++
++    return Column(
++      children: <Widget>[
++        Padding(
++          padding: const EdgeInsets.fromLTRB(20, 20, 14, 12),
++          child: Row(
++            children: <Widget>[
++              Expanded(
++                child: Column(
++                  crossAxisAlignment: CrossAxisAlignment.start,
++                  children: <Widget>[
++                    Text(
++                      'ON THIS DEVICE',
++                      style: TextStyle(
++                        fontSize: 10,
++                        letterSpacing: 2,
++                        color: palette.textMuted,
++                        fontWeight: FontWeight.w800,
++                      ),
++                    ),
++                    const SizedBox(height: 4),
++                    const Text(
++                      'Usage',
++                      style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800),
++                    ),
++                  ],
++                ),
++              ),
++              IconButton(
++                tooltip: 'Clear usage history',
++                onPressed: recentEvents.isEmpty && usage.listeningTime == Duration.zero
++                    ? null
++                    : () => _confirmClear(context),
++                icon: const Icon(Icons.delete_sweep_outlined),
++              ),
++            ],
++          ),
++        ),
++        Expanded(
++          child: ListView(
++            padding: const EdgeInsets.fromLTRB(16, 0, 16, 22),
++            children: <Widget>[
++              Padding(
++                padding: const EdgeInsets.only(bottom: 12),
++                child: Text(
++                  'Private activity summary — the last 1,200 actions stay on-device; totals are cumulative. Music searches still contact the selected provider.',
++                  style: TextStyle(color: palette.textSecondary, height: 1.45, fontSize: 12),
++                ),
++              ),
++              Wrap(
++                spacing: 9,
++                runSpacing: 9,
++                children: <Widget>[
++                  _MetricCard(
++                    icon: Icons.search_rounded,
++                    label: 'Searches',
++                    value: '${usage.searches}',
++                  ),
++                  _MetricCard(
++                    icon: Icons.play_circle_outline_rounded,
++                    label: 'Track starts',
++                    value: '${usage.playStarts}',
++                  ),
++                  _MetricCard(
++                    icon: Icons.favorite_border_rounded,
++                    label: 'Likes added',
++                    value: '${usage.favoritesAdded}',
++                  ),
++                  _MetricCard(
++                    icon: Icons.download_outlined,
++                    label: 'Downloads',
++                    value: '${usage.downloads}',
++                  ),
++                  _MetricCard(
++                    icon: Icons.headphones_rounded,
++                    label: 'Listening time',
++                    value: _formatDuration(usage.listeningTime),
++                  ),
++                  _MetricCard(
++                    icon: Icons.lyrics_outlined,
++                    label: 'Lyrics checks',
++                    value: '${usage.lyricsChecks}',
++                  ),
++                ],
++              ),
++              const SizedBox(height: 20),
++              if (topTracks.isNotEmpty) ...<Widget>[
++                const _SectionHeading(title: 'Most played'),
++                Card(
++                  child: Column(
++                    children: <Widget>[
++                      for (var index = 0; index < topTracks.length; index++) ...<Widget>[
++                        if (index > 0)
++                          Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
++                        ListTile(
++                          dense: true,
++                          leading: CircleAvatar(
++                            radius: 16,
++                            backgroundColor: palette.accent.withValues(alpha: 0.14),
++                            child: Text(
++                              '${index + 1}',
++                              style: TextStyle(color: palette.accent, fontWeight: FontWeight.w800),
++                            ),
++                          ),
++                          title: Text(topTracks[index].title, maxLines: 1, overflow: TextOverflow.ellipsis),
++                          subtitle: Text(
++                            '${topTracks[index].artist} · ${_prettySource(topTracks[index].source)}',
++                            maxLines: 1,
++                            overflow: TextOverflow.ellipsis,
++                            style: TextStyle(color: palette.textMuted, fontSize: 11),
++                          ),
++                          trailing: Text(
++                            '${topTracks[index].plays}×',
++                            style: TextStyle(color: palette.accent, fontWeight: FontWeight.w800),
++                          ),
++                        ),
++                      ],
++                    ],
++                  ),
++                ),
++                const SizedBox(height: 18),
++              ],
++              if (topSearches.isNotEmpty) ...<Widget>[
++                const _SectionHeading(title: 'Frequent searches'),
++                Card(
++                  child: Column(
++                    children: <Widget>[
++                      for (var index = 0; index < topSearches.length; index++) ...<Widget>[
++                        if (index > 0)
++                          Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
++                        ListTile(
++                          dense: true,
++                          leading: Icon(Icons.manage_search_rounded, color: palette.textMuted),
++                          title: Text(topSearches[index].query, maxLines: 1, overflow: TextOverflow.ellipsis),
++                          trailing: Text(
++                            '${topSearches[index].searches}×',
++                            style: TextStyle(color: palette.textSecondary, fontWeight: FontWeight.w700),
++                          ),
++                        ),
++                      ],
++                    ],
++                  ),
++                ),
++                const SizedBox(height: 18),
++              ],
++              const _SectionHeading(title: 'Recent activity'),
++              if (recentEvents.isEmpty)
++                Card(
++                  child: Padding(
++                    padding: const EdgeInsets.all(20),
++                    child: Column(
++                      children: <Widget>[
++                        Icon(Icons.insights_rounded, color: palette.accent, size: 28),
++                        const SizedBox(height: 9),
++                        const Text('Your activity will appear here', style: TextStyle(fontWeight: FontWeight.w700)),
++                        const SizedBox(height: 5),
++                        Text(
++                          'Search, play, like, or download a track to start your private on-device dashboard.',
++                          textAlign: TextAlign.center,
++                          style: TextStyle(color: palette.textMuted, height: 1.4, fontSize: 12),
++                        ),
++                      ],
++                    ),
++                  ),
++                )
++              else
++                Card(
++                  child: Column(
++                    children: <Widget>[
++                      for (var index = 0; index < recentEvents.length; index++) ...<Widget>[
++                        if (index > 0)
++                          Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
++                        _ActivityTile(event: recentEvents[index], palette: palette),
++                      ],
++                    ],
++                  ),
++                ),
++            ],
++          ),
++        ),
++      ],
++    );
++  }
++
++  Future<void> _confirmClear(BuildContext context) async {
++    final clear = await showDialog<bool>(
++      context: context,
++      builder: (dialogContext) => AlertDialog(
++        title: const Text('Clear local usage?'),
++        content: const Text('This removes saved search and activity events and resets the dashboard totals. Your favorites, downloads, and playlists stay untouched.'),
++        actions: <Widget>[
++          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
++          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Clear usage')),
++        ],
++      ),
++    );
++    if (clear == true && context.mounted) {
++      await context.read<UsageService>().clear();
++    }
++  }
++}
++
++class _MetricCard extends StatelessWidget {
++  const _MetricCard({required this.icon, required this.label, required this.value});
++
++  final IconData icon;
++  final String label;
++  final String value;
++
++  @override
++  Widget build(BuildContext context) {
++    final palette = context.palette;
++    final width = (MediaQuery.sizeOf(context).width - 41) / 2;
++    return SizedBox(
++      width: width,
++      child: Card(
++        margin: EdgeInsets.zero,
++        child: Padding(
++          padding: const EdgeInsets.all(13),
++          child: Row(
++            children: <Widget>[
++              Container(
++                width: 36,
++                height: 36,
++                decoration: BoxDecoration(
++                  color: palette.accent.withValues(alpha: 0.12),
++                  borderRadius: BorderRadius.circular(12),
++                ),
++                child: Icon(icon, color: palette.accent, size: 19),
++              ),
++              const SizedBox(width: 10),
++              Expanded(
++                child: Column(
++                  crossAxisAlignment: CrossAxisAlignment.start,
++                  children: <Widget>[
++                    Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
++                    const SizedBox(height: 3),
++                    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: palette.textMuted, fontSize: 10)),
++                  ],
++                ),
++              ),
++            ],
++          ),
++        ),
++      ),
++    );
++  }
++}
++
++class _SectionHeading extends StatelessWidget {
++  const _SectionHeading({required this.title});
++
++  final String title;
++
++  @override
++  Widget build(BuildContext context) => Padding(
++        padding: const EdgeInsets.fromLTRB(2, 0, 2, 8),
++        child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
++      );
++}
++
++class _ActivityTile extends StatelessWidget {
++  const _ActivityTile({required this.event, required this.palette});
++
++  final UsageEvent event;
++  final AppPalette palette;
++
++  @override
++  Widget build(BuildContext context) {
++    final title = switch (event.type) {
++      'search' => 'Searched “${event.query}”',
++      'play' => 'Played ${event.title}',
++      'favorite_added' => 'Liked ${event.title}',
++      'favorite_removed' => 'Unliked ${event.title}',
++      'download' => 'Downloaded ${event.title}',
++      'download_removed' => 'Removed offline copy of ${event.title}',
++      'queue_add' => 'Added ${event.title} to queue',
++      'lyrics_check' => 'Checked lyrics for ${event.title}',
++      'playlist_create' => 'Created playlist ${event.detail}',
++      'playlist_add' => 'Added ${event.title} to ${event.detail}',
++      'playlist_delete' => 'Deleted playlist ${event.detail}',
++      _ => event.title.isEmpty ? 'Auralis activity' : event.title,
++    };
++    final subtitleParts = <String>[
++      _formatTime(event.timestamp),
++      if (event.type == 'search' && event.resultCount != null)
++        '${event.resultCount} results · ${_prettySource(event.source)}',
++      if (event.type != 'search' && event.source.isNotEmpty)
++        _prettySource(event.source),
++      if (event.type != 'search' && event.artist.isNotEmpty) event.artist,
++    ];
++    return ListTile(
++      dense: true,
++      leading: Icon(_eventIcon(event.type), color: palette.accent, size: 20),
++      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
++      subtitle: Text(subtitleParts.join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: palette.textMuted, fontSize: 10)),
++    );
++  }
++}
++
++IconData _eventIcon(String type) => switch (type) {
++      'search' => Icons.search_rounded,
++      'play' => Icons.play_arrow_rounded,
++      'favorite_added' => Icons.favorite_rounded,
++      'favorite_removed' => Icons.favorite_border_rounded,
++      'download' || 'download_removed' => Icons.download_done_rounded,
++      'queue_add' => Icons.queue_music_rounded,
++      'lyrics_check' => Icons.lyrics_rounded,
++      'playlist_create' || 'playlist_add' || 'playlist_delete' => Icons.library_music_rounded,
++      _ => Icons.circle_outlined,
++    };
++
++String _prettySource(String value) => switch (value) {
++      'jioSaavn' => 'JioSaavn',
++      'youtube' => 'YouTube',
++      'automatic' => 'Auto',
++      _ => value,
++    };
++
++String _formatTime(DateTime value) {
++  final local = value.toLocal();
++  final date = '${local.year.toString().padLeft(4, '0')}-'
++      '${local.month.toString().padLeft(2, '0')}-'
++      '${local.day.toString().padLeft(2, '0')}';
++  final time = '${local.hour.toString().padLeft(2, '0')}:'
++      '${local.minute.toString().padLeft(2, '0')}';
++  return '$date $time';
++}
++
++String _formatDuration(Duration value) {
++  if (value.inSeconds < 60) return '${value.inSeconds}s';
++  final hours = value.inHours;
++  final minutes = value.inMinutes.remainder(60);
++  final seconds = value.inSeconds.remainder(60);
++  if (hours > 0) return '${hours}h ${minutes}m';
++  return seconds == 0 ? '${minutes}m' : '${minutes}m ${seconds}s';
++}
+diff --git a/lib/services/app_settings_service.dart b/lib/services/app_settings_service.dart
+new file mode 100644
+index 0000000..d990e22
+--- /dev/null
++++ b/lib/services/app_settings_service.dart
+@@ -0,0 +1,28 @@
++import 'package:flutter/material.dart';
++import 'package:hive_flutter/hive_flutter.dart';
++
++class AppSettingsService extends ChangeNotifier {
++  static const String _boxName = 'app_settings';
++  static const String _themeModeKey = 'theme_mode';
++
++  late Box<dynamic> _settings;
++  ThemeMode _themeMode = ThemeMode.dark;
++
++  ThemeMode get themeMode => _themeMode;
++
++  Future<void> init() async {
++    _settings = await Hive.openBox<dynamic>(_boxName);
++    final saved = _settings.get(_themeModeKey)?.toString();
++    _themeMode = ThemeMode.values.firstWhere(
++      (mode) => mode.name == saved,
++      orElse: () => ThemeMode.dark,
++    );
++  }
++
++  Future<void> setThemeMode(ThemeMode mode) async {
++    if (mode == _themeMode) return;
++    _themeMode = mode;
++    await _settings.put(_themeModeKey, mode.name);
++    notifyListeners();
++  }
++}
+diff --git a/lib/services/music_api_service.dart b/lib/services/music_api_service.dart
+index 582935e..f05a551 100644
+--- a/lib/services/music_api_service.dart
++++ b/lib/services/music_api_service.dart
+@@ -19,6 +19,10 @@ class MusicApiService {
+ 
+   final http.Client _http;
+   final YoutubeExplode _youtube;
++  final Map<String, Future<LyricsModel>> _lyricsCache = <String, Future<LyricsModel>>{};
++  Future<void> _lyricsRequestQueue = Future<void>.value();
++  DateTime? _lastLyricsRequestAt;
++  DateTime? _lyricsRetryAfter;
+ 
+   Future<List<SongModel>> search(
+     String query, {
+@@ -123,13 +127,15 @@ class MusicApiService {
+               artworkUrl: video.thumbnails.highResUrl,
+               source: SongSource.youtube,
+               durationMs: video.duration?.inMilliseconds,
++              releaseDate: _formatDate(video.publishDate ?? video.uploadDate),
++              sourceUrl: video.url,
+             ))
+         .toList(growable: false);
+   }
+ 
+   Future<String> resolveStream(SongModel song) async {
+     final direct = song.streamUrl;
+-    if (direct != null && _isHttpUrl(direct)) {
++    if (direct != null && MusicApiService._isHttpUrl(direct)) {
+       return direct.replaceFirst(RegExp(r'^http://'), 'https://');
+     }
+     if (song.source == SongSource.youtube) return resolveYouTube(song);
+@@ -143,7 +149,8 @@ class MusicApiService {
+       final candidate = exact.isNotEmpty
+           ? exact.first
+           : (matches.isEmpty ? null : matches.first);
+-      if (candidate?.streamUrl != null && _isHttpUrl(candidate!.streamUrl!)) {
++      if (candidate?.streamUrl != null &&
++          MusicApiService._isHttpUrl(candidate!.streamUrl!)) {
+         return candidate.streamUrl!;
+       }
+     } catch (_) {
+@@ -180,25 +187,119 @@ class MusicApiService {
+   }
+ 
+   Future<LyricsModel> fetchLyrics(SongModel song) async {
+-    final uri = Uri.https('lrclib.net', '/api/get', <String, String>{
++    final cached = _lyricsCache[song.id];
++    if (cached != null) return cached;
++    final request = _fetchLyrics(song);
++    _lyricsCache[song.id] = request;
++    try {
++      return await request;
++    } catch (_) {
++      _lyricsCache.remove(song.id);
++      rethrow;
++    }
++  }
++
++  Future<LyricsModel> _fetchLyrics(SongModel song) async {
++    final artists = _artistCandidates(song.artist);
++    final headers = <String, String>{
++      'Accept': 'application/json',
++      'User-Agent': 'Auralis/1.0.0 (https://github.com/tarungittarun/MuZic)',
++    };
++    final duration = song.duration?.inSeconds;
++
++    // LRCLIB's exact matcher needs the correct track duration whenever it is
++    // available. Try the credited artist first, then a cleaned lead-artist
++    // variant for catalogues that append channel or feature credits.
++    for (final artist in artists.take(2)) {
++      final params = <String, String>{
++        'track_name': song.title,
++        'artist_name': artist,
++        if (song.album.trim().isNotEmpty) 'album_name': song.album,
++        if (duration != null && duration > 0 && duration <= 3600)
++          'duration': '$duration',
++      };
++      final uri = Uri.https('lrclib.net', '/api/get', params);
++      final response = await _getLyrics(uri, headers);
++      if (response.statusCode == 200) {
++        final data = _asMap(jsonDecode(response.body));
++        final lyrics = _lyricsFromMap(data);
++        if (!lyrics.isEmpty) return lyrics;
++      } else if (response.statusCode != 404 && response.statusCode != 400) {
++        throw http.ClientException(
++          'Lyrics service returned HTTP ${response.statusCode}.',
++          uri,
++        );
++      }
++    }
++
++    // The exact endpoint is intentionally strict (including duration). Fall
++    // back to the catalogue search so a slightly different release, title
++    // punctuation, or artist credit can still find usable lyrics.
++    final fallbackArtist = artists.length > 1 ? artists[1] : artists.first;
++    final searchUri = Uri.https('lrclib.net', '/api/search', <String, String>{
+       'track_name': song.title,
+-      'artist_name': song.artist,
+-      if (song.duration != null)
+-        'duration': '${song.duration!.inSeconds}',
++      'artist_name': fallbackArtist,
++      if (song.album.trim().isNotEmpty) 'album_name': song.album,
+     });
+-    final response = await _http.get(uri, headers: <String, String>{
+-      'Accept': 'application/json',
+-      'User-Agent': 'Auralis/1.0 (Flutter Android music player)',
+-    }).timeout(_timeout);
+-    if (response.statusCode == 404) return const LyricsModel();
+-    if (response.statusCode != 200) {
++    final searchResponse = await _getLyrics(searchUri, headers);
++    if (searchResponse.statusCode == 404) return const LyricsModel();
++    if (searchResponse.statusCode != 200) {
+       throw http.ClientException(
+-        'Lyrics service returned HTTP ${response.statusCode}.',
+-        uri,
++        'Lyrics search returned HTTP ${searchResponse.statusCode}.',
++        searchUri,
+       );
+     }
+-    final data = _asMap(jsonDecode(response.body));
+-    if (data == null) return const LyricsModel();
++    final decoded = jsonDecode(searchResponse.body);
++    if (decoded is! Iterable) return const LyricsModel();
++    final matches = decoded.whereType<Map>().map(
++      (value) => Map<String, dynamic>.from(value),
++    );
++    final best = _bestLyricsMatch(matches, song, artists);
++    return _lyricsFromMap(best);
++  }
++
++  Future<http.Response> _getLyrics(
++    Uri uri,
++    Map<String, String> headers,
++  ) {
++    final request = _lyricsRequestQueue.then((_) async {
++      final now = DateTime.now();
++      var waitUntil = _lastLyricsRequestAt?.add(const Duration(milliseconds: 250));
++      final retryAfter = _lyricsRetryAfter;
++      if (retryAfter != null &&
++          retryAfter.isAfter(now) &&
++          (waitUntil == null || retryAfter.isAfter(waitUntil))) {
++        waitUntil = retryAfter;
++      }
++      if (waitUntil != null && waitUntil.isAfter(now)) {
++        await Future<void>.delayed(waitUntil.difference(now));
++      }
++
++      _lastLyricsRequestAt = DateTime.now();
++      final response = await _http.get(uri, headers: headers).timeout(_timeout);
++      if (response.statusCode == 429 || response.statusCode == 503) {
++        String? retryHeader;
++        for (final entry in response.headers.entries) {
++          if (entry.key.toLowerCase() == 'retry-after') {
++            retryHeader = entry.value;
++            break;
++          }
++        }
++        final retrySeconds = int.tryParse(retryHeader ?? '');
++        _lyricsRetryAfter = DateTime.now().add(
++          Duration(seconds: retrySeconds != null && retrySeconds >= 0 ? retrySeconds : 1),
++        );
++      }
++      return response;
++    });
++    _lyricsRequestQueue = request.then<void>((_) {}).catchError((Object _) {});
++    return request;
++  }
++
++  LyricsModel _lyricsFromMap(Map<String, dynamic>? data) {
++    if (data == null || data['instrumental'] == true) {
++      return const LyricsModel();
++    }
+     final synced = data['syncedLyrics']?.toString() ?? '';
+     final plain = data['plainLyrics']?.toString() ?? '';
+     return LyricsModel(
+@@ -207,6 +308,92 @@ class MusicApiService {
+     );
+   }
+ 
++  Map<String, dynamic>? _bestLyricsMatch(
++    Iterable<Map<String, dynamic>> matches,
++    SongModel song,
++    List<String> artistCandidates,
++  ) {
++    final wantedTitle = _normalizeForMatch(song.title);
++    final wantedAlbum = _normalizeForMatch(song.album);
++    final wantedArtists = artistCandidates.map(_normalizeForMatch).toSet();
++    final wantedDuration = song.duration?.inSeconds;
++    Map<String, dynamic>? best;
++    var bestScore = -1;
++
++    for (final match in matches) {
++      if (match['instrumental'] == true) continue;
++      final lyrics = _lyricsFromMap(match);
++      if (lyrics.isEmpty) continue;
++      final title = _normalizeForMatch(
++        match['trackName'] ?? match['name'] ?? '',
++      );
++      final artist = _normalizeForMatch(match['artistName'] ?? '');
++      final album = _normalizeForMatch(match['albumName'] ?? '');
++      final titleMatches = title.isNotEmpty &&
++          wantedTitle.isNotEmpty &&
++          (title == wantedTitle ||
++              title.contains(wantedTitle) ||
++              wantedTitle.contains(title));
++      if (!titleMatches) continue;
++      var score = 0;
++      if (title == wantedTitle) {
++        score += 8;
++      } else {
++        score += 4;
++      }
++      if (wantedArtists.contains(artist) && artist.isNotEmpty) score += 6;
++      if (wantedAlbum.isNotEmpty && album == wantedAlbum) score += 2;
++      final matchDuration = _toInt(match['duration']);
++      if (wantedDuration != null && matchDuration != null) {
++        final delta = (wantedDuration - matchDuration).abs();
++        if (delta <= 2) {
++          score += 4;
++        } else if (delta <= 10) {
++          score += 1;
++        }
++      }
++      if (score > bestScore) {
++        best = match;
++        bestScore = score;
++      }
++    }
++    return best;
++  }
++
++  List<String> _artistCandidates(String artist) {
++    final raw = _cleanText(artist).trim();
++    final withoutTopic = raw.replaceFirst(
++      RegExp(r'\s*[-–]\s*Topic$', caseSensitive: false),
++      '',
++    ).trim();
++    final leadArtist = withoutTopic
++        .split(RegExp(r'\s+(?:feat\.?|ft\.?|featuring)\s+', caseSensitive: false))
++        .first
++        .trim();
++    final primaryArtist = leadArtist.split(RegExp(r'\s*,\s*')).first.trim();
++    final candidates = <String>{raw, withoutTopic, leadArtist, primaryArtist}
++        .where((value) => value.isNotEmpty)
++        .toList(growable: false);
++    return candidates.isEmpty ? const <String>['Unknown artist'] : candidates;
++  }
++
++  String _normalizeForMatch(dynamic value) => _cleanText(value)
++      .toLowerCase()
++      .replaceAll(RegExp(r'[^a-z0-9]+'), '');
++
++  int? _toInt(dynamic value) {
++    if (value is num) return value.toInt();
++    return int.tryParse(value?.toString() ?? '');
++  }
++
++  String? _formatDate(DateTime? value) {
++    if (value == null) return null;
++    final date = value.toLocal();
++    return '${date.year.toString().padLeft(4, '0')}-'
++        '${date.month.toString().padLeft(2, '0')}-'
++        '${date.day.toString().padLeft(2, '0')}';
++  }
++
+   static String decryptSaavnMediaUrl(String encryptedMediaUrl) {
+     final normalized = encryptedMediaUrl.trim().replaceAll(RegExp(r'\s+'), '');
+     final ciphertext = base64.decode(base64.normalize(normalized));
+@@ -233,7 +420,7 @@ class MusicApiService {
+     }
+     final url = utf8.decode(plaintext.sublist(0, end), allowMalformed: false).trim();
+     final secureUrl = url.replaceFirst(RegExp(r'^http://'), 'https://');
+-    if (!_isHttpUrl(secureUrl)) {
++    if (!MusicApiService._isHttpUrl(secureUrl)) {
+       throw const FormatException('The decrypted media URL is not an HTTP URL.');
+     }
+     return secureUrl;
+@@ -276,14 +463,27 @@ class MusicApiService {
+     }
+ 
+     final image = _imageUrl(moreInfo['image'] ?? row['image']);
+-    final artist = _cleanText(
++    final artist = _artistText(
+       row['primary_artists'] ??
+           row['singers'] ??
+           moreInfo['artistMap'] ??
++          moreInfo['artists'] ??
+           moreInfo['music'],
+     );
+     final album = _cleanText(row['album'] ?? moreInfo['album'] ?? '');
+-    final durationSeconds = int.tryParse((row['duration'] ?? '').toString());
++    final durationSeconds = _toInt(moreInfo['duration'] ?? row['duration']);
++    final artistMap = _asMap(moreInfo['artists'] ?? moreInfo['artistMap']);
++    final featuredArtists = _artistNames(
++      artistMap?['featured'] ??
++          moreInfo['featured_artists'] ??
++          row['featured_artists'],
++    );
++    final releaseDate = _cleanText(
++      row['release_date'] ??
++          moreInfo['release_date'] ??
++          row['year'] ??
++          moreInfo['year'],
++    );
+     return SongModel(
+       id: 'saavn:$sourceId',
+       sourceId: sourceId,
+@@ -293,7 +493,28 @@ class MusicApiService {
+       artworkUrl: image,
+       source: SongSource.jioSaavn,
+       streamUrl: streamUrl,
+-      durationMs: durationSeconds == null ? null : durationSeconds * 1000,
++      durationMs: durationSeconds == null || durationSeconds <= 0
++          ? null
++          : durationSeconds * 1000,
++      releaseDate: releaseDate.isEmpty ? null : releaseDate,
++      language: _cleanText(row['language'] ?? moreInfo['language']),
++      label: _cleanText(row['label'] ?? moreInfo['label']),
++      copyright: _cleanText(
++        row['copyright_text'] ??
++            row['copyright'] ??
++            moreInfo['copyright_text'] ??
++            moreInfo['copyright'],
++      ),
++      composer: _artistText(moreInfo['music'] ?? row['music']),
++      featuredArtists: featuredArtists,
++      playCount: _toInt(row['play_count'] ?? moreInfo['play_count']),
++      hasLyrics: _toBool(
++        row['has_lyrics'] ?? row['hasLyrics'] ?? moreInfo['has_lyrics'],
++      ),
++      isExplicit: _toBool(
++        row['explicit_content'] ?? row['isExplicit'] ?? moreInfo['explicit_content'],
++      ),
++      sourceUrl: _cleanText(row['perma_url'] ?? row['url'] ?? moreInfo['perma_url']),
+     );
+   }
+ 
+@@ -353,6 +574,64 @@ class MusicApiService {
+     return null;
+   }
+ 
++  String _artistText(dynamic value) {
++    if (value is Map) {
++      final map = Map<String, dynamic>.from(value);
++      final artists = map['primary'] ??
++          map['primary_artists'] ??
++          map['artists'] ??
++          map['names'];
++      if (artists != null) return _artistText(artists);
++      value = map['name'] ?? map['artist'] ?? map['title'] ?? map['music'];
++    }
++    if (value is Iterable) {
++      final names = value
++          .map((dynamic item) {
++            if (item is Map) {
++              return _cleanText(item['name'] ?? item['artist'] ?? item['title']);
++            }
++            return _cleanText(item);
++          })
++          .where((name) => name.isNotEmpty)
++          .toList(growable: false);
++      return names.join(', ');
++    }
++    return _cleanText(value);
++  }
++
++  List<String> _artistNames(dynamic value) {
++    if (value is Map) {
++      final map = Map<String, dynamic>.from(value);
++      value = map['name'] ??
++          map['artist'] ??
++          map['featured'] ??
++          map['featured_artists'] ??
++          map['artists'];
++    }
++    if (value is Iterable) {
++      return value
++          .map((dynamic item) => item is Map
++              ? _cleanText(item['name'] ?? item['artist'] ?? item['title'])
++              : _cleanText(item))
++          .where((name) => name.isNotEmpty)
++          .toList(growable: false);
++    }
++    final text = _cleanText(value);
++    return text.isEmpty ? const <String>[] : <String>[text];
++  }
++
++  bool? _toBool(dynamic value) {
++    if (value is bool) return value;
++    final normalized = value?.toString().trim().toLowerCase();
++    if (normalized == 'true' || normalized == '1' || normalized == 'yes') {
++      return true;
++    }
++    if (normalized == 'false' || normalized == '0' || normalized == 'no') {
++      return false;
++    }
++    return null;
++  }
++
+   String _imageUrl(dynamic value) {
+     if (value is Iterable && value.isNotEmpty) {
+       final first = value.first;
+@@ -398,7 +677,7 @@ class MusicApiService {
+     return text.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+   }
+ 
+-  bool _isHttpUrl(String value) {
++  static bool _isHttpUrl(String value) {
+     final uri = Uri.tryParse(value);
+     return uri != null && (uri.scheme == 'http' || uri.scheme == 'https') && uri.host.isNotEmpty;
+   }
+diff --git a/lib/services/usage_service.dart b/lib/services/usage_service.dart
+new file mode 100644
+index 0000000..236cb94
+--- /dev/null
++++ b/lib/services/usage_service.dart
+@@ -0,0 +1,246 @@
++import 'package:flutter/foundation.dart';
++import 'package:hive_flutter/hive_flutter.dart';
++
++import '../models/song_model.dart';
++
++class UsageEvent {
++  const UsageEvent({
++    required this.type,
++    required this.timestamp,
++    this.songId = '',
++    this.title = '',
++    this.artist = '',
++    this.source = '',
++    this.query = '',
++    this.resultCount,
++    this.detail = '',
++  });
++
++  final String type;
++  final DateTime timestamp;
++  final String songId;
++  final String title;
++  final String artist;
++  final String source;
++  final String query;
++  final int? resultCount;
++  final String detail;
++
++  factory UsageEvent.fromValue(dynamic value) {
++    if (value is! Map) throw const FormatException('Usage event must be a map.');
++    final map = Map<String, dynamic>.from(value);
++    final rawTime = map['timestamp'];
++    final timestamp = rawTime is num
++        ? DateTime.fromMillisecondsSinceEpoch(rawTime.toInt())
++        : DateTime.tryParse(rawTime?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
++    return UsageEvent(
++      type: map['type']?.toString() ?? 'unknown',
++      timestamp: timestamp,
++      songId: map['songId']?.toString() ?? '',
++      title: map['title']?.toString() ?? '',
++      artist: map['artist']?.toString() ?? '',
++      source: map['source']?.toString() ?? '',
++      query: map['query']?.toString() ?? '',
++      resultCount: map['resultCount'] is num
++          ? (map['resultCount'] as num).toInt()
++          : int.tryParse(map['resultCount']?.toString() ?? ''),
++      detail: map['detail']?.toString() ?? '',
++    );
++  }
++
++  Map<String, dynamic> toMap() => <String, dynamic>{
++        'type': type,
++        'timestamp': timestamp.millisecondsSinceEpoch,
++        'songId': songId,
++        'title': title,
++        'artist': artist,
++        'source': source,
++        'query': query,
++        'resultCount': resultCount,
++        'detail': detail,
++      };
++}
++
++class UsageTrackSummary {
++  const UsageTrackSummary({
++    required this.id,
++    required this.title,
++    required this.artist,
++    required this.source,
++    required this.plays,
++  });
++
++  final String id;
++  final String title;
++  final String artist;
++  final String source;
++  final int plays;
++}
++
++class UsageQuerySummary {
++  const UsageQuerySummary({required this.query, required this.searches});
++
++  final String query;
++  final int searches;
++}
++
++class UsageService extends ChangeNotifier {
++  static const int _maxRecentEvents = 1200;
++  static const String _eventsBoxName = 'local_usage_events';
++  static const String _summaryBoxName = 'local_usage_summary';
++
++  late Box<dynamic> _events;
++  late Box<dynamic> _summary;
++  Future<void> _recordQueue = Future<void>.value();
++
++  Future<void> init() async {
++    _events = await Hive.openBox<dynamic>(_eventsBoxName);
++    _summary = await Hive.openBox<dynamic>(_summaryBoxName);
++  }
++
++  int get searches => _count('search');
++  int get playStarts => _count('play');
++  int get favoritesAdded => _count('favorite_added');
++  int get downloads => _count('download');
++  int get queueAdds => _count('queue_add');
++  int get lyricsChecks => _count('lyrics_check');
++
++  Duration get listeningTime => Duration(
++        milliseconds: _asInt(_summary.get('listening_ms', defaultValue: 0)),
++      );
++
++  List<UsageEvent> get _allEvents {
++    final result = <UsageEvent>[];
++    for (final value in _events.values) {
++      try {
++        result.add(UsageEvent.fromValue(value));
++      } on FormatException {
++        continue;
++      } on TypeError {
++        continue;
++      }
++    }
++    result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
++    return result;
++  }
++
++  List<UsageEvent> get recentEvents =>
++      _allEvents.take(100).toList(growable: false);
++
++  List<UsageTrackSummary> get topTracks {
++    final aggregates = <String, UsageTrackSummary>{};
++    for (final event in _allEvents) {
++      if (event.type != 'play' || event.songId.isEmpty) continue;
++      final existing = aggregates[event.songId];
++      aggregates[event.songId] = UsageTrackSummary(
++        id: event.songId,
++        title: event.title,
++        artist: event.artist,
++        source: event.source,
++        plays: (existing?.plays ?? 0) + 1,
++      );
++    }
++    final result = aggregates.values.toList()
++      ..sort((a, b) => b.plays.compareTo(a.plays));
++    return result.take(5).toList(growable: false);
++  }
++
++  List<UsageQuerySummary> get topSearches {
++    final counts = <String, int>{};
++    for (final event in _allEvents) {
++      if (event.type != 'search' || event.query.trim().isEmpty) continue;
++      final key = event.query.trim();
++      counts[key] = (counts[key] ?? 0) + 1;
++    }
++    final result = counts.entries
++        .map((entry) => UsageQuerySummary(query: entry.key, searches: entry.value))
++        .toList()
++      ..sort((a, b) => b.searches.compareTo(a.searches));
++    return result.take(5).toList(growable: false);
++  }
++
++  Future<void> recordSearch({
++    required String query,
++    required String source,
++    required int resultCount,
++  }) =>
++      record(
++        type: 'search',
++        query: query,
++        source: source,
++        resultCount: resultCount,
++      );
++
++  Future<void> recordSongEvent(String type, SongModel song, {String detail = ''}) =>
++      record(
++        type: type,
++        songId: song.id,
++        title: song.title,
++        artist: song.artist,
++        source: song.source.name,
++        detail: detail,
++      );
++
++  Future<void> record({
++    required String type,
++    String songId = '',
++    String title = '',
++    String artist = '',
++    String source = '',
++    String query = '',
++    int? resultCount,
++    String detail = '',
++  }) {
++    final event = UsageEvent(
++      type: type,
++      timestamp: DateTime.now(),
++      songId: songId,
++      title: title,
++      artist: artist,
++      source: source,
++      query: query,
++      resultCount: resultCount,
++      detail: detail,
++    );
++    return _enqueue(() async {
++      await _events.add(event.toMap());
++      final counterKey = 'count_$type';
++      await _summary.put(
++        counterKey,
++        _asInt(_summary.get(counterKey, defaultValue: 0)) + 1,
++      );
++      while (_events.length > _maxRecentEvents) {
++        await _events.deleteAt(0);
++      }
++      notifyListeners();
++    });
++  }
++
++  Future<void> addListeningTime(Duration duration) {
++    if (duration <= Duration.zero) return Future<void>.value();
++    return _enqueue(() async {
++      final updated = _asInt(_summary.get('listening_ms', defaultValue: 0)) +
++          duration.inMilliseconds;
++      await _summary.put('listening_ms', updated);
++      notifyListeners();
++    });
++  }
++
++  Future<void> clear() => _enqueue(() async {
++        await _events.clear();
++        await _summary.clear();
++        notifyListeners();
++      });
++
++  Future<void> _enqueue(Future<void> Function() action) {
++    final pending = _recordQueue.then((_) => action());
++    _recordQueue = pending.catchError((Object error) {
++      debugPrint('Could not save local usage: $error');
++    });
++    return _recordQueue;
++  }
++
++  int _count(String type) => _asInt(_summary.get('count_$type', defaultValue: 0));
++
++  int _asInt(dynamic value) => value is num ? value.toInt() : int.tryParse('$value') ?? 0;
++}
+diff --git a/lib/theme/app_theme.dart b/lib/theme/app_theme.dart
+index 295672a..b1966f3 100644
+--- a/lib/theme/app_theme.dart
++++ b/lib/theme/app_theme.dart
+@@ -1,72 +1,174 @@
+ import 'package:flutter/material.dart';
+ 
++@immutable
++class AppPalette extends ThemeExtension<AppPalette> {
++  const AppPalette({
++    required this.background,
++    required this.surface,
++    required this.surfaceRaised,
++    required this.textPrimary,
++    required this.textSecondary,
++    required this.textMuted,
++    required this.outline,
++    required this.accent,
++    required this.mint,
++  });
++
++  final Color background;
++  final Color surface;
++  final Color surfaceRaised;
++  final Color textPrimary;
++  final Color textSecondary;
++  final Color textMuted;
++  final Color outline;
++  final Color accent;
++  final Color mint;
++
++  @override
++  AppPalette copyWith({
++    Color? background,
++    Color? surface,
++    Color? surfaceRaised,
++    Color? textPrimary,
++    Color? textSecondary,
++    Color? textMuted,
++    Color? outline,
++    Color? accent,
++    Color? mint,
++  }) =>
++      AppPalette(
++        background: background ?? this.background,
++        surface: surface ?? this.surface,
++        surfaceRaised: surfaceRaised ?? this.surfaceRaised,
++        textPrimary: textPrimary ?? this.textPrimary,
++        textSecondary: textSecondary ?? this.textSecondary,
++        textMuted: textMuted ?? this.textMuted,
++        outline: outline ?? this.outline,
++        accent: accent ?? this.accent,
++        mint: mint ?? this.mint,
++      );
++
++  @override
++  AppPalette lerp(ThemeExtension<AppPalette>? other, double t) {
++    if (other is! AppPalette) return this;
++    return AppPalette(
++      background: Color.lerp(background, other.background, t)!,
++      surface: Color.lerp(surface, other.surface, t)!,
++      surfaceRaised: Color.lerp(surfaceRaised, other.surfaceRaised, t)!,
++      textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
++      textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
++      textMuted: Color.lerp(textMuted, other.textMuted, t)!,
++      outline: Color.lerp(outline, other.outline, t)!,
++      accent: Color.lerp(accent, other.accent, t)!,
++      mint: Color.lerp(mint, other.mint, t)!,
++    );
++  }
++}
++
++extension AppPaletteContext on BuildContext {
++  AppPalette get palette => Theme.of(this).extension<AppPalette>()!;
++}
++
+ class AppTheme {
+-  static const Color background = Color(0xFF090A10);
+-  static const Color surface = Color(0xFF141620);
+-  static const Color surfaceRaised = Color(0xFF1B1E2B);
+-  static const Color accent = Color(0xFFB69CFF);
+-  static const Color mint = Color(0xFF7EE7D3);
++  static const AppPalette darkPalette = AppPalette(
++    background: Color(0xFF090A10),
++    surface: Color(0xFF141620),
++    surfaceRaised: Color(0xFF1B1E2B),
++    textPrimary: Color(0xFFF6F5FB),
++    textSecondary: Color(0xFFB7B8C5),
++    textMuted: Color(0xFF85899B),
++    outline: Color(0x33FFFFFF),
++    accent: Color(0xFFB69CFF),
++    mint: Color(0xFF7EE7D3),
++  );
+ 
+-  static ThemeData get dark => ThemeData(
+-        useMaterial3: true,
+-        brightness: Brightness.dark,
+-        scaffoldBackgroundColor: background,
+-        colorScheme: ColorScheme.fromSeed(
+-          seedColor: accent,
+-          brightness: Brightness.dark,
+-          surface: surface,
+-          primary: accent,
+-          secondary: mint,
+-        ),
+-        appBarTheme: const AppBarTheme(
+-          backgroundColor: background,
+-          surfaceTintColor: Colors.transparent,
+-          elevation: 0,
+-          centerTitle: false,
+-        ),
+-        cardTheme: CardThemeData(
+-          color: surface,
+-          elevation: 0,
+-          shape: RoundedRectangleBorder(
+-            borderRadius: BorderRadius.circular(22),
+-          ),
+-        ),
+-        inputDecorationTheme: InputDecorationTheme(
+-          filled: true,
+-          fillColor: surface,
+-          hintStyle: const TextStyle(color: Color(0xFF85899B)),
+-          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+-          border: OutlineInputBorder(
+-            borderRadius: BorderRadius.circular(18),
+-            borderSide: BorderSide.none,
++  static const AppPalette lightPalette = AppPalette(
++    background: Color(0xFFF5F6FA),
++    surface: Color(0xFFFFFFFF),
++    surfaceRaised: Color(0xFFEAECF4),
++    textPrimary: Color(0xFF191A24),
++    textSecondary: Color(0xFF565968),
++    textMuted: Color(0xFF747786),
++    outline: Color(0x1F1A1B26),
++    accent: Color(0xFF684CC0),
++    mint: Color(0xFF147B6B),
++  );
++
++  static ThemeData get dark => _build(darkPalette, Brightness.dark);
++  static ThemeData get light => _build(lightPalette, Brightness.light);
++
++  static ThemeData _build(AppPalette palette, Brightness brightness) {
++    final scheme = ColorScheme.fromSeed(
++      seedColor: palette.accent,
++      brightness: brightness,
++      surface: palette.surface,
++      primary: palette.accent,
++      secondary: palette.mint,
++    );
++    return ThemeData(
++      useMaterial3: true,
++      brightness: brightness,
++      colorScheme: scheme,
++      extensions: <ThemeExtension<dynamic>>[palette],
++      scaffoldBackgroundColor: palette.background,
++      appBarTheme: AppBarTheme(
++        backgroundColor: palette.background,
++        foregroundColor: palette.textPrimary,
++        surfaceTintColor: Colors.transparent,
++        elevation: 0,
++        centerTitle: false,
++      ),
++      iconTheme: IconThemeData(color: palette.textSecondary),
++      textTheme: ThemeData(brightness: brightness).textTheme.apply(
++            bodyColor: palette.textPrimary,
++            displayColor: palette.textPrimary,
+           ),
++      cardColor: palette.surface,
++      inputDecorationTheme: InputDecorationTheme(
++        filled: true,
++        fillColor: palette.surface,
++        hintStyle: TextStyle(color: palette.textMuted),
++        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
++        border: OutlineInputBorder(
++          borderRadius: BorderRadius.circular(18),
++          borderSide: BorderSide.none,
+         ),
+-        navigationBarTheme: NavigationBarThemeData(
+-          backgroundColor: background,
+-          indicatorColor: accent.withValues(alpha: 0.18),
+-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+-            return TextStyle(
+-              color: states.contains(WidgetState.selected)
+-                  ? accent
+-                  : const Color(0xFF85899B),
+-              fontSize: 11,
+-              fontWeight: FontWeight.w600,
+-            );
+-          }),
++        enabledBorder: OutlineInputBorder(
++          borderRadius: BorderRadius.circular(18),
++          borderSide: BorderSide(color: palette.outline),
+         ),
+-        tabBarTheme: const TabBarThemeData(
+-          dividerColor: Colors.transparent,
+-          indicatorSize: TabBarIndicatorSize.label,
+-          labelColor: accent,
+-          unselectedLabelColor: Color(0xFF85899B),
+-          labelStyle: TextStyle(fontWeight: FontWeight.w700),
++        focusedBorder: OutlineInputBorder(
++          borderRadius: BorderRadius.circular(18),
++          borderSide: BorderSide(color: palette.accent, width: 1.4),
+         ),
+-        sliderTheme: SliderThemeData(
+-          activeTrackColor: accent,
+-          inactiveTrackColor: Colors.white12,
+-          thumbColor: Colors.white,
+-          overlayColor: accent.withValues(alpha: 0.12),
+-          trackHeight: 3,
+-        ),
+-      );
++      ),
++      navigationBarTheme: NavigationBarThemeData(
++        backgroundColor: palette.background,
++        indicatorColor: palette.accent.withValues(alpha: 0.16),
++        labelTextStyle: WidgetStateProperty.resolveWith((states) {
++          return TextStyle(
++            color: states.contains(WidgetState.selected)
++                ? palette.accent
++                : palette.textMuted,
++            fontSize: 11,
++            fontWeight: FontWeight.w600,
++          );
++        }),
++      ),
++      sliderTheme: SliderThemeData(
++        activeTrackColor: palette.accent,
++        inactiveTrackColor: palette.outline,
++        thumbColor: palette.textPrimary,
++        overlayColor: palette.accent.withValues(alpha: 0.12),
++        trackHeight: 3,
++      ),
++      snackBarTheme: SnackBarThemeData(
++        backgroundColor: brightness == Brightness.dark
++            ? const Color(0xFF292B37)
++            : const Color(0xFF252631),
++        contentTextStyle: const TextStyle(color: Colors.white),
++      ),
++      dividerTheme: DividerThemeData(color: palette.outline, thickness: 0.7),
++    );
++  }
+ }
+diff --git a/lib/widgets/cover_art.dart b/lib/widgets/cover_art.dart
+index 607aecd..8ab2b2b 100644
+--- a/lib/widgets/cover_art.dart
++++ b/lib/widgets/cover_art.dart
+@@ -27,24 +27,30 @@ class CoverArt extends StatelessWidget {
+             ? CachedNetworkImage(
+                 imageUrl: song.artworkUrl,
+                 fit: BoxFit.cover,
+-                placeholder: (_, __) => _placeholder(),
+-                errorWidget: (_, __, ___) => _placeholder(),
++                placeholder: (_, __) => _placeholder(context),
++                errorWidget: (_, __, ___) => _placeholder(context),
+               )
+-            : _placeholder();
++            : _placeholder(context);
+     return ClipRRect(
+       borderRadius: BorderRadius.circular(radius),
+       child: SizedBox(width: size, height: size, child: image),
+     );
+   }
+ 
+-  Widget _placeholder() => Container(
+-        decoration: const BoxDecoration(
+-          gradient: LinearGradient(
+-            colors: <Color>[Color(0xFF282336), Color(0xFF172D32)],
+-            begin: Alignment.topLeft,
+-            end: Alignment.bottomRight,
+-          ),
++  Widget _placeholder(BuildContext context) {
++    final palette = context.palette;
++    return Container(
++      decoration: BoxDecoration(
++        gradient: LinearGradient(
++          colors: <Color>[
++            palette.accent.withValues(alpha: 0.28),
++            palette.mint.withValues(alpha: 0.22),
++          ],
++          begin: Alignment.topLeft,
++          end: Alignment.bottomRight,
+         ),
+-        child: const Icon(Icons.music_note_rounded, color: AppTheme.mint),
+-      );
++      ),
++      child: Icon(Icons.music_note_rounded, color: palette.mint),
++    );
++  }
+ }
+diff --git a/lib/widgets/empty_state.dart b/lib/widgets/empty_state.dart
+index e051cb4..e88165b 100644
+--- a/lib/widgets/empty_state.dart
++++ b/lib/widgets/empty_state.dart
+@@ -15,6 +15,7 @@ class EmptyState extends StatelessWidget {
+ 
+   @override
+   Widget build(BuildContext context) {
++    final palette = context.palette;
+     return Center(
+       child: Padding(
+         padding: const EdgeInsets.all(32),
+@@ -25,17 +26,17 @@ class EmptyState extends StatelessWidget {
+               width: 68,
+               height: 68,
+               decoration: BoxDecoration(
+-                color: AppTheme.surfaceRaised,
++                color: palette.surfaceRaised,
+                 borderRadius: BorderRadius.circular(24),
+               ),
+-              child: Icon(icon, color: AppTheme.accent, size: 30),
++              child: Icon(icon, color: palette.accent, size: 30),
+             ),
+             const SizedBox(height: 18),
+             Text(title, textAlign: TextAlign.center,
+                 style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+             const SizedBox(height: 7),
+             Text(message, textAlign: TextAlign.center,
+-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white54, height: 1.45)),
++                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: palette.textMuted, height: 1.45)),
+           ],
+         ),
+       ),
+diff --git a/lib/widgets/mini_player.dart b/lib/widgets/mini_player.dart
+index d35292c..9d343eb 100644
+--- a/lib/widgets/mini_player.dart
++++ b/lib/widgets/mini_player.dart
+@@ -12,6 +12,7 @@ class MiniPlayer extends StatelessWidget {
+   @override
+   Widget build(BuildContext context) {
+     final player = context.watch<PlayerController>();
++    final palette = context.palette;
+     final song = player.currentSong;
+     if (song == null) return const SizedBox.shrink();
+     final max = player.duration.inMilliseconds;
+@@ -23,9 +24,9 @@ class MiniPlayer extends StatelessWidget {
+       height: 72,
+       margin: const EdgeInsets.fromLTRB(10, 4, 10, 5),
+       decoration: BoxDecoration(
+-        color: AppTheme.surfaceRaised,
++        color: palette.surfaceRaised,
+         borderRadius: BorderRadius.circular(18),
+-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
++        border: Border.all(color: palette.outline.withValues(alpha: 0.5)),
+       ),
+       child: Stack(
+         children: <Widget>[
+@@ -53,7 +54,7 @@ class MiniPlayer extends StatelessWidget {
+                           Text(song.artist,
+                               maxLines: 1,
+                               overflow: TextOverflow.ellipsis,
+-                              style: const TextStyle(color: Colors.white54, fontSize: 11)),
++                              style: TextStyle(color: palette.textMuted, fontSize: 11)),
+                         ],
+                       ),
+                     ),
+@@ -72,7 +73,7 @@ class MiniPlayer extends StatelessWidget {
+                         onPressed: player.togglePlayback,
+                         icon: Icon(
+                           player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+-                          color: AppTheme.accent,
++                          color: palette.accent,
+                           size: 30,
+                         ),
+                       ),
+@@ -97,7 +98,7 @@ class MiniPlayer extends StatelessWidget {
+                 value: value,
+                 minHeight: 2,
+                 backgroundColor: Colors.transparent,
+-                color: AppTheme.mint,
++                color: palette.mint,
+               ),
+             ),
+           ),
+diff --git a/lib/widgets/now_playing_sheet.dart b/lib/widgets/now_playing_sheet.dart
+index 19ac331..d342369 100644
+--- a/lib/widgets/now_playing_sheet.dart
++++ b/lib/widgets/now_playing_sheet.dart
+@@ -1,3 +1,5 @@
++import 'dart:async';
++
+ import 'package:flutter/material.dart';
+ import 'package:just_audio/just_audio.dart';
+ import 'package:provider/provider.dart';
+@@ -6,6 +8,7 @@ import '../models/lyrics_model.dart';
+ import '../models/song_model.dart';
+ import '../providers/player_controller.dart';
+ import '../services/music_api_service.dart';
++import '../services/usage_service.dart';
+ import '../theme/app_theme.dart';
+ import 'cover_art.dart';
+ 
+@@ -22,6 +25,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+   @override
+   Widget build(BuildContext context) {
+     final player = context.watch<PlayerController>();
++    final palette = context.palette;
+     final song = player.currentSong;
+     if (song == null) return const SizedBox.shrink();
+     final screenHeight = MediaQuery.sizeOf(context).height;
+@@ -32,9 +36,9 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+ 
+     return Container(
+       height: screenHeight * 0.94,
+-      decoration: const BoxDecoration(
+-        color: AppTheme.background,
+-        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
++      decoration: BoxDecoration(
++        color: palette.background,
++        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+       ),
+       child: SafeArea(
+         top: false,
+@@ -45,7 +49,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+               width: 42,
+               height: 4,
+               decoration: BoxDecoration(
+-                color: Colors.white24,
++                color: palette.outline,
+                 borderRadius: BorderRadius.circular(4),
+               ),
+             ),
+@@ -58,12 +62,12 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+                     onPressed: () => Navigator.pop(context),
+                     icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 30),
+                   ),
+-                  const Expanded(
++                  Expanded(
+                     child: Column(
+                       children: <Widget>[
+-                        Text('NOW PLAYING', style: TextStyle(fontSize: 10, letterSpacing: 2, color: Colors.white54, fontWeight: FontWeight.w700)),
+-                        SizedBox(height: 3),
+-                        Text('Auralis', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
++                        Text('NOW PLAYING', style: TextStyle(fontSize: 10, letterSpacing: 2, color: palette.textMuted, fontWeight: FontWeight.w700)),
++                        const SizedBox(height: 3),
++                        const Text('Auralis', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                       ],
+                     ),
+                   ),
+@@ -103,7 +107,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+                         Text(song.artist,
+                             maxLines: 1,
+                             overflow: TextOverflow.ellipsis,
+-                            style: const TextStyle(color: Colors.white60, fontSize: 14)),
++                            style: TextStyle(color: palette.textSecondary, fontSize: 14)),
+                       ],
+                     ),
+                   ),
+@@ -112,7 +116,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+                     onPressed: () => player.toggleFavorite(song),
+                     icon: Icon(
+                       player.isFavorite(song) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+-                      color: player.isFavorite(song) ? AppTheme.accent : Colors.white70,
++                      color: player.isFavorite(song) ? palette.accent : palette.textSecondary,
+                     ),
+                   ),
+                   IconButton(
+@@ -135,7 +139,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+                             player.isDownloaded(song)
+                                 ? Icons.download_done_rounded
+                                 : Icons.download_rounded,
+-                            color: player.isDownloaded(song) ? AppTheme.mint : Colors.white70,
++                            color: player.isDownloaded(song) ? palette.mint : palette.textSecondary,
+                           ),
+                   ),
+                 ],
+@@ -158,8 +162,8 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+                     child: Row(
+                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                       children: <Widget>[
+-                        Text(_format(player.position), style: const TextStyle(fontSize: 11, color: Colors.white54)),
+-                        Text(_format(player.duration), style: const TextStyle(fontSize: 11, color: Colors.white54)),
++                        Text(_format(player.position), style: TextStyle(fontSize: 11, color: palette.textMuted)),
++                        Text(_format(player.duration), style: TextStyle(fontSize: 11, color: palette.textMuted)),
+                       ],
+                     ),
+                   ),
+@@ -175,7 +179,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+                     tooltip: 'Shuffle',
+                     onPressed: player.toggleShuffle,
+                     icon: Icon(Icons.shuffle_rounded,
+-                        color: player.shuffleEnabled ? AppTheme.mint : Colors.white54),
++                        color: player.shuffleEnabled ? palette.mint : palette.textMuted),
+                   ),
+                   IconButton(
+                     tooltip: 'Previous track',
+@@ -187,17 +191,17 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+                     height: 68,
+                     child: FilledButton(
+                       style: FilledButton.styleFrom(
+-                        backgroundColor: AppTheme.accent,
+-                        foregroundColor: AppTheme.background,
++                        backgroundColor: palette.accent,
++                        foregroundColor: palette.background,
+                         shape: const CircleBorder(),
+                         padding: EdgeInsets.zero,
+                       ),
+                       onPressed: player.togglePlayback,
+                       child: player.isBuffering || player.isResolving
+-                          ? const SizedBox(
++                          ? SizedBox(
+                               width: 25,
+                               height: 25,
+-                              child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.background),
++                              child: CircularProgressIndicator(strokeWidth: 2.5, color: palette.background),
+                             )
+                           : Icon(
+                               player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+@@ -217,7 +221,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+                       player.repeatMode == LoopMode.one
+                           ? Icons.repeat_one_rounded
+                           : Icons.repeat_rounded,
+-                      color: player.repeatMode == LoopMode.off ? Colors.white54 : AppTheme.mint,
++                      color: player.repeatMode == LoopMode.off ? palette.textMuted : palette.mint,
+                     ),
+                   ),
+                 ],
+@@ -226,10 +230,16 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+             Padding(
+               padding: const EdgeInsets.only(bottom: 8),
+               child: TextButton.icon(
+-                onPressed: () => setState(() => _showLyrics = !_showLyrics),
++                onPressed: () {
++                  final showLyrics = !_showLyrics;
++                  if (showLyrics) {
++                    unawaited(context.read<UsageService>().recordSongEvent('lyrics_check', song));
++                  }
++                  setState(() => _showLyrics = showLyrics);
++                },
+                 icon: Icon(_showLyrics ? Icons.album_rounded : Icons.lyrics_outlined, size: 18),
+                 label: Text(_showLyrics ? 'Show artwork' : 'Lyrics'),
+-                style: TextButton.styleFrom(foregroundColor: AppTheme.accent),
++                style: TextButton.styleFrom(foregroundColor: palette.accent),
+               ),
+             ),
+           ],
+@@ -254,7 +264,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
+     await showModalBottomSheet<void>(
+       context: context,
+       isScrollControlled: true,
+-      backgroundColor: AppTheme.surface,
++      backgroundColor: context.palette.surface,
+       showDragHandle: true,
+       builder: (_) => const _QueueSheet(),
+     );
+@@ -280,6 +290,7 @@ class _ArtworkPanel extends StatelessWidget {
+ 
+   @override
+   Widget build(BuildContext context) {
++    final palette = context.palette;
+     return LayoutBuilder(
+       builder: (context, constraints) {
+         final dimension = (constraints.biggest.shortestSide - 28).clamp(0.0, 420.0).toDouble();
+@@ -290,7 +301,7 @@ class _ArtworkPanel extends StatelessWidget {
+               decoration: BoxDecoration(
+                 borderRadius: BorderRadius.circular(28),
+                 boxShadow: <BoxShadow>[
+-                  BoxShadow(color: AppTheme.accent.withValues(alpha: 0.12), blurRadius: 42, spreadRadius: 2),
++                  BoxShadow(color: palette.accent.withValues(alpha: 0.12), blurRadius: 42, spreadRadius: 2),
+                 ],
+               ),
+               child: CoverArt(song: song, size: dimension, radius: 28),
+@@ -330,6 +341,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
+ 
+   @override
+   Widget build(BuildContext context) {
++    final palette = context.palette;
+     return FutureBuilder<LyricsModel>(
+       future: _lyrics,
+       builder: (context, snapshot) {
+@@ -337,7 +349,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
+           return const Center(child: CircularProgressIndicator());
+         }
+         if (snapshot.hasError) {
+-          return const Center(child: Text('Lyrics are unavailable right now.', style: TextStyle(color: Colors.white54)));
++          return Center(child: Text('Lyrics are unavailable right now.', style: TextStyle(color: palette.textMuted)));
+         }
+         final lyrics = snapshot.data ?? const LyricsModel();
+         if (lyrics.syncedLines.isNotEmpty) {
+@@ -352,7 +364,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
+                 fontSize: index == active ? 22 : 17,
+                 height: 1.45,
+                 fontWeight: index == active ? FontWeight.w800 : FontWeight.w500,
+-                color: index == active ? AppTheme.accent : Colors.white38,
++                color: index == active ? palette.accent : palette.textMuted.withValues(alpha: 0.55),
+               ),
+               child: Padding(
+                 padding: const EdgeInsets.symmetric(vertical: 8),
+@@ -362,10 +374,10 @@ class _LyricsPanelState extends State<_LyricsPanel> {
+           );
+         }
+         if (lyrics.plainLyrics.trim().isEmpty) {
+-          return const Center(
++          return Center(
+             child: Padding(
+-              padding: EdgeInsets.all(28),
+-              child: Text('No lyrics found for this track.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white54)),
++              padding: const EdgeInsets.all(28),
++              child: Text('No lyrics found for this track.', textAlign: TextAlign.center, style: TextStyle(color: palette.textMuted)),
+             ),
+           );
+         }
+@@ -374,7 +386,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
+           child: Text(
+             lyrics.plainLyrics,
+             textAlign: TextAlign.center,
+-            style: const TextStyle(fontSize: 17, height: 1.75, color: Colors.white70),
++            style: TextStyle(fontSize: 17, height: 1.75, color: palette.textSecondary),
+           ),
+         );
+       },
+@@ -400,6 +412,7 @@ class _QueueSheet extends StatelessWidget {
+   @override
+   Widget build(BuildContext context) {
+     final player = context.watch<PlayerController>();
++    final palette = context.palette;
+     return SafeArea(
+       child: SizedBox(
+         height: MediaQuery.sizeOf(context).height * 0.72,
+@@ -412,7 +425,7 @@ class _QueueSheet extends StatelessWidget {
+                   const Expanded(
+                     child: Text('Up next', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                   ),
+-                  Text('${player.queue.length} tracks', style: const TextStyle(color: Colors.white54, fontSize: 12)),
++                  Text('${player.queue.length} tracks', style: TextStyle(color: palette.textMuted, fontSize: 12)),
+                   const SizedBox(width: 8),
+                   TextButton(
+                     onPressed: player.queue.length <= 1 ? null : player.clearUpNext,
+@@ -423,7 +436,7 @@ class _QueueSheet extends StatelessWidget {
+             ),
+             Expanded(
+               child: player.queue.isEmpty
+-                  ? const Center(child: Text('Queue is empty.', style: TextStyle(color: Colors.white54)))
++                  ? Center(child: Text('Queue is empty.', style: TextStyle(color: palette.textMuted)))
+                   : ReorderableListView.builder(
+                       itemCount: player.queue.length,
+                       onReorder: (oldIndex, newIndex) {
+@@ -438,10 +451,10 @@ class _QueueSheet extends StatelessWidget {
+                           leading: CoverArt(song: song, size: 44, radius: 12),
+                           title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                           subtitle: Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+-                          titleTextStyle: TextStyle(color: active ? AppTheme.accent : Colors.white, fontWeight: active ? FontWeight.w700 : FontWeight.w500),
++                          titleTextStyle: TextStyle(color: active ? palette.accent : palette.textPrimary, fontWeight: active ? FontWeight.w700 : FontWeight.w500),
+                           trailing: ReorderableDragStartListener(
+                             index: index,
+-                            child: const Icon(Icons.drag_handle_rounded, color: Colors.white38),
++                            child: Icon(Icons.drag_handle_rounded, color: palette.textMuted),
+                           ),
+                         );
+                       },
+diff --git a/lib/widgets/song_tile.dart b/lib/widgets/song_tile.dart
+index d7877d5..bbf769c 100644
+--- a/lib/widgets/song_tile.dart
++++ b/lib/widgets/song_tile.dart
+@@ -1,136 +1,230 @@
++import 'dart:async';
++
+ import 'package:flutter/material.dart';
+ import 'package:provider/provider.dart';
+ 
++import '../models/lyrics_model.dart';
+ import '../models/song_model.dart';
+ import '../providers/player_controller.dart';
+ import '../services/library_service.dart';
++import '../services/music_api_service.dart';
++import '../services/usage_service.dart';
+ import '../theme/app_theme.dart';
+ import 'cover_art.dart';
+ 
+-class SongTile extends StatelessWidget {
++class SongTile extends StatefulWidget {
+   const SongTile({
+     required this.song,
+     required this.onTap,
+     this.showActions = true,
++    this.showDetails = false,
+     super.key,
+   });
+ 
+   final SongModel song;
+   final VoidCallback onTap;
+   final bool showActions;
++  final bool showDetails;
++
++  @override
++  State<SongTile> createState() => _SongTileState();
++}
++
++class _SongTileState extends State<SongTile> {
++  bool _expanded = false;
++  Future<LyricsModel>? _lyricsFuture;
++
++  @override
++  void didUpdateWidget(covariant SongTile oldWidget) {
++    super.didUpdateWidget(oldWidget);
++    if (oldWidget.song.id != widget.song.id) {
++      _expanded = false;
++      _lyricsFuture = null;
++    }
++  }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final player = context.watch<PlayerController>();
++    final palette = context.palette;
++    final song = widget.song;
+     final downloaded = player.isDownloaded(song);
+     final progress = player.downloadProgressFor(song);
+     final isCurrent = player.currentSong?.id == song.id;
++    final quickMeta = <String>[
++      if (song.duration != null) _formatDuration(song.duration!),
++      if (_releaseLabel(song.releaseDate) != null) _releaseLabel(song.releaseDate)!,
++    ];
+ 
+     return Container(
+       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+       decoration: BoxDecoration(
+-        color: isCurrent ? AppTheme.surfaceRaised : Colors.transparent,
++        color: isCurrent ? palette.surfaceRaised : Colors.transparent,
+         borderRadius: BorderRadius.circular(18),
+       ),
+-      child: InkWell(
+-        borderRadius: BorderRadius.circular(18),
+-        onTap: onTap,
+-        child: Padding(
+-          padding: const EdgeInsets.fromLTRB(9, 8, 4, 8),
+-          child: Row(
+-            children: <Widget>[
+-              CoverArt(song: song, size: 54, radius: 14),
+-              const SizedBox(width: 12),
+-              Expanded(
+-                child: Column(
+-                  crossAxisAlignment: CrossAxisAlignment.start,
++      child: Column(
++        children: <Widget>[
++          Material(
++            color: Colors.transparent,
++            child: InkWell(
++              borderRadius: BorderRadius.circular(18),
++              onTap: widget.onTap,
++              child: Padding(
++                padding: const EdgeInsets.fromLTRB(9, 8, 4, 8),
++                child: Row(
+                   children: <Widget>[
+-                    Text(song.title,
+-                        maxLines: 1,
+-                        overflow: TextOverflow.ellipsis,
+-                        style: TextStyle(
+-                          fontSize: 13,
+-                          fontWeight: FontWeight.w700,
+-                          color: isCurrent ? AppTheme.accent : Colors.white,
+-                        )),
+-                    const SizedBox(height: 5),
+-                    Text(
+-                      song.artist.isEmpty ? 'Unknown artist' : song.artist,
+-                      maxLines: 1,
+-                      overflow: TextOverflow.ellipsis,
+-                      style: const TextStyle(fontSize: 11, color: Colors.white54),
+-                    ),
+-                  ],
+-                ),
+-              ),
+-              if (showActions) ...<Widget>[
+-                IconButton(
+-                  visualDensity: VisualDensity.compact,
+-                  tooltip: player.isFavorite(song) ? 'Unlike' : 'Like',
+-                  onPressed: () => player.toggleFavorite(song),
+-                  icon: Icon(
+-                    player.isFavorite(song)
+-                        ? Icons.favorite_rounded
+-                        : Icons.favorite_border_rounded,
+-                    color: player.isFavorite(song) ? AppTheme.accent : Colors.white54,
+-                    size: 20,
+-                  ),
+-                ),
+-                IconButton(
+-                  visualDensity: VisualDensity.compact,
+-                  tooltip: downloaded ? 'Saved offline' : 'Download',
+-                  onPressed: downloaded || progress != null
+-                      ? null
+-                      : () => _download(context),
+-                  icon: progress != null
+-                      ? SizedBox(
+-                          width: 19,
+-                          height: 19,
+-                          child: CircularProgressIndicator(
+-                            value: progress == 0 ? null : progress,
+-                            strokeWidth: 2,
++                    CoverArt(song: song, size: 54, radius: 14),
++                    const SizedBox(width: 12),
++                    Expanded(
++                      child: Column(
++                        crossAxisAlignment: CrossAxisAlignment.start,
++                        children: <Widget>[
++                          Text(
++                            song.title,
++                            maxLines: 1,
++                            overflow: TextOverflow.ellipsis,
++                            style: TextStyle(
++                              fontSize: 13,
++                              fontWeight: FontWeight.w700,
++                              color: isCurrent ? palette.accent : palette.textPrimary,
++                            ),
+                           ),
+-                        )
+-                      : Icon(
+-                          downloaded ? Icons.download_done_rounded : Icons.download_rounded,
+-                          color: downloaded ? AppTheme.mint : Colors.white54,
+-                          size: 20,
+-                        ),
+-                ),
+-                PopupMenuButton<String>(
+-                  tooltip: 'More actions',
+-                  onSelected: (value) => _handleMenu(context, value),
+-                  itemBuilder: (_) => <PopupMenuEntry<String>>[
+-                    const PopupMenuItem(
+-                      value: 'queue',
+-                      child: _MenuLabel(icon: Icons.playlist_add_rounded, text: 'Add to queue'),
+-                    ),
+-                    const PopupMenuItem(
+-                      value: 'playlist',
+-                      child: _MenuLabel(icon: Icons.library_add_rounded, text: 'Add to playlist'),
++                          const SizedBox(height: 4),
++                          Text(
++                            song.artist.isEmpty ? 'Unknown artist' : song.artist,
++                            maxLines: 1,
++                            overflow: TextOverflow.ellipsis,
++                            style: TextStyle(fontSize: 11, color: palette.textSecondary),
++                          ),
++                          if (quickMeta.isNotEmpty) ...<Widget>[
++                            const SizedBox(height: 3),
++                            Text(
++                              quickMeta.join('  ·  '),
++                              maxLines: 1,
++                              overflow: TextOverflow.ellipsis,
++                              style: TextStyle(fontSize: 10, color: palette.textMuted),
++                            ),
++                          ],
++                        ],
++                      ),
+                     ),
+-                    if (downloaded)
+-                      const PopupMenuItem(
+-                        value: 'remove',
+-                        child: _MenuLabel(icon: Icons.delete_outline_rounded, text: 'Remove download'),
++                    if (widget.showDetails)
++                      IconButton(
++                        visualDensity: VisualDensity.compact,
++                        constraints: const BoxConstraints.tightFor(width: 34, height: 38),
++                        padding: EdgeInsets.zero,
++                        tooltip: _expanded ? 'Hide track details' : 'Track details',
++                        onPressed: _toggleDetails,
++                        icon: Icon(
++                          _expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
++                          color: palette.textMuted,
++                        ),
++                      ),
++                    if (widget.showActions) ...<Widget>[
++                      IconButton(
++                        visualDensity: VisualDensity.compact,
++                        constraints: const BoxConstraints.tightFor(width: 36, height: 38),
++                        padding: EdgeInsets.zero,
++                        tooltip: player.isFavorite(song) ? 'Unlike' : 'Like',
++                        onPressed: () => player.toggleFavorite(song),
++                        icon: Icon(
++                          player.isFavorite(song)
++                              ? Icons.favorite_rounded
++                              : Icons.favorite_border_rounded,
++                          color: player.isFavorite(song) ? palette.accent : palette.textMuted,
++                          size: 19,
++                        ),
+                       ),
++                      IconButton(
++                        visualDensity: VisualDensity.compact,
++                        constraints: const BoxConstraints.tightFor(width: 36, height: 38),
++                        padding: EdgeInsets.zero,
++                        tooltip: downloaded ? 'Saved offline' : 'Download',
++                        onPressed: downloaded || progress != null
++                            ? null
++                            : () => _download(context),
++                        icon: progress != null
++                            ? SizedBox(
++                                width: 18,
++                                height: 18,
++                                child: CircularProgressIndicator(
++                                  value: progress == 0 ? null : progress,
++                                  strokeWidth: 2,
++                                ),
++                              )
++                            : Icon(
++                                downloaded
++                                    ? Icons.download_done_rounded
++                                    : Icons.download_rounded,
++                                color: downloaded ? palette.mint : palette.textMuted,
++                                size: 19,
++                              ),
++                      ),
++                      PopupMenuButton<String>(
++                        padding: EdgeInsets.zero,
++                        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
++                        tooltip: 'More actions',
++                        onSelected: (value) => _handleMenu(context, value),
++                        itemBuilder: (_) => <PopupMenuEntry<String>>[
++                          const PopupMenuItem(
++                            value: 'queue',
++                            child: _MenuLabel(icon: Icons.playlist_add_rounded, text: 'Add to queue'),
++                          ),
++                          const PopupMenuItem(
++                            value: 'playlist',
++                            child: _MenuLabel(icon: Icons.library_add_rounded, text: 'Add to playlist'),
++                          ),
++                          if (downloaded)
++                            const PopupMenuItem(
++                              value: 'remove',
++                              child: _MenuLabel(icon: Icons.delete_outline_rounded, text: 'Remove download'),
++                            ),
++                        ],
++                        icon: Icon(Icons.more_vert_rounded, color: palette.textMuted, size: 19),
++                      ),
++                    ],
+                   ],
+-                  icon: const Icon(Icons.more_vert_rounded, color: Colors.white54, size: 20),
+                 ),
+-              ],
+-            ],
++              ),
++            ),
+           ),
+-        ),
++          if (_expanded)
++            Padding(
++              padding: const EdgeInsets.fromLTRB(76, 0, 14, 13),
++              child: _TrackDetails(
++                song: song,
++                lyricsFuture: _lyricsFuture,
++                onRetryLyrics: _retryLyrics,
++              ),
++            ),
++        ],
+       ),
+     );
+   }
+ 
++  void _toggleDetails() {
++    setState(() {
++      _expanded = !_expanded;
++      if (_expanded && _lyricsFuture == null) {
++        unawaited(context.read<UsageService>().recordSongEvent('lyrics_check', widget.song));
++        _lyricsFuture = context.read<MusicApiService>().fetchLyrics(widget.song);
++      }
++    });
++  }
++
++  void _retryLyrics() {
++    unawaited(context.read<UsageService>().recordSongEvent('lyrics_check', widget.song));
++    setState(() {
++      _lyricsFuture = context.read<MusicApiService>().fetchLyrics(widget.song);
++    });
++  }
++
+   Future<void> _download(BuildContext context) async {
+     try {
+-      await context.read<PlayerController>().downloadSong(song);
++      await context.read<PlayerController>().downloadSong(widget.song);
+       if (context.mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(
+-          SnackBar(content: Text('Saved “${song.title}” for offline listening.')),
++          SnackBar(content: Text('Saved “${widget.song.title}” for offline listening.')),
+         );
+       }
+     } catch (error) {
+@@ -146,9 +240,9 @@ class SongTile extends StatelessWidget {
+     final player = context.read<PlayerController>();
+     try {
+       if (action == 'queue') {
+-        await player.addToQueue(song);
++        await player.addToQueue(widget.song);
+       } else if (action == 'remove') {
+-        await player.removeDownload(song);
++        await player.removeDownload(widget.song);
+       } else if (action == 'playlist') {
+         await _choosePlaylist(context);
+       }
+@@ -172,7 +266,7 @@ class SongTile extends StatelessWidget {
+     }
+     final selected = await showModalBottomSheet<String>(
+       context: context,
+-      backgroundColor: AppTheme.surface,
++      backgroundColor: context.palette.surface,
+       showDragHandle: true,
+       builder: (sheetContext) => SafeArea(
+         child: ListView(
+@@ -183,7 +277,7 @@ class SongTile extends StatelessWidget {
+               child: Text('Add to playlist', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+             ),
+             ...playlists.map((playlist) => ListTile(
+-                  leading: const Icon(Icons.queue_music_rounded, color: AppTheme.accent),
++                  leading: Icon(Icons.queue_music_rounded, color: context.palette.accent),
+                   title: Text(playlist.name),
+                   subtitle: Text('${playlist.songs.length} tracks'),
+                   onTap: () => Navigator.pop(sheetContext, playlist.id),
+@@ -192,17 +286,149 @@ class SongTile extends StatelessWidget {
+         ),
+       ),
+     );
+-    if (selected != null) {
+-      await library.addToPlaylist(selected, song);
++    if (selected != null && context.mounted) {
++      final playlist = playlists.firstWhere((item) => item.id == selected);
++      final wasAlreadyPresent = playlist.songs.any((item) => item.id == widget.song.id);
++      await library.addToPlaylist(selected, widget.song);
++      if (!context.mounted) return;
++      if (!wasAlreadyPresent) {
++        await context.read<UsageService>().recordSongEvent(
++              'playlist_add',
++              widget.song,
++              detail: playlist.name,
++            );
++      }
+       if (context.mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(
+-          const SnackBar(content: Text('Added to playlist.')),
++          SnackBar(content: Text(wasAlreadyPresent ? 'Already in “${playlist.name}”.' : 'Added to playlist.')),
+         );
+       }
+     }
+   }
+ }
+ 
++class _TrackDetails extends StatelessWidget {
++  const _TrackDetails({
++    required this.song,
++    required this.lyricsFuture,
++    required this.onRetryLyrics,
++  });
++
++  final SongModel song;
++  final Future<LyricsModel>? lyricsFuture;
++  final VoidCallback onRetryLyrics;
++
++  @override
++  Widget build(BuildContext context) {
++    final palette = context.palette;
++    return Column(
++      crossAxisAlignment: CrossAxisAlignment.start,
++      children: <Widget>[
++        Divider(height: 1, color: palette.outline),
++        const SizedBox(height: 10),
++        _InfoRow(label: 'Duration', value: song.duration == null ? null : _durationWithSeconds(song.duration!)),
++        _InfoRow(label: 'Released', value: _releaseLabel(song.releaseDate)),
++        _InfoRow(label: 'Album', value: song.album),
++        _InfoRow(label: 'Artist / author', value: song.artist),
++        _InfoRow(label: 'Featured artists', value: song.featuredArtists.join(', ')),
++        _InfoRow(label: 'Composer / music', value: song.composer),
++        _InfoRow(label: 'Language', value: song.language),
++        _InfoRow(label: 'Label', value: song.label),
++        _InfoRow(label: 'Play count', value: song.playCount == null ? null : _formatCount(song.playCount!)),
++        _InfoRow(label: 'Copyright', value: song.copyright),
++        _InfoRow(label: 'Source', value: _sourceLabel(song.source)),
++        if (song.isExplicit != null)
++          _InfoRow(label: 'Content', value: song.isExplicit! ? 'Explicit' : 'Clean'),
++        if (song.hasLyrics != null)
++          _InfoRow(label: 'JioSaavn lyrics flag', value: song.hasLyrics! ? 'Listed' : 'Not listed'),
++        _LyricsAvailability(future: lyricsFuture, onRetry: onRetryLyrics),
++      ],
++    );
++  }
++}
++
++class _LyricsAvailability extends StatelessWidget {
++  const _LyricsAvailability({required this.future, required this.onRetry});
++
++  final Future<LyricsModel>? future;
++  final VoidCallback onRetry;
++
++  @override
++  Widget build(BuildContext context) {
++    final palette = context.palette;
++    if (future == null) return const SizedBox.shrink();
++    return FutureBuilder<LyricsModel>(
++      future: future,
++      builder: (context, snapshot) {
++        final String value;
++        final Color color;
++        if (snapshot.connectionState == ConnectionState.waiting) {
++          value = 'Checking LRCLIB…';
++          color = palette.textMuted;
++        } else if (snapshot.hasError) {
++          return Padding(
++            padding: const EdgeInsets.symmetric(vertical: 3),
++            child: Row(
++              children: <Widget>[
++                SizedBox(
++                  width: 105,
++                  child: Text('Lyrics', style: TextStyle(color: palette.textMuted, fontSize: 10)),
++                ),
++                Expanded(
++                  child: Text(
++                    'Could not check right now',
++                    style: TextStyle(color: palette.textMuted, fontSize: 10),
++                  ),
++                ),
++                TextButton(onPressed: onRetry, child: const Text('Retry')),
++              ],
++            ),
++          );
++        } else if (snapshot.data?.isEmpty == false) {
++          value = 'Available on LRCLIB';
++          color = palette.mint;
++        } else {
++          value = 'Not found on LRCLIB';
++          color = palette.textMuted;
++        }
++        return _InfoRow(label: 'Lyrics', value: value, valueColor: color);
++      },
++    );
++  }
++}
++
++class _InfoRow extends StatelessWidget {
++  const _InfoRow({required this.label, required this.value, this.valueColor});
++
++  final String label;
++  final String? value;
++  final Color? valueColor;
++
++  @override
++  Widget build(BuildContext context) {
++    if (value == null || value!.trim().isEmpty) return const SizedBox.shrink();
++    final palette = context.palette;
++    return Padding(
++      padding: const EdgeInsets.symmetric(vertical: 3),
++      child: Row(
++        crossAxisAlignment: CrossAxisAlignment.start,
++        children: <Widget>[
++          SizedBox(
++            width: 105,
++            child: Text(label, style: TextStyle(color: palette.textMuted, fontSize: 10)),
++          ),
++          Expanded(
++            child: Text(
++              value!,
++              style: TextStyle(color: valueColor ?? palette.textSecondary, fontSize: 10, height: 1.35),
++            ),
++          ),
++        ],
++      ),
++    );
++  }
++}
++
+ class _MenuLabel extends StatelessWidget {
+   const _MenuLabel({required this.icon, required this.text});
+ 
+@@ -218,3 +444,32 @@ class _MenuLabel extends StatelessWidget {
+         ],
+       );
+ }
++
++String _formatDuration(Duration value) {
++  final minutes = value.inMinutes;
++  final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
++  return '$minutes:$seconds';
++}
++
++String _durationWithSeconds(Duration value) =>
++    '${_formatDuration(value)}  ·  ${value.inSeconds} sec';
++
++String? _releaseLabel(String? raw) {
++  final value = raw?.trim() ?? '';
++  if (value.isEmpty) return null;
++  final date = DateTime.tryParse(value);
++  if (date == null) return value;
++  if (date.month == 1 && date.day == 1) return '${date.year}';
++  return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
++}
++
++String _formatCount(int value) {
++  if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(1)}M';
++  if (value >= 1000) return '${(value / 1000).toStringAsFixed(1)}K';
++  return '$value';
++}
++
++String _sourceLabel(SongSource source) => switch (source) {
++      SongSource.jioSaavn => 'JioSaavn',
++      SongSource.youtube => 'YouTube',
++    };
+diff --git a/test/app_settings_service_test.dart b/test/app_settings_service_test.dart
+new file mode 100644
+index 0000000..1ef7736
+--- /dev/null
++++ b/test/app_settings_service_test.dart
+@@ -0,0 +1,30 @@
++import 'dart:io';
++
++import 'package:auralis_player/services/app_settings_service.dart';
++import 'package:flutter/material.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:hive/hive.dart';
++
++void main() {
++  test('persists the selected theme mode on device', () async {
++    final directory = await Directory.systemTemp.createTemp('auralis-settings-test-');
++    Hive.init(directory.path);
++
++    try {
++      final firstSettings = AppSettingsService();
++      await firstSettings.init();
++      expect(firstSettings.themeMode, ThemeMode.dark);
++      await firstSettings.setThemeMode(ThemeMode.light);
++      await Hive.box<dynamic>('app_settings').close();
++
++      final restoredSettings = AppSettingsService();
++      await restoredSettings.init();
++      expect(restoredSettings.themeMode, ThemeMode.light);
++      await restoredSettings.setThemeMode(ThemeMode.system);
++      expect(restoredSettings.themeMode, ThemeMode.system);
++    } finally {
++      await Hive.close();
++      await directory.delete(recursive: true);
++    }
++  });
++}
+diff --git a/test/music_api_metadata_lyrics_test.dart b/test/music_api_metadata_lyrics_test.dart
+new file mode 100644
+index 0000000..866014c
+--- /dev/null
++++ b/test/music_api_metadata_lyrics_test.dart
+@@ -0,0 +1,187 @@
++import 'dart:convert';
++
++import 'package:auralis_player/models/song_model.dart';
++import 'package:auralis_player/services/music_api_service.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:http/http.dart' as http;
++import 'package:http/testing.dart';
++
++void main() {
++  group('MusicApiService metadata parsing', () {
++    test('parses optional JioSaavn metadata defensively', () async {
++      final client = MockClient((request) async => http.Response(
++            jsonEncode(<String, dynamic>{
++              'results': <Map<String, dynamic>>[
++                <String, dynamic>{
++                  'id': 'track-123',
++                  'title': 'Track title',
++                  'primary_artists': 'Main artist',
++                  'album': 'Album title',
++                  'year': '2024',
++                  'image': 'https://example.test/150x150.jpg',
++                  'perma_url': 'https://www.jiosaavn.com/song/example',
++                  'play_count': '12345',
++                  'more_info': <String, dynamic>{
++                    'duration': '245',
++                    'release_date': '2024-03-12',
++                    'language': 'English',
++                    'label': 'Example Records',
++                    'copyright_text': 'Copyright holder',
++                    'music': 'Composer name',
++                    'has_lyrics': 'true',
++                    'explicit_content': 'false',
++                    'artists': <String, dynamic>{
++                      'featured': <Map<String, String>>[
++                        <String, String>{'name': 'Guest artist'},
++                      ],
++                    },
++                  },
++                },
++              ],
++            }),
++            200,
++            headers: const <String, String>{'content-type': 'application/json'},
++          ));
++      final api = MusicApiService(httpClient: client);
++      addTearDown(api.dispose);
++
++      final songs = await api.searchJioSaavn('track title', limit: 5);
++      expect(songs, hasLength(1));
++      final song = songs.single;
++      expect(song.artist, 'Main artist');
++      expect(song.album, 'Album title');
++      expect(song.duration?.inSeconds, 245);
++      expect(song.releaseDate, '2024-03-12');
++      expect(song.language, 'English');
++      expect(song.label, 'Example Records');
++      expect(song.copyright, 'Copyright holder');
++      expect(song.composer, 'Composer name');
++      expect(song.featuredArtists, <String>['Guest artist']);
++      expect(song.playCount, 12345);
++      expect(song.hasLyrics, isTrue);
++      expect(song.isExplicit, isFalse);
++      expect(song.sourceUrl, 'https://www.jiosaavn.com/song/example');
++    });
++  });
++
++  group('MusicApiService lyrics', () {
++    test('uses exact LRCLIB match, parses synced lines, and caches it', () async {
++      var requestCount = 0;
++      Uri? requestUri;
++      final client = MockClient((request) async {
++        requestCount++;
++        requestUri = request.url;
++        return http.Response(
++          jsonEncode(<String, dynamic>{
++            'instrumental': false,
++            'plainLyrics': 'First line\nSecond line',
++            'syncedLyrics': '[00:01.20]First line\n[00:02.50]Second line',
++          }),
++          200,
++          headers: const <String, String>{'content-type': 'application/json'},
++        );
++      });
++      final api = MusicApiService(httpClient: client);
++      addTearDown(api.dispose);
++      const song = SongModel(
++        id: 'saavn:blinding-lights',
++        sourceId: 'blinding-lights',
++        title: 'Blinding Lights',
++        artist: 'The Weeknd',
++        album: 'After Hours',
++        source: SongSource.jioSaavn,
++        durationMs: 200000,
++      );
++
++      final lyrics = await api.fetchLyrics(song);
++      final cachedLyrics = await api.fetchLyrics(song);
++      expect(requestCount, 1);
++      expect(requestUri?.host, 'lrclib.net');
++      expect(requestUri?.path, '/api/get');
++      expect(requestUri?.queryParameters['duration'], '200');
++      expect(requestUri?.queryParameters['album_name'], 'After Hours');
++      expect(lyrics.plainLyrics, 'First line\nSecond line');
++      expect(lyrics.syncedLines, hasLength(2));
++      expect(lyrics.syncedLines.first.time, const Duration(seconds: 1, milliseconds: 200));
++      expect(cachedLyrics.plainLyrics, lyrics.plainLyrics);
++    });
++
++    test('honors LRCLIB Retry-After before a later request', () async {
++      var requestCount = 0;
++      final client = MockClient((request) async {
++        requestCount++;
++        if (requestCount == 1) {
++          return http.Response('slow down', 429, headers: const <String, String>{'Retry-After': '1'});
++        }
++        return http.Response(
++          jsonEncode(<String, dynamic>{
++            'instrumental': false,
++            'plainLyrics': 'Available after the wait',
++          }),
++          200,
++          headers: const <String, String>{'content-type': 'application/json'},
++        );
++      });
++      final api = MusicApiService(httpClient: client);
++      addTearDown(api.dispose);
++      const song = SongModel(
++        id: 'saavn:retry-track',
++        sourceId: 'retry-track',
++        title: 'Retry Track',
++        artist: 'Retry Artist',
++        source: SongSource.jioSaavn,
++      );
++
++      await expectLater(api.fetchLyrics(song), throwsA(isA<http.ClientException>()));
++      final stopwatch = Stopwatch()..start();
++      final lyrics = await api.fetchLyrics(song);
++      stopwatch.stop();
++
++      expect(stopwatch.elapsed, greaterThanOrEqual(const Duration(milliseconds: 900)));
++      expect(lyrics.plainLyrics, 'Available after the wait');
++      expect(requestCount, 2);
++    });
++
++    test('falls back to title-and-artist search after an exact miss', () async {
++      final requestedPaths = <String>[];
++      final client = MockClient((request) async {
++        requestedPaths.add(request.url.path);
++        if (request.url.path == '/api/get') {
++          return http.Response('not found', 404);
++        }
++        return http.Response(
++          jsonEncode(<Map<String, dynamic>>[
++            <String, dynamic>{
++              'trackName': 'Unrelated Song',
++              'artistName': 'Example Artist',
++              'duration': 200,
++              'plainLyrics': 'Do not select these lyrics',
++            },
++            <String, dynamic>{
++              'trackName': 'Target Song',
++              'artistName': 'Example Artist',
++              'duration': 201,
++              'plainLyrics': 'The matching lyrics',
++            },
++          ]),
++          200,
++          headers: const <String, String>{'content-type': 'application/json'},
++        );
++      });
++      final api = MusicApiService(httpClient: client);
++      addTearDown(api.dispose);
++      const song = SongModel(
++        id: 'saavn:target-song',
++        sourceId: 'target-song',
++        title: 'Target Song',
++        artist: 'Example Artist',
++        source: SongSource.jioSaavn,
++        durationMs: 200000,
++      );
++
++      final lyrics = await api.fetchLyrics(song);
++      expect(requestedPaths, <String>['/api/get', '/api/search']);
++      expect(lyrics.plainLyrics, 'The matching lyrics');
++    });
++  });
++}
+diff --git a/test/song_model_metadata_test.dart b/test/song_model_metadata_test.dart
+new file mode 100644
+index 0000000..905316e
+--- /dev/null
++++ b/test/song_model_metadata_test.dart
+@@ -0,0 +1,58 @@
++import 'package:auralis_player/models/song_model.dart';
++import 'package:flutter_test/flutter_test.dart';
++
++void main() {
++  test('round-trips optional provider metadata', () {
++    const song = SongModel(
++      id: 'youtube:abc123',
++      sourceId: 'abc123',
++      title: 'Example track',
++      artist: 'Lead artist',
++      album: 'Example album',
++      artworkUrl: 'https://example.test/cover.jpg',
++      source: SongSource.youtube,
++      durationMs: 187000,
++      releaseDate: '2024-09-03',
++      language: 'English',
++      label: 'Example Records',
++      copyright: 'Copyright holder',
++      composer: 'Composer',
++      featuredArtists: <String>['Guest artist'],
++      playCount: 4200,
++      hasLyrics: true,
++      isExplicit: false,
++      sourceUrl: 'https://youtu.be/abc123',
++    );
++
++    final restored = SongModel.fromMap(song.toMap());
++    expect(restored.id, song.id);
++    expect(restored.source, SongSource.youtube);
++    expect(restored.duration, const Duration(minutes: 3, seconds: 7));
++    expect(restored.releaseDate, song.releaseDate);
++    expect(restored.language, song.language);
++    expect(restored.label, song.label);
++    expect(restored.copyright, song.copyright);
++    expect(restored.composer, song.composer);
++    expect(restored.featuredArtists, song.featuredArtists);
++    expect(restored.playCount, song.playCount);
++    expect(restored.hasLyrics, isTrue);
++    expect(restored.isExplicit, isFalse);
++    expect(restored.sourceUrl, song.sourceUrl);
++  });
++
++  test('loads older saved maps without optional fields', () {
++    final song = SongModel.fromMap(<String, dynamic>{
++      'id': 'saavn:legacy',
++      'sourceId': 'legacy',
++      'title': 'Legacy track',
++      'artist': 'Legacy artist',
++      'source': 'jioSaavn',
++    });
++
++    expect(song.title, 'Legacy track');
++    expect(song.duration, isNull);
++    expect(song.releaseDate, isNull);
++    expect(song.featuredArtists, isEmpty);
++    expect(song.hasLyrics, isNull);
++  });
++}
+diff --git a/test/usage_service_test.dart b/test/usage_service_test.dart
+new file mode 100644
+index 0000000..4195eb4
+--- /dev/null
++++ b/test/usage_service_test.dart
+@@ -0,0 +1,56 @@
++import 'dart:io';
++
++import 'package:auralis_player/models/song_model.dart';
++import 'package:auralis_player/services/usage_service.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:hive/hive.dart';
++
++void main() {
++  test('persists local activity, serializes counters, and clears history', () async {
++    final directory = await Directory.systemTemp.createTemp('auralis-usage-test-');
++    Hive.init(directory.path);
++    final usage = UsageService();
++    await usage.init();
++
++    try {
++      await Future.wait(<Future<void>>[
++        for (var index = 0; index < 20; index++)
++          usage.recordSearch(
++            query: 'ambient music',
++            source: 'automatic',
++            resultCount: 6,
++          ),
++      ]);
++      const song = SongModel(
++        id: 'saavn:calm-night',
++        sourceId: 'calm-night',
++        title: 'Calm Night',
++        artist: 'Example Artist',
++        source: SongSource.jioSaavn,
++      );
++      await usage.recordSongEvent('play', song);
++      await usage.recordSongEvent('favorite_added', song);
++      await usage.recordSongEvent('download', song);
++      await usage.addListeningTime(const Duration(minutes: 3, seconds: 12));
++
++      expect(usage.searches, 20);
++      expect(usage.playStarts, 1);
++      expect(usage.favoritesAdded, 1);
++      expect(usage.downloads, 1);
++      expect(usage.listeningTime, const Duration(minutes: 3, seconds: 12));
++      expect(usage.topSearches.first.query, 'ambient music');
++      expect(usage.topSearches.first.searches, 20);
++      expect(usage.topTracks.single.title, 'Calm Night');
++      expect(usage.recentEvents, isNotEmpty);
++
++      await usage.clear();
++      expect(usage.searches, 0);
++      expect(usage.playStarts, 0);
++      expect(usage.listeningTime, Duration.zero);
++      expect(usage.recentEvents, isEmpty);
++    } finally {
++      await Hive.close();
++      await directory.delete(recursive: true);
++    }
++  });
++}

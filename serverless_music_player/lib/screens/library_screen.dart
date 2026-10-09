@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
 import '../services/library_service.dart';
+import '../services/usage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/song_tile.dart';
@@ -14,6 +15,7 @@ class LibraryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
+    final palette = context.palette;
     return DefaultTabController(
       length: 4,
       child: Builder(
@@ -23,13 +25,13 @@ class LibraryScreen extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(20, 20, 16, 7),
               child: Row(
                 children: <Widget>[
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        Text('YOUR SPACE', style: TextStyle(fontSize: 10, letterSpacing: 2, color: Colors.white54, fontWeight: FontWeight.w800)),
-                        SizedBox(height: 4),
-                        Text('Library', style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800)),
+                        Text('YOUR SPACE', style: TextStyle(fontSize: 10, letterSpacing: 2, color: palette.textMuted, fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        const Text('Library', style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800)),
                       ],
                     ),
                   ),
@@ -104,11 +106,17 @@ class LibraryScreen extends StatelessWidget {
     controller.dispose();
     if (name == null || !context.mounted) return;
     final id = await context.read<LibraryService>().createPlaylist(name);
+    if (!context.mounted) return;
     if (id == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Use a name that is not already in your library.')),
       );
     } else {
+      await context.read<UsageService>().record(
+            type: 'playlist_create',
+            detail: name.trim(),
+          );
+      if (!context.mounted) return;
       DefaultTabController.of(context).animateTo(3);
     }
   }
@@ -153,6 +161,7 @@ class _PlaylistList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     if (playlists.isEmpty) {
       return const EmptyState(
         icon: Icons.queue_music_rounded,
@@ -171,15 +180,20 @@ class _PlaylistList extends StatelessWidget {
             leading: Container(
               width: 42,
               height: 42,
-              decoration: BoxDecoration(color: AppTheme.accent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(14)),
-              child: const Icon(Icons.queue_music_rounded, color: AppTheme.accent),
+              decoration: BoxDecoration(color: palette.accent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(14)),
+              child: Icon(Icons.queue_music_rounded, color: palette.accent),
             ),
             title: Text(playlist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
             subtitle: Text('${playlist.songs.length} tracks'),
             trailing: PopupMenuButton<String>(
-              onSelected: (value) {
+              onSelected: (value) async {
                 if (value == 'delete') {
-                  context.read<LibraryService>().deletePlaylist(playlist.id);
+                  await context.read<LibraryService>().deletePlaylist(playlist.id);
+                  if (!context.mounted) return;
+                  await context.read<UsageService>().record(
+                        type: 'playlist_delete',
+                        detail: playlist.name,
+                      );
                 }
               },
               itemBuilder: (_) => const <PopupMenuEntry<String>>[
@@ -187,10 +201,10 @@ class _PlaylistList extends StatelessWidget {
               ],
             ),
             children: playlist.songs.isEmpty
-                ? const <Widget>[
+                ? <Widget>[
                     Padding(
-                      padding: EdgeInsets.all(18),
-                      child: Text('Add tracks from search using the ⋮ menu.', style: TextStyle(color: Colors.white54)),
+                      padding: const EdgeInsets.all(18),
+                      child: Text('Add tracks from search using the ⋮ menu.', style: TextStyle(color: palette.textMuted)),
                     ),
                   ]
                 : playlist.songs

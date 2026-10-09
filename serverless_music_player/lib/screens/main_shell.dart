@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../widgets/mini_player.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
+import 'usage_dashboard_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -17,20 +18,25 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     return Scaffold(
       body: SafeArea(
         bottom: false,
         child: IndexedStack(
           index: _tab,
-          children: const <Widget>[HomeScreen(), LibraryScreen()],
+          children: const <Widget>[
+            HomeScreen(),
+            LibraryScreen(),
+            UsageDashboardScreen(),
+          ],
         ),
       ),
       bottomNavigationBar: SafeArea(
         top: false,
         child: Container(
-          decoration: const BoxDecoration(
-            color: AppTheme.background,
-            border: Border(top: BorderSide(color: Colors.white10, width: 0.5)),
+          decoration: BoxDecoration(
+            color: palette.background,
+            border: Border(top: BorderSide(color: palette.outline, width: 0.7)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -50,6 +56,11 @@ class _MainShellState extends State<MainShell> {
                     icon: Icon(Icons.library_music_outlined),
                     selectedIcon: Icon(Icons.library_music_rounded),
                     label: 'Library',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.insights_outlined),
+                    selectedIcon: Icon(Icons.insights_rounded),
+                    label: 'Usage',
                   ),
                 ],
               ),
