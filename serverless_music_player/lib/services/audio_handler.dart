@@ -74,8 +74,8 @@ class MuzicAudioHandler extends BaseAudioHandler
     final current = tag.copyWith(
       duration: _player.duration ?? tag.duration,
     );
-    if (mediaItem.value?.id != current.id ||
-        mediaItem.value?.duration != current.duration) {
+    final previous = mediaItem.value;
+    if (previous.id != current.id || previous.duration != current.duration) {
       mediaItem.add(current);
       logDebug('audio', 'notification media item', <String, Object?>{
         'title': current.title,

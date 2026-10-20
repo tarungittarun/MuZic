@@ -116,7 +116,13 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                   Expanded(
                     child: Column(
                       children: <Widget>[
-                        Text('NOW PLAYING', style: TextStyle(fontSize: 10, letterSpacing: 2, color: palette.textMuted, fontWeight: FontWeight.w700)),
+                        Text('NOW PLAYING',
+                            style: TextStyle(
+                              fontSize: 10,
+                              letterSpacing: 2,
+                              color: palette.textMuted,
+                              fontWeight: FontWeight.w700,
+                            )),
                         const SizedBox(height: 3),
                         Text(AppInfo.displayName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                       ],
