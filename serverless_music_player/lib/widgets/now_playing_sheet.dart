@@ -11,7 +11,10 @@ import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
 import '../services/app_settings_service.dart';
+import '../services/app_log.dart';
 import '../services/audio_player_service.dart';
+import '../services/download_service.dart';
+import '../services/video_export_service.dart';
 import '../services/lyrics_language.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
@@ -30,6 +33,7 @@ class NowPlayingSheet extends StatefulWidget {
 class _NowPlayingSheetState extends State<NowPlayingSheet> {
   bool _showLyrics = false;
   bool _showVisualizer = false;
+  bool _exporting = false;
   final VisualizerService _visualizer = VisualizerService();
 
   @override
@@ -60,6 +64,103 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
     final sessionId = context.read<AudioPlayerService>().player.androidAudioSessionId;
     _visualizer.start(sessionId);
     setState(() => _showVisualizer = true);
+  }
+
+  /// Renders the current track into a shareable MP4 (cover art + waveform +
+  /// synced lyrics). Downloads the audio first when it is not saved offline.
+  Future<void> _exportVideo(SongModel song) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final player = context.read<PlayerController>();
+    final downloads = context.read<DownloadService>();
+    final api = context.read<MusicApiService>();
+    final settings = context.read<AppSettingsService>();
+    setState(() => _exporting = true);
+    VoidCallback? closeDialog;
+    try {
+      if (!player.isDownloaded(song)) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Downloading “${song.title}” for export…')),
+        );
+        await player.downloadSong(song);
+      }
+      final audioPath = await downloads.localPathFor(song.id);
+      if (audioPath == null) {
+        throw StateError('The audio file is not saved on this device yet.');
+      }
+      LyricsModel? lyrics;
+      try {
+        final bundle = await api.fetchLyricsVariants(song);
+        lyrics = selectLyricsVariant(
+          variants: bundle.variants,
+          song: song,
+          preference: settings.lyricsLanguage,
+          override: settings.lyricsLanguageOverrideFor(song.id),
+        );
+        if (lyrics == null || !lyrics.hasSynced) {
+          final synced = bundle.variants.where((v) => v.hasSynced).toList();
+          lyrics = synced.isEmpty ? null : synced.first;
+        }
+      } catch (error) {
+        logWarn('video', 'lyrics unavailable for export', <String, Object?>{
+          'error': '$error',
+        });
+      }
+      if (!mounted) return;
+      final progress = ValueNotifier<double>(0);
+      var dialogOpen = true;
+      unawaited(showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+          title: const Text('Rendering video'),
+          content: ValueListenableBuilder<double>(
+            valueListenable: progress,
+            builder: (context, value, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                LinearProgressIndicator(value: value == 0 ? null : value),
+                const SizedBox(height: 12),
+                Text('${(value * 100).round()}% · '
+                    'cover art, waveform and lyrics are being encoded.'),
+              ],
+            ),
+          ),
+        ),
+        ),
+      ));
+      closeDialog = () {
+        if (!dialogOpen) return;
+        dialogOpen = false;
+        if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      };
+
+      final result = await VideoExportService().export(
+        song: song,
+        audioPath: audioPath,
+        lyrics: lyrics,
+        onProgress: (value) => progress.value = value,
+      );
+      closeDialog();
+      progress.dispose();
+      closeDialog = null;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Video saved: ${result.path}'),
+          duration: const Duration(seconds: 8),
+        ),
+      );
+    } catch (error) {
+      closeDialog?.call();
+      final message = error is StateError ? error.message : '$error';
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not export the video: $message')),
+      );
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 
   Future<bool> _ensureMicrophonePermission() async {
@@ -127,6 +228,17 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                         Text(AppInfo.displayName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                       ],
                     ),
+                  ),
+                  IconButton(
+                    tooltip: 'Export lyric video',
+                    onPressed: _exporting ? null : () => _exportVideo(song),
+                    icon: _exporting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.movie_creation_outlined),
                   ),
                   IconButton(
                     tooltip: _showVisualizer

@@ -13,6 +13,7 @@ import android.provider.OpenableColumns
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
@@ -34,6 +35,8 @@ class MainActivity : AudioServiceActivity() {
     private var visualizerCapture: Visualizer? = null
     private var visualizerSink: EventChannel.EventSink? = null
     private var visualizerHandler: Handler? = null
+    private var videoExportChannel: MethodChannel? = null
+    private var videoProgressSink: EventChannel.EventSink? = null
 
     private companion object {
         const val PICK_AUDIO_REQUEST_CODE = 4213
@@ -89,6 +92,30 @@ class MainActivity : AudioServiceActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        videoExportChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "music_player/video_export",
+        )
+        videoExportChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "export" -> exportVideo(call, result)
+                else -> result.notImplemented()
+            }
+        }
+
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "music_player/video_export_progress",
+        ).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                videoProgressSink = events
+            }
+
+            override fun onCancel(arguments: Any?) {
+                videoProgressSink = null
+            }
+        })
 
         visualizerChannel = EventChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -173,6 +200,40 @@ class MainActivity : AudioServiceActivity() {
         visualizerCapture = null
         visualizerHandler?.removeCallbacksAndMessages(null)
         visualizerHandler = null
+    }
+
+    private fun exportVideo(call: MethodCall, result: MethodChannel.Result) {
+        val audioPath = call.argument<String>("audioPath")
+        val artworkPath = call.argument<String>("artworkPath")
+        val title = call.argument<String>("title") ?: "MuZic"
+        val artist = call.argument<String>("artist") ?: ""
+        val durationMs = call.argument<Int>("durationMs")?.toLong() ?: 0L
+        val outputName = call.argument<String>("outputName") ?: "muzic_video"
+        val lyrics = parseLyrics(call.argument<String>("lyrics") ?: "[]")
+        if (audioPath == null || !File(audioPath).exists()) {
+            result.error("missing_audio", "The audio file is not available.", null)
+            return
+        }
+        Thread {
+            try {
+                val path = VideoExporter(this).export(
+                    audioPath = audioPath,
+                    artworkPath = artworkPath,
+                    title = title,
+                    artist = artist,
+                    lyrics = lyrics,
+                    durationMsHint = durationMs,
+                    outputName = outputName,
+                ) { progress ->
+                    runOnUiThread { videoProgressSink?.success(progress) }
+                }
+                runOnUiThread { result.success(path) }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    result.error("export_failed", e.message ?: "Video export failed.", null)
+                }
+            }
+        }.start()
     }
 
     private fun shareText(subject: String, text: String, result: MethodChannel.Result) {
