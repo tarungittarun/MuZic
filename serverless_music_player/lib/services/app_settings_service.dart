@@ -12,6 +12,7 @@ class AppSettingsService extends ChangeNotifier {
   static const String _bassStrengthKey = 'bass_boost_strength';
   static const String _eqEnabledKey = 'equalizer_enabled';
   static const String _eqPresetKey = 'equalizer_preset';
+  static const String _diagnosticsKey = 'diagnostics_capture';
 
   late Box<dynamic> _settings;
   ThemeMode _themeMode = ThemeMode.dark;
@@ -22,6 +23,7 @@ class AppSettingsService extends ChangeNotifier {
   int _bassBoostStrength = 50;
   bool _equalizerEnabled = false;
   int _equalizerPreset = 0;
+  bool _diagnosticsEnabled = false;
 
   ThemeMode get themeMode => _themeMode;
 
@@ -35,6 +37,10 @@ class AppSettingsService extends ChangeNotifier {
   int get bassBoostStrength => _bassBoostStrength;
   bool get equalizerEnabled => _equalizerEnabled;
   int get equalizerPreset => _equalizerPreset;
+
+  /// Whether the user opted in to diagnostic capture. Off by default: nothing
+  /// is recorded or exported unless they explicitly turn it on.
+  bool get diagnosticsEnabled => _diagnosticsEnabled;
 
   Future<void> init() async {
     _settings = await Hive.openBox<dynamic>(_boxName);
@@ -52,6 +58,7 @@ class AppSettingsService extends ChangeNotifier {
     _bassBoostStrength = _readInt(_bassStrengthKey, 50);
     _equalizerEnabled = _settings.get(_eqEnabledKey) == true;
     _equalizerPreset = _readInt(_eqPresetKey, 0);
+    _diagnosticsEnabled = _settings.get(_diagnosticsKey) == true;
   }
 
   int _readInt(String key, int fallback) {
@@ -72,6 +79,12 @@ class AppSettingsService extends ChangeNotifier {
     if (clean == _lyricsLanguage) return;
     _lyricsLanguage = clean;
     await _settings.put(_lyricsLanguageKey, clean);
+    notifyListeners();
+  }
+
+  Future<void> setDiagnosticsEnabled(bool value) async {
+    _diagnosticsEnabled = value;
+    await _settings.put(_diagnosticsKey, value);
     notifyListeners();
   }
 

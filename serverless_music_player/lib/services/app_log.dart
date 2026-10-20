@@ -41,12 +41,18 @@ class LogEntry {
 
 /// Process-wide ring buffer of diagnostic log entries.
 ///
-/// Services across the app write here so a single export can capture the full
-/// playback pipeline (search, resolve, lyrics, player errors) for analysis.
+/// Capture is **opt-in**: nothing is recorded until the user turns on
+/// "Capture diagnostics" in Settings. When enabled, services across the app
+/// write here so a single export captures the full playback pipeline (search,
+/// resolve, lyrics, player errors, queue state) for analysis.
 class AppLog {
   AppLog._();
 
-  static const int capacity = 2500;
+  static const int capacity = 4000;
+
+  /// Master switch. Off by default; set from settings at startup.
+  static bool enabled = false;
+
   static final List<LogEntry> entries = <LogEntry>[];
   static final List<void Function(LogEntry)> _listeners =
       <void Function(LogEntry)>[];
@@ -57,6 +63,7 @@ class AppLog {
     String message, [
     Map<String, Object?>? data,
   ]) {
+    if (!enabled) return;
     final entry = LogEntry(
       time: DateTime.now(),
       level: level,
@@ -78,6 +85,14 @@ class AppLog {
     }
   }
 
+  /// Turns capture on or off. Turning it off also drops anything recorded.
+  static void setEnabled(bool value) {
+    enabled = value;
+    if (!value) {
+      clear();
+    }
+  }
+
   static void clear() => entries.clear();
 
   static List<LogEntry> snapshot() => List<LogEntry>.of(entries);
@@ -91,14 +106,22 @@ class AppLog {
   }
 }
 
-void logDebug(String category, String message, [Map<String, Object?>? data]) =>
-    AppLog.log(LogLevel.debug, category, message, data);
+void logDebug(String category, String message, [Map<String, Object?>? data]) {
+  if (!AppLog.enabled) return;
+  AppLog.log(LogLevel.debug, category, message, data);
+}
 
-void logInfo(String category, String message, [Map<String, Object?>? data]) =>
-    AppLog.log(LogLevel.info, category, message, data);
+void logInfo(String category, String message, [Map<String, Object?>? data]) {
+  if (!AppLog.enabled) return;
+  AppLog.log(LogLevel.info, category, message, data);
+}
 
-void logWarn(String category, String message, [Map<String, Object?>? data]) =>
-    AppLog.log(LogLevel.warn, category, message, data);
+void logWarn(String category, String message, [Map<String, Object?>? data]) {
+  if (!AppLog.enabled) return;
+  AppLog.log(LogLevel.warn, category, message, data);
+}
 
-void logError(String category, String message, [Map<String, Object?>? data]) =>
-    AppLog.log(LogLevel.error, category, message, data);
+void logError(String category, String message, [Map<String, Object?>? data]) {
+  if (!AppLog.enabled) return;
+  AppLog.log(LogLevel.error, category, message, data);
+}

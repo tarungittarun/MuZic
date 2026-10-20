@@ -2,7 +2,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:music_player/services/app_log.dart';
 
 void main() {
-  tearDown(AppLog.clear);
+  setUp(() => AppLog.setEnabled(true));
+  tearDown(() {
+    AppLog.clear();
+    AppLog.setEnabled(false);
+  });
+
+  test('captures nothing while disabled', () {
+    AppLog.setEnabled(false);
+    logInfo('api', 'should be ignored');
+    logError('player', 'also ignored');
+    expect(AppLog.entries, isEmpty);
+  });
+
+  test('disabling capture deletes what was recorded', () {
+    logInfo('api', 'kept briefly');
+    expect(AppLog.entries, hasLength(1));
+    AppLog.setEnabled(false);
+    expect(AppLog.entries, isEmpty);
+  });
 
   test('captures entries in order with formatted output', () {
     logInfo('api', 'first event', <String, Object?>{'k': 1});

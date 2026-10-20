@@ -721,7 +721,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
   }
 }
 
-class _SyncedLyricsView extends StatelessWidget {
+class _SyncedLyricsView extends StatefulWidget {
   const _SyncedLyricsView({
     required this.lyrics,
     required this.song,
@@ -733,32 +733,155 @@ class _SyncedLyricsView extends StatelessWidget {
   final Duration position;
 
   @override
-  Widget build(BuildContext context) {
-    final palette = context.palette;
-    final active = _activeLine(lyrics.syncedLines, position);
-    return ListView.builder(
-      key: PageStorageKey<String>('synced-${song.id}-${lyrics.source}'),
-      padding: const EdgeInsets.fromLTRB(28, 56, 28, 28),
-      itemCount: lyrics.syncedLines.length,
-      itemBuilder: (context, index) => AnimatedDefaultTextStyle(
-        duration: const Duration(milliseconds: 180),
-        style: TextStyle(
-          fontSize: index == active ? 22 : 17,
-          height: 1.45,
-          fontWeight: index == active ? FontWeight.w800 : FontWeight.w500,
-          color: index == active
-              ? palette.accent
-              : palette.textMuted.withValues(alpha: 0.55),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Text(lyrics.syncedLines[index].text, textAlign: TextAlign.center),
-        ),
-      ),
+  State<_SyncedLyricsView> createState() => _SyncedLyricsViewState();
+}
+
+class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
+  /// Fixed row height keeps scroll offsets exact, which is what makes the
+  /// auto-scroll smooth (no measuring, no jumping).
+  static const double _rowHeight = 62;
+
+  final ScrollController _controller = ScrollController();
+  Timer? _resumeTimer;
+  bool _userScrolling = false;
+  int _lastIndex = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastIndex = _activeIndex(widget.lyrics.syncedLines, widget.position);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _animateTo(_lastIndex));
+  }
+
+  @override
+  void didUpdateWidget(covariant _SyncedLyricsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final index = _activeIndex(widget.lyrics.syncedLines, widget.position);
+    if (index != _lastIndex) {
+      _lastIndex = index;
+      _animateTo(index);
+    }
+  }
+
+  /// The user takes control the moment they drag; auto-scroll resumes by
+  /// itself after a short pause (like most music apps) or instantly on tap.
+  bool _onUserScroll(ScrollNotification notification) {
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      setState(() => _userScrolling = true);
+      _resumeTimer?.cancel();
+    } else if (notification is ScrollEndNotification && _userScrolling) {
+      _resumeTimer?.cancel();
+      _resumeTimer = Timer(const Duration(seconds: 5), () {
+        if (!mounted) return;
+        setState(() => _userScrolling = false);
+        _animateTo(
+          _activeIndex(widget.lyrics.syncedLines, widget.position),
+          immediate: true,
+        );
+      });
+    }
+    return false;
+  }
+
+  void _resumeNow() {
+    _resumeTimer?.cancel();
+    setState(() => _userScrolling = false);
+    _animateTo(
+      _activeIndex(widget.lyrics.syncedLines, widget.position),
+      immediate: true,
     );
   }
 
-  int _activeLine(List<LyricLine> lines, Duration position) {
+  void _animateTo(int index, {bool immediate = false}) {
+    if (!_controller.hasClients || index < 0) return;
+    final position = _controller.position;
+    final viewport = position.viewportDimension;
+    final target = (index * _rowHeight) - (viewport * 0.38) + (_rowHeight / 2);
+    final clamped = target.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if ((position.pixels - clamped).abs() < 2) return;
+    _controller.animateTo(
+      clamped,
+      duration: Duration(milliseconds: immediate ? 260 : 420),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _resumeTimer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final lines = widget.lyrics.syncedLines;
+    final active = _activeIndex(lines, widget.position);
+    return Stack(
+      children: <Widget>[
+        NotificationListener<ScrollNotification>(
+          onNotification: _onUserScroll,
+          child: ListView.builder(
+            controller: _controller,
+            padding: const EdgeInsets.fromLTRB(24, 40, 24, 40),
+            itemExtent: _rowHeight,
+            itemCount: lines.length,
+            itemBuilder: (context, index) {
+              final isActive = index == active;
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  if (_userScrolling) _resumeNow();
+                },
+                child: Center(
+                  child: AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOut,
+                    style: TextStyle(
+                      fontSize: isActive ? 21 : 16.5,
+                      height: 1.3,
+                      fontWeight:
+                          isActive ? FontWeight.w800 : FontWeight.w500,
+                      color: isActive
+                          ? palette.accent
+                          : palette.textMuted.withValues(alpha: 0.5),
+                    ),
+                    child: Text(
+                      lines[index].text,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        if (_userScrolling)
+          Positioned(
+            bottom: 10,
+            right: 18,
+            child: FilledButton.tonalIcon(
+              onPressed: _resumeNow,
+              icon: const Icon(Icons.sync_rounded, size: 16),
+              label: const Text('Resume auto-scroll'),
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                textStyle: const TextStyle(fontSize: 11),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  int _activeIndex(List<LyricLine> lines, Duration position) {
     var active = 0;
     for (var i = 0; i < lines.length; i++) {
       if (lines[i].time <= position) {

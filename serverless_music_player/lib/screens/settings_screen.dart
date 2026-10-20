@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_info.dart';
+import '../services/app_log.dart';
 import '../services/app_settings_service.dart';
 import '../services/audio_effects_service.dart';
 import '../services/lyrics_language.dart';
+import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import 'diagnostics_screen.dart';
 
@@ -126,6 +128,36 @@ class SettingsScreen extends StatelessWidget {
                   const SizedBox(height: 10),
                 ],
               ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'PLAYBACK',
+            style: TextStyle(
+              color: palette.textMuted,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.8,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: ListTile(
+              leading: Icon(Icons.notifications_active_outlined,
+                  color: palette.accent),
+              title: const Text('Media notification'),
+              subtitle: Text(
+                'Playback controls in the notification shade and lock screen. '
+                'If they do not appear, allow notifications for MuZic here.',
+                style: TextStyle(color: palette.textMuted, fontSize: 12),
+              ),
+              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: () async {
+                final granted = await NotificationService.ensurePermission();
+                if (!granted) {
+                  await NotificationService.openSystemSettings();
+                }
+              },
             ),
           ),
           const SizedBox(height: 24),
@@ -274,19 +306,46 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Card(
-            child: ListTile(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const DiagnosticsScreen(),
+            child: Column(
+              children: <Widget>[
+                SwitchListTile(
+                  value: settings.diagnosticsEnabled,
+                  secondary: Icon(
+                    Icons.bug_report_outlined,
+                    color: settings.diagnosticsEnabled
+                        ? palette.accent
+                        : palette.textSecondary,
+                  ),
+                  title: const Text('Diagnostics capture'),
+                  subtitle: Text(
+                    settings.diagnosticsEnabled
+                        ? 'Recording — turn off to stop and delete captured data.'
+                        : 'Off — nothing is recorded.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  onChanged: (value) async {
+                    await settings.setDiagnosticsEnabled(value);
+                    AppLog.setEnabled(value);
+                    if (value) logInfo('diagnostics', 'capture enabled');
+                  },
                 ),
-              ),
-              leading: Icon(Icons.bug_report_outlined, color: palette.accent),
-              title: const Text('Diagnostics & log capture'),
-              subtitle: Text(
-                'Simulate playback steps, capture logs, export a report.',
-                style: TextStyle(color: palette.textMuted, fontSize: 12),
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
+                Divider(height: 1, color: palette.outline),
+                ListTile(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const DiagnosticsScreen(),
+                    ),
+                  ),
+                  leading:
+                      Icon(Icons.troubleshoot_rounded, color: palette.accent),
+                  title: const Text('Diagnostics & logs'),
+                  subtitle: Text(
+                    'Run checks, review captured events, export a report.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 24),

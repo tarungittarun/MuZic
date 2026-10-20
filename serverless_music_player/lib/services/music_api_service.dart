@@ -119,6 +119,128 @@ class MusicApiService {
     }
   }
 
+  /// Trending songs from JioSaavn (used by the Discover home shelves).
+  Future<List<SongModel>> fetchTrending({
+    int limit = 20,
+    String language = 'english',
+  }) async {
+    final stopwatch = Stopwatch()..start();
+    final uri = Uri.https(_saavnHost, '/api.php', <String, String>{
+      '__call': 'content.getTrending',
+      '_format': 'json',
+      '_marker': '0',
+      'api_version': '4',
+      'ctx': 'web6dot0',
+      'entity_type': 'song',
+      'entity_language': language,
+    });
+    try {
+      final response =
+          await _http.get(uri, headers: _saavnHeaders).timeout(_timeout);
+      if (response.statusCode != 200) return const <SongModel>[];
+      final decoded = jsonDecode(response.body);
+      final rows = decoded is Iterable
+          ? decoded.toList(growable: false)
+          : _findSongRows(_asMap(decoded) ?? <String, dynamic>{});
+      final songs = rows
+          .map(_songFromSaavn)
+          .whereType<SongModel>()
+          .take(limit)
+          .toList(growable: false);
+      logInfo('api', 'fetchTrending', <String, Object?>{
+        'language': language,
+        'results': songs.length,
+        'ms': stopwatch.elapsedMilliseconds,
+      });
+      return songs;
+    } catch (error) {
+      logWarn('api', 'fetchTrending failed', <String, Object?>{
+        'error': '$error',
+        'ms': stopwatch.elapsedMilliseconds,
+      });
+      return const <SongModel>[];
+    }
+  }
+
+  /// Album matches for a query (search results page shelves).
+  Future<List<AlbumSummary>> searchAlbums(
+    String query, {
+    int limit = 10,
+  }) async {
+    final cleanQuery = query.trim();
+    if (cleanQuery.isEmpty) return const <AlbumSummary>[];
+    final uri = Uri.https(_saavnHost, '/api.php', <String, String>{
+      '__call': 'search.getAlbumResults',
+      '_format': 'json',
+      '_marker': '0',
+      'api_version': '4',
+      'ctx': 'web6dot0',
+      'q': cleanQuery,
+      'p': '1',
+      'n': '$limit',
+    });
+    try {
+      final response =
+          await _http.get(uri, headers: _saavnHeaders).timeout(_timeout);
+      if (response.statusCode != 200) return const <AlbumSummary>[];
+      final root = _asMap(jsonDecode(response.body));
+      if (root == null) return const <AlbumSummary>[];
+      final rows = root['results'] ?? root['data'];
+      if (rows is! Iterable) return const <AlbumSummary>[];
+      return rows
+          .map(AlbumSummary.fromSaavn)
+          .whereType<AlbumSummary>()
+          .take(limit)
+          .toList(growable: false);
+    } catch (error) {
+      logWarn('api', 'searchAlbums failed', <String, Object?>{
+        'query': cleanQuery,
+        'error': '$error',
+      });
+      return const <AlbumSummary>[];
+    }
+  }
+
+  /// Songs that belong to an album.
+  Future<List<SongModel>> fetchAlbumSongs(
+    String albumId, {
+    int limit = 60,
+  }) async {
+    if (albumId.trim().isEmpty) return const <SongModel>[];
+    final uri = Uri.https(_saavnHost, '/api.php', <String, String>{
+      '__call': 'content.getAlbumDetails',
+      '_format': 'json',
+      '_marker': '0',
+      'api_version': '4',
+      'ctx': 'web6dot0',
+      'albumid': albumId,
+    });
+    try {
+      final response =
+          await _http.get(uri, headers: _saavnHeaders).timeout(_timeout);
+      if (response.statusCode != 200) return const <SongModel>[];
+      final root = _asMap(jsonDecode(response.body));
+      if (root == null) return const <SongModel>[];
+      final rows = _findSongRows(root);
+      final songs = rows
+          .map(_songFromSaavn)
+          .whereType<SongModel>()
+          .take(limit)
+          .toList(growable: false);
+      logInfo('api', 'fetchAlbumSongs', <String, Object?>{
+        'albumId': albumId,
+        'songs': songs.length,
+      });
+      return songs;
+    } catch (error) {
+      logWarn('api', 'fetchAlbumSongs failed', <String, Object?>{
+        'albumId': albumId,
+        'error': '$error',
+      });
+      return const <SongModel>[];
+    }
+  }
+
   Future<List<String>> suggestions(String query) async {
     if (query.trim().isEmpty) return const <String>[];
     final uri = Uri.https(_saavnHost, '/api.php', <String, String>{
@@ -1030,5 +1152,55 @@ class MusicApiService {
     final uri = Uri.tryParse(url);
     if (uri == null) return false;
     return uri.host.contains('googlevideo.com');
+  }
+}
+
+/// Lightweight album result used by the search and discover shelves.
+class AlbumSummary {
+  const AlbumSummary({
+    required this.id,
+    required this.title,
+    required this.artist,
+    this.imageUrl,
+    this.year,
+    this.songCount,
+    this.language,
+  });
+
+  final String id;
+  final String title;
+  final String artist;
+  final String? imageUrl;
+  final String? year;
+  final int? songCount;
+  final String? language;
+
+  static AlbumSummary? fromSaavn(dynamic value) {
+    if (value is! Map) return null;
+    final map = Map<String, dynamic>.from(value);
+    final id = (map['id'] ?? map['album_id'] ?? '').toString().trim();
+    final title = (map['title'] ?? map['name'] ?? '').toString().trim();
+    if (id.isEmpty || title.isEmpty) return null;
+    final moreInfo = map['more_info'] is Map
+        ? Map<String, dynamic>.from(map['more_info'] as Map)
+        : const <String, dynamic>{};
+    final count = int.tryParse(
+      (moreInfo['song_count'] ?? map['song_count'] ?? '').toString(),
+    );
+    return AlbumSummary(
+      id: id,
+      title: title,
+      artist: (map['subtitle'] ?? map['artist'] ?? '').toString().trim(),
+      imageUrl: (map['image'] ?? '').toString().isEmpty
+          ? null
+          : map['image'].toString(),
+      year: (map['year'] ?? '').toString().isEmpty
+          ? null
+          : map['year'].toString(),
+      songCount: count,
+      language: (map['language'] ?? '').toString().isEmpty
+          ? null
+          : map['language'].toString(),
+    );
   }
 }

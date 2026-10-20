@@ -1,17 +1,19 @@
 import 'package:flutter/foundation.dart' as foundation;
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 
 import 'app.dart';
 import 'providers/player_controller.dart';
 import 'services/app_log.dart';
 import 'services/app_settings_service.dart';
+import 'services/audio_handler.dart';
 import 'services/audio_effects_service.dart';
 import 'services/audio_player_service.dart';
 import 'services/diagnostics_service.dart';
 import 'services/download_service.dart';
 import 'services/library_service.dart';
 import 'services/music_api_service.dart';
+import 'services/notification_service.dart';
 import 'services/usage_service.dart';
 
 Future<void> main() async {
@@ -33,21 +35,31 @@ Future<void> main() async {
     return true;
   };
 
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.music.player.audio',
-    androidNotificationChannelName: 'MuZic playback',
-    androidNotificationOngoing: true,
-  );
-
   final library = LibraryService();
   await library.init();
   final settings = AppSettingsService();
   await settings.init();
+  // Diagnostics are opt-in: nothing is captured until the user enables it.
+  AppLog.setEnabled(settings.diagnosticsEnabled);
   final usage = UsageService();
   await usage.init();
 
   final musicApi = MusicApiService();
   final audio = AudioPlayerService();
+
+  // Registers the media session that backs the playback notification, lock
+  // screen and Bluetooth/headset controls.
+  await AudioService.init(
+    builder: () => MuzicAudioHandler(audio.player),
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: 'com.music.player.audio',
+      androidNotificationChannelName: 'MuZic playback',
+      androidNotificationOngoing: true,
+      androidStopForegroundOnPause: true,
+      androidNotificationClickStartsActivity: true,
+    ),
+  );
+
   final downloads = DownloadService(library: library);
   final player = PlayerController(
     audio: audio,
@@ -65,6 +77,9 @@ Future<void> main() async {
   );
   final effects = AudioEffectsService(settings: settings, player: audio.player);
   effects.attach();
+
+  // The playback notification needs POST_NOTIFICATIONS on Android 13+.
+  await NotificationService.ensurePermission();
 
   logInfo('app', 'application starting');
 

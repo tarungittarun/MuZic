@@ -17,7 +17,6 @@ dependencies:
   hive_flutter: ^1.1.0
   http: ^1.6.0
   just_audio: ^0.10.6
-  just_audio_background: ^0.0.1-beta.17
   path: ^1.9.1
   path_provider: ^2.1.5
   permission_handler: ^12.0.3 # v13 requires compileSdk 37; stay compatible with this AGP 8/API 36 build.

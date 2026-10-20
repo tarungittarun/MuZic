@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../services/app_log.dart';
+import '../services/app_settings_service.dart';
 import '../services/diagnostics_service.dart';
 import '../theme/app_theme.dart';
 
@@ -33,7 +34,9 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   @override
   Widget build(BuildContext context) {
     final diagnostics = context.watch<DiagnosticsService>();
+    final settings = context.watch<AppSettingsService>();
     final palette = context.palette;
+    final captureOn = settings.diagnosticsEnabled;
     final entries = AppLog.snapshot().reversed.toList(growable: false);
     return Scaffold(
       appBar: AppBar(
@@ -68,6 +71,72 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
         children: <Widget>[
           Card(
+            child: SwitchListTile(
+              value: captureOn,
+              secondary: Icon(
+                captureOn ? Icons.analytics_rounded : Icons.analytics_outlined,
+                color: captureOn ? palette.mint : palette.textMuted,
+              ),
+              title: const Text('Capture diagnostics'),
+              subtitle: Text(
+                captureOn
+                    ? 'Recording this device\'s playback activity. Turn off to '
+                        'stop capturing and delete what was recorded.'
+                    : 'Off — nothing is recorded. Turn on to capture playback, '
+                        'network and player events for troubleshooting.',
+                style: TextStyle(color: palette.textMuted, fontSize: 12),
+              ),
+              onChanged: (value) async {
+                await context
+                    .read<AppSettingsService>()
+                    .setDiagnosticsEnabled(value);
+                AppLog.setEnabled(value);
+                if (value) {
+                  logInfo('diagnostics', 'capture enabled by user');
+                }
+                setState(() {});
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (!captureOn)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(17),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Icon(Icons.lock_outline_rounded, color: palette.mint),
+                        const SizedBox(width: 11),
+                        const Expanded(
+                          child: Text(
+                            'Diagnostics are off',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'MuZic records nothing unless you switch capture on. '
+                      'When enabled it records search and stream resolution '
+                      'steps, playback and fallback errors, lyrics lookups, '
+                      'queue and settings state — everything needed to '
+                      'reproduce a bug. Everything stays on this device until '
+                      'you export and share it.',
+                      style: TextStyle(
+                        color: palette.textSecondary,
+                        height: 1.5,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (captureOn) Card(
             child: Padding(
               padding: const EdgeInsets.all(17),
               child: Row(
@@ -196,7 +265,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          Row(
+          if (captureOn) Row(
             children: <Widget>[
               Text(
                 'CAPTURED LOGS',
@@ -215,7 +284,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          if (entries.isEmpty)
+          if (captureOn && entries.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Center(
@@ -225,7 +294,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                 ),
               ),
             )
-          else
+          else if (captureOn)
             for (final entry in entries.take(200)) _LogTile(entry: entry),
         ],
       ),

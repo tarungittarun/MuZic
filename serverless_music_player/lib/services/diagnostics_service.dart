@@ -184,10 +184,18 @@ class DiagnosticsService extends ChangeNotifier {
     buffer.writeln(
         'Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
     buffer.writeln('Processors: ${Platform.numberOfProcessors}');
+    buffer.writeln('Capture enabled: ${settings.diagnosticsEnabled}');
+    buffer.writeln('Log entries: ${AppLog.entries.length}');
     buffer.writeln();
     buffer.writeln('--- Settings ---');
     buffer.writeln('themeMode: ${settings.themeMode.name}');
     buffer.writeln('lyricsLanguage: ${settings.lyricsLanguage}');
+    buffer.writeln('virtualizer: ${settings.virtualizerEnabled} '
+        '(${settings.virtualizerStrength}%)');
+    buffer.writeln('bassBoost: ${settings.bassBoostEnabled} '
+        '(${settings.bassBoostStrength}%)');
+    buffer.writeln('equalizer: ${settings.equalizerEnabled} '
+        '(preset ${settings.equalizerPreset})');
     buffer.writeln();
     buffer.writeln('--- Library ---');
     buffer.writeln('favorites: ${library.favoriteSongs.length}');
