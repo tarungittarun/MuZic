@@ -39,10 +39,10 @@ jobs:
       - name: Verify signing key
         shell: bash
         run: |
-          ls -la key.properties
-          ls -la app/*.p12 || echo "no keystore in app/"
-          keytool -list -v -keystore app/muzic-release.p12 -storetype PKCS12 \
-            -storepass MuZicRelease2026 2>&1 | grep -E "Alias|Valid|Signature algorithm|error" | head -6
+          ls -la android/key.properties
+          ls -la android/app/*.p12 || echo "no keystore in android/app/"
+          keytool -list -v -keystore android/app/muzic-release.p12 -storetype PKCS12 \
+            -storepass MuZicRelease2026 2>&1 | grep -E "Alias name|Valid|Signature algorithm|error" | head -6
 
       - name: Build per-ABI release APKs
         shell: bash
