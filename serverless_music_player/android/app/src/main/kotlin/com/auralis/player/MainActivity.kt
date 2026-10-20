@@ -109,7 +109,7 @@ class MainActivity : AudioServiceActivity() {
             return
         }
         try {
-            val capture = Visualizer(0, sessionId)
+            val capture = Visualizer(sessionId)
             val range = Visualizer.getCaptureSizeRange()
             capture.captureSize = max(range[0], 512).coerceAtMost(range[1])
             val handler = Handler(Looper.getMainLooper())
