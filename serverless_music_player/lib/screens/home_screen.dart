@@ -208,7 +208,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _losslessRadioRow() {
-    final palette = context.palette;
     return SizedBox(
       height: 68,
       child: ListView(

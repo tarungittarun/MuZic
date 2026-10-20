@@ -158,6 +158,7 @@ class SettingsScreen extends StatelessWidget {
                     value: settings.virtualizerEnabled,
                     onChanged: (value) async {
                       await settings.setVirtualizer(enabled: value);
+                      if (!context.mounted) return;
                       await context.read<AudioEffectsService>().apply();
                     },
                   ),
@@ -201,6 +202,7 @@ class SettingsScreen extends StatelessWidget {
                     value: settings.bassBoostEnabled,
                     onChanged: (value) async {
                       await settings.setBassBoost(enabled: value);
+                      if (!context.mounted) return;
                       await context.read<AudioEffectsService>().apply();
                     },
                   ),
@@ -244,6 +246,7 @@ class SettingsScreen extends StatelessWidget {
                     value: settings.equalizerEnabled,
                     onChanged: (value) async {
                       await settings.setEqualizer(enabled: value);
+                      if (!context.mounted) return;
                       await context.read<AudioEffectsService>().apply();
                     },
                   ),
