@@ -137,7 +137,7 @@ void main() {
       final lyrics = await api.fetchLyrics(song);
       stopwatch.stop();
 
-      expect(stopwatch.elapsed, greaterThanOrEqual(const Duration(milliseconds: 900)));
+      expect(stopwatch.elapsed, greaterThanOrEqualTo(const Duration(milliseconds: 900)));
       expect(lyrics.plainLyrics, 'Available after the wait');
       expect(requestCount, 2);
     });

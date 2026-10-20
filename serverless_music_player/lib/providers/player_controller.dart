@@ -533,7 +533,7 @@ class PlayerController extends ChangeNotifier {
     _isRecovering = true;
     notifyListeners();
     try {
-      final String url;
+      String url;
       if (song.source == SongSource.youtube) {
         try {
           url = await _musicApi.resolveYouTube(song, lowestBitrate: true);

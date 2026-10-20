@@ -308,9 +308,14 @@ class MusicApiService {
     if (manifest.audioOnly.isEmpty) {
       throw StateError('No audio-only stream is available for this video.');
     }
-    final url = lowestBitrate
-        ? manifest.audioOnly.withLowestBitrate().url.toString()
-        : manifest.audioOnly.withHighestBitrate().url.toString();
+    final AudioStreamInfo chosen;
+    if (lowestBitrate) {
+      chosen = manifest.audioOnly.reduce((a, b) =>
+          a.bitrate.bitsPerSecond <= b.bitrate.bitsPerSecond ? a : b);
+    } else {
+      chosen = manifest.audioOnly.withHighestBitrate();
+    }
+    final url = chosen.url.toString();
     logDebug('api', 'youtube stream resolved', <String, Object?>{
       'videoId': videoId,
       'lowest': lowestBitrate,
