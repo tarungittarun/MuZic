@@ -62,6 +62,19 @@ jobs:
           done
           exit $status
 
+      - name: Verify APK signature
+        shell: bash
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | tail -1)
+          for apk in build/app/outputs/flutter-apk/app-*-release.apk; do
+            echo "### $apk"
+            "$BT/apksigner" verify --print-certs "$apk" 2>&1 | grep -E "Signer #1 certificate (DN|SHA-256)" || true
+          done | tee -a "$GITHUB_STEP_SUMMARY"
+          "$BT/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-arm64-v8a-release.apk 2>&1 \
+            | grep "SHA-256" | head -1 | while IFS= read -r line; do
+            echo "::notice title=APK signing certificate::${line}"
+          done
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7.0.2
         with:
