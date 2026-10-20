@@ -48,6 +48,7 @@ android {
                 keyPassword = keystoreProperties['keyPassword']
                 storeFile = file(keystoreProperties['storeFile'])
                 storePassword = keystoreProperties['storePassword']
+                storeType = keystoreProperties['storeType'] ?: 'PKCS12'
             }
         }
     }

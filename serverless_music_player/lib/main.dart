@@ -35,7 +35,7 @@ Future<void> main() async {
 
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.music.player.audio',
-    androidNotificationChannelName: 'Music playback',
+    androidNotificationChannelName: 'MuZic playback',
     androidNotificationOngoing: true,
   );
 
