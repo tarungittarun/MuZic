@@ -56,7 +56,7 @@ jobs:
             tail -80 build_out.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          grep -aE "FAILURE:|What went wrong|Caused by|error:|Exception|FAILED|Keystore|keystore|apksigner|Execution failed" build_out.txt \
+          grep -aE "^e: |^w: |FAILURE:|What went wrong|Caused by|error:|Exception|FAILED|Execution failed|> Task .*FAILED" build_out.txt \
             | grep -av "Unzipping" | head -40 | while IFS= read -r line; do
             echo "::error title=build::${line}"
           done
