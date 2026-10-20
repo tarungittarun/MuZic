@@ -2,6 +2,9 @@ name: Build installable Android APKs
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'arena/**'
 
 permissions:
   contents: write
