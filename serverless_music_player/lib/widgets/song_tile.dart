@@ -363,7 +363,7 @@ class _LyricsAvailability extends StatelessWidget {
         final String value;
         final Color color;
         if (snapshot.connectionState == ConnectionState.waiting) {
-          value = 'Checking LRCLIB…';
+          value = 'Checking lyrics…';
           color = palette.textMuted;
         } else if (snapshot.hasError) {
           return Padding(
@@ -385,10 +385,10 @@ class _LyricsAvailability extends StatelessWidget {
             ),
           );
         } else if (snapshot.data?.isEmpty == false) {
-          value = 'Available on LRCLIB';
+          value = 'Available';
           color = palette.mint;
         } else {
-          value = 'Not found on LRCLIB';
+          value = 'Not found';
           color = palette.textMuted;
         }
         return _InfoRow(label: 'Lyrics', value: value, valueColor: color);

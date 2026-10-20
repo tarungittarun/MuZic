@@ -1,10 +1,13 @@
+import 'package:flutter/foundation.dart' as foundation;
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
 import 'app.dart';
 import 'providers/player_controller.dart';
+import 'services/app_log.dart';
 import 'services/app_settings_service.dart';
 import 'services/audio_player_service.dart';
+import 'services/diagnostics_service.dart';
 import 'services/download_service.dart';
 import 'services/library_service.dart';
 import 'services/music_api_service.dart';
@@ -12,9 +15,26 @@ import 'services/usage_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Capture framework and async errors into the diagnostics log so they can
+  // be exported and shared for analysis.
+  final previousOnError = foundation.FlutterError.onError;
+  foundation.FlutterError.onError = (foundation.FlutterErrorDetails details) {
+    logError('flutter', details.exceptionAsString(), <String, Object?>{
+      'library': details.library ?? '',
+    });
+    previousOnError?.call(details);
+  };
+  WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
+    logError('zone', '$error', <String, Object?>{
+      'stack': stack.toString().split('\n').take(6).join(' | '),
+    });
+    return true;
+  };
+
   await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.auralis.player.audio',
-    androidNotificationChannelName: 'Auralis playback',
+    androidNotificationChannelId: 'com.music.player.audio',
+    androidNotificationChannelName: 'Music playback',
     androidNotificationOngoing: true,
   );
 
@@ -35,8 +55,17 @@ Future<void> main() async {
     library: library,
     usage: usage,
   );
+  final diagnostics = DiagnosticsService(
+    settings: settings,
+    library: library,
+    usage: usage,
+    player: player,
+    musicApi: musicApi,
+  );
 
-  runApp(AuralisApp(
+  logInfo('app', 'application starting');
+
+  runApp(MusicApp(
     library: library,
     musicApi: musicApi,
     audio: audio,
@@ -44,5 +73,6 @@ Future<void> main() async {
     player: player,
     settings: settings,
     usage: usage,
+    diagnostics: diagnostics,
   ));
 }

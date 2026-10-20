@@ -1,13 +1,13 @@
 import 'dart:io';
 
-import 'package:auralis_player/services/app_settings_service.dart';
+import 'package:music_player/services/app_settings_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
 void main() {
   test('persists the selected theme mode on device', () async {
-    final directory = await Directory.systemTemp.createTemp('auralis-settings-test-');
+    final directory = await Directory.systemTemp.createTemp('music-settings-test-');
     Hive.init(directory.path);
 
     try {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../app_info.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
 import '../services/music_api_service.dart';
@@ -101,7 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      'AURALIS',
+                      AppInfo.displayName.toUpperCase(),
                       style: TextStyle(
                         fontSize: 11,
                         letterSpacing: 2.2,
@@ -110,9 +111,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
-                      'Listen your way.',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    Text(
+                      AppInfo.tagline,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                     ),
                   ],
                 ),
@@ -295,8 +296,9 @@ class _HomeScreenState extends State<HomeScreen> {
       await context.read<PlayerController>().playQueue(_results, initialIndex: index);
     } catch (error) {
       if (mounted) {
+        final message = error is StateError ? error.message : '$error';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not start playback: $error')),
+          SnackBar(content: Text('Could not start playback: $message')),
         );
       }
     }

@@ -5,8 +5,26 @@ import 'package:http/http.dart' as http;
 import 'package:pointycastle/export.dart' show DESedeEngine, KeyParameter;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
+import '../app_info.dart';
 import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
+import 'app_log.dart';
+import 'lyrics_language.dart';
+
+class _CachedStream {
+  const _CachedStream(this.url, this.at, this.ephemeral);
+
+  final String url;
+  final DateTime at;
+  final bool ephemeral;
+
+  bool get isFresh {
+    final age = DateTime.now().difference(at);
+    return ephemeral
+        ? age < const Duration(hours: 4)
+        : age < const Duration(hours: 12);
+  }
+}
 
 class MusicApiService {
   MusicApiService({http.Client? httpClient, YoutubeExplode? youtube})
@@ -20,6 +38,9 @@ class MusicApiService {
   final http.Client _http;
   final YoutubeExplode _youtube;
   final Map<String, Future<LyricsModel>> _lyricsCache = <String, Future<LyricsModel>>{};
+  final Map<String, Future<LyricsBundle>> _variantsCache =
+      <String, Future<LyricsBundle>>{};
+  final Map<String, _CachedStream> _streamCache = <String, _CachedStream>{};
   Future<void> _lyricsRequestQueue = Future<void>.value();
   DateTime? _lastLyricsRequestAt;
   DateTime? _lyricsRetryAfter;
@@ -52,6 +73,7 @@ class MusicApiService {
     String query, {
     int limit = 18,
   }) async {
+    final stopwatch = Stopwatch()..start();
     final uri = Uri.https(_saavnHost, '/api.php', <String, String>{
       '__call': 'search.getResults',
       '_format': 'json',
@@ -62,24 +84,39 @@ class MusicApiService {
       'n': '$limit',
       'q': query,
     });
-    final response = await _http
-        .get(uri, headers: _saavnHeaders)
-        .timeout(_timeout);
-    if (response.statusCode != 200) {
-      throw http.ClientException(
-        'JioSaavn search returned HTTP ${response.statusCode}.',
-        uri,
-      );
+    try {
+      final response = await _http
+          .get(uri, headers: _saavnHeaders)
+          .timeout(_timeout);
+      if (response.statusCode != 200) {
+        throw http.ClientException(
+          'JioSaavn search returned HTTP ${response.statusCode}.',
+          uri,
+        );
+      }
+      final decoded = jsonDecode(response.body);
+      final root = _asMap(decoded);
+      final rows = _findSongRows(root ?? <String, dynamic>{});
+      final songs = rows
+          .take(limit)
+          .map(_songFromSaavn)
+          .whereType<SongModel>()
+          .toList(growable: false);
+      logInfo('api', 'searchJioSaavn', <String, Object?>{
+        'query': query,
+        'results': songs.length,
+        'withUrl': songs.where((song) => song.streamUrl != null).length,
+        'ms': stopwatch.elapsedMilliseconds,
+      });
+      return songs;
+    } catch (error) {
+      logWarn('api', 'searchJioSaavn failed', <String, Object?>{
+        'query': query,
+        'error': '$error',
+        'ms': stopwatch.elapsedMilliseconds,
+      });
+      rethrow;
     }
-    final decoded = jsonDecode(response.body);
-    final root = _asMap(decoded);
-    if (root == null) return const <SongModel>[];
-    final rows = _findSongRows(root);
-    return rows
-        .take(limit)
-        .map(_songFromSaavn)
-        .whereType<SongModel>()
-        .toList(growable: false);
   }
 
   Future<List<String>> suggestions(String query) async {
@@ -114,87 +151,337 @@ class MusicApiService {
     String query, {
     int limit = 18,
   }) async {
-    final videos = await _youtube.search.search(query).timeout(_timeout);
-    return videos
-        .where((video) => !video.isLive)
-        .take(limit)
-        .map((video) => SongModel(
-              id: 'youtube:${video.id.value}',
-              sourceId: video.id.value,
-              title: _cleanText(video.title),
-              artist: _cleanText(video.author),
-              album: '',
-              artworkUrl: video.thumbnails.highResUrl,
-              source: SongSource.youtube,
-              durationMs: video.duration?.inMilliseconds,
-              releaseDate: _formatDate(video.publishDate ?? video.uploadDate),
-              sourceUrl: video.url,
-            ))
-        .toList(growable: false);
+    final stopwatch = Stopwatch()..start();
+    try {
+      final videos = await _youtube.search.search(query).timeout(_timeout);
+      final songs = videos
+          .where((video) => !video.isLive)
+          .take(limit)
+          .map((video) => SongModel(
+                id: 'youtube:${video.id.value}',
+                sourceId: video.id.value,
+                title: _cleanText(video.title),
+                artist: _cleanText(video.author),
+                album: '',
+                artworkUrl: video.thumbnails.highResUrl,
+                source: SongSource.youtube,
+                durationMs: video.duration?.inMilliseconds,
+                releaseDate: _formatDate(video.publishDate ?? video.uploadDate),
+                sourceUrl: video.url,
+              ))
+          .toList(growable: false);
+      logInfo('api', 'searchYouTube', <String, Object?>{
+        'query': query,
+        'results': songs.length,
+        'ms': stopwatch.elapsedMilliseconds,
+      });
+      return songs;
+    } catch (error) {
+      logWarn('api', 'searchYouTube failed', <String, Object?>{
+        'query': query,
+        'error': '$error',
+        'ms': stopwatch.elapsedMilliseconds,
+      });
+      rethrow;
+    }
   }
 
+  /// Resolves a playable audio URL for [song].
+  ///
+  /// Order: in-memory cache → stable direct URL (refreshing ephemeral
+  /// googlevideo links first) → JioSaavn re-search by id → YouTube fallback.
   Future<String> resolveStream(SongModel song) async {
-    final direct = song.streamUrl;
-    if (direct != null && MusicApiService._isHttpUrl(direct)) {
-      return direct.replaceFirst(RegExp(r'^http://'), 'https://');
+    final stopwatch = Stopwatch()..start();
+
+    String remember(String url) {
+      _streamCache[song.id] = _CachedStream(
+        url,
+        DateTime.now(),
+        _isEphemeralUrl(url),
+      );
+      logInfo('api', 'resolveStream', <String, Object?>{
+        'song': song.title,
+        'id': song.id,
+        'host': Uri.tryParse(url)?.host ?? '?',
+        'ms': stopwatch.elapsedMilliseconds,
+      });
+      return url;
     }
-    if (song.source == SongSource.youtube) return resolveYouTube(song);
 
     try {
-      final matches = await searchJioSaavn(
-        '${song.title} ${song.artist}',
-        limit: 10,
-      );
-      final exact = matches.where((item) => item.sourceId == song.sourceId);
-      final candidate = exact.isNotEmpty
-          ? exact.first
-          : (matches.isEmpty ? null : matches.first);
-      if (candidate?.streamUrl != null &&
-          MusicApiService._isHttpUrl(candidate!.streamUrl!)) {
-        return candidate.streamUrl!;
+      final cached = _streamCache[song.id];
+      if (cached != null && cached.isFresh) {
+        logDebug('api', 'resolveStream cache hit', <String, Object?>{
+          'song': song.title,
+          'ageMs': DateTime.now().difference(cached.at).inMilliseconds,
+        });
+        return cached.url;
       }
-    } catch (_) {
-      // If the public catalog is unavailable, try the second source below.
+
+      final direct = song.streamUrl;
+      if (direct != null && MusicApiService._isHttpUrl(direct)) {
+        final secure = direct.replaceFirst(RegExp(r'^http://'), 'https://');
+        if (!_isEphemeralUrl(secure)) {
+          return remember(secure);
+        }
+        // Ephemeral CDN URLs (YouTube) expire within hours; refresh them but
+        // fall back to the stored URL when the refresh fails.
+        try {
+          final fresh = song.source == SongSource.youtube
+              ? await resolveYouTube(song)
+              : await resolveYouTubeFallback(song);
+          return remember(fresh);
+        } catch (error) {
+          logWarn('api', 'ephemeral URL refresh failed; reusing stored URL',
+              <String, Object?>{'song': song.title, 'error': '$error'});
+          return remember(secure);
+        }
+      }
+
+      if (song.source != SongSource.youtube) {
+        try {
+          final matches = await searchJioSaavn(
+            '${song.title} ${song.artist}',
+            limit: 10,
+          );
+          SongModel? candidate;
+          for (final match in matches) {
+            if (match.sourceId == song.sourceId) {
+              candidate = match;
+              break;
+            }
+          }
+          candidate ??= _bestTitleMatch(matches, song);
+          if (candidate != null &&
+              candidate.streamUrl != null &&
+              MusicApiService._isHttpUrl(candidate.streamUrl!)) {
+            return remember(candidate.streamUrl!);
+          }
+          logWarn('api', 'JioSaavn re-search produced no usable URL',
+              <String, Object?>{'song': song.title, 'matches': matches.length});
+        } catch (error) {
+          logWarn('api', 'JioSaavn resolve path failed', <String, Object?>{
+            'song': song.title,
+            'error': '$error',
+          });
+        }
+      }
+
+      final fallbackUrl = song.source == SongSource.youtube
+          ? await resolveYouTube(song)
+          : await resolveYouTubeFallback(song);
+      return remember(fallbackUrl);
+    } catch (error) {
+      logWarn('api', 'resolveStream failed', <String, Object?>{
+        'song': song.title,
+        'id': song.id,
+        'error': '$error',
+        'ms': stopwatch.elapsedMilliseconds,
+      });
+      rethrow;
     }
-    return resolveYouTubeFallback(song);
   }
 
-  Future<String> resolveYouTube(SongModel song) async {
-    final manifest = await _youtube.videos.streams
-        .getManifest(song.sourceId)
-        .timeout(_timeout);
-    if (manifest.audioOnly.isEmpty) {
-      throw StateError('No audio-only stream is available for this video.');
-    }
-    return manifest.audioOnly.withHighestBitrate().url.toString();
-  }
+  Future<String> resolveYouTube(SongModel song, {bool lowestBitrate = false}) =>
+      _youtubeStreamUrl(song.sourceId, lowestBitrate: lowestBitrate);
 
-  Future<String> resolveYouTubeFallback(SongModel song) async {
+  Future<String> resolveYouTubeFallback(
+    SongModel song, {
+    bool lowestBitrate = false,
+  }) async {
     final query = '${song.title} ${song.artist} official audio';
     final videos = await _youtube.search.search(query).timeout(_timeout);
     final matches = videos.where((item) => !item.isLive).toList();
     if (matches.isEmpty) {
       throw StateError('No matching YouTube audio stream was found.');
     }
-    final video = matches.first;
-    final manifest = await _youtube.videos.streams
-        .getManifest(video.id.value)
-        .timeout(_timeout);
-    if (manifest.audioOnly.isEmpty) {
-      throw StateError('The matching video has no audio-only stream.');
-    }
-    return manifest.audioOnly.withHighestBitrate().url.toString();
+    return _youtubeStreamUrl(matches.first.id.value,
+        lowestBitrate: lowestBitrate);
   }
 
-  Future<LyricsModel> fetchLyrics(SongModel song) async {
-    final cached = _lyricsCache[song.id];
+  Future<String> _youtubeStreamUrl(
+    String videoId, {
+    bool lowestBitrate = false,
+  }) async {
+    final manifest =
+        await _youtube.videos.streams.getManifest(videoId).timeout(_timeout);
+    if (manifest.audioOnly.isEmpty) {
+      throw StateError('No audio-only stream is available for this video.');
+    }
+    final url = lowestBitrate
+        ? manifest.audioOnly.withLowestBitrate().url.toString()
+        : manifest.audioOnly.withHighestBitrate().url.toString();
+    logDebug('api', 'youtube stream resolved', <String, Object?>{
+      'videoId': videoId,
+      'lowest': lowestBitrate,
+    });
+    return url;
+  }
+
+  /// Fetches every known lyrics variant for [song] (LRCLIB and JioSaavn),
+  /// annotated with language/script metadata.
+  Future<LyricsBundle> fetchLyricsVariants(SongModel song) {
+    final cached = _variantsCache[song.id];
     if (cached != null) return cached;
-    final request = _fetchLyrics(song);
-    _lyricsCache[song.id] = request;
+    final request = _fetchLyricsVariants(song);
+    _variantsCache[song.id] = request;
+    return request;
+  }
+
+  Future<LyricsBundle> _fetchLyricsVariants(SongModel song) async {
+    final variants = <LyricsModel>[];
     try {
-      return await request;
+      final primary = await fetchLyrics(song);
+      if (!primary.isEmpty) {
+        variants.add(annotateLyrics(primary, song, source: primary.source));
+      }
+    } catch (error) {
+      logWarn('api', 'lyrics: primary fetch failed', <String, Object?>{
+        'song': song.title,
+        'error': '$error',
+      });
+    }
+    try {
+      final extra = await _extraLrclibCandidates(song, variants);
+      variants.addAll(extra);
+    } catch (error) {
+      logDebug('api', 'lyrics: extra LRCLIB candidates failed', <String, Object?>{
+        'song': song.title,
+        'error': '$error',
+      });
+    }
+    try {
+      final saavn = await fetchSaavnLyrics(song);
+      if (saavn != null && !saavn.isEmpty) {
+        variants.add(annotateLyrics(saavn, song, source: 'jiosaavn'));
+      }
+    } catch (error) {
+      logDebug('api', 'lyrics: JioSaavn lyrics failed', <String, Object?>{
+        'song': song.title,
+        'error': '$error',
+      });
+    }
+    logInfo('api', 'lyrics variants collected', <String, Object?>{
+      'song': song.title,
+      'variants': variants.length,
+      'languages': variants.map((variant) => variant.languageLabel).join(', '),
+    });
+    return LyricsBundle(songId: song.id, variants: variants);
+  }
+
+  /// Up to two additional LRCLIB matches (different releases/languages),
+  /// excluding duplicates of [existing].
+  Future<List<LyricsModel>> _extraLrclibCandidates(
+    SongModel song,
+    List<LyricsModel> existing,
+  ) async {
+    final artists = _artistCandidates(song.artist);
+    final fallbackArtist = artists.length > 1 ? artists[1] : artists.first;
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      'User-Agent': AppInfo.userAgent,
+    };
+    final searchUri = Uri.https('lrclib.net', '/api/search', <String, String>{
+      'track_name': song.title,
+      'artist_name': fallbackArtist,
+      if (song.album.trim().isNotEmpty) 'album_name': song.album,
+    });
+    final response = await _getLyrics(searchUri, headers);
+    if (response.statusCode != 200) return const <LyricsModel>[];
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Iterable) return const <LyricsModel>[];
+    final matches = decoded.whereType<Map>().map(
+          (value) => Map<String, dynamic>.from(value),
+        );
+    final scored = <Map<String, dynamic>>[];
+    for (final match in matches) {
+      if (match['instrumental'] == true) continue;
+      final lyrics = _lyricsFromMap(match);
+      if (lyrics.isEmpty) continue;
+      scored.add(match);
+      if (scored.length >= 4) break;
+    }
+    final seenFirstLines = existing
+        .map((variant) => _firstLine(variant))
+        .where((line) => line.isNotEmpty)
+        .toSet();
+    final extras = <LyricsModel>[];
+    for (final match in scored) {
+      final lyrics = annotateLyrics(_lyricsFromMap(match), song,
+          source: 'lrclib');
+      final key = _firstLine(lyrics);
+      if (key.isEmpty || seenFirstLines.contains(key)) continue;
+      seenFirstLines.add(key);
+      extras.add(lyrics);
+      if (extras.length >= 2) break;
+    }
+    return extras;
+  }
+
+  String _firstLine(LyricsModel lyrics) {
+    if (lyrics.hasSynced) return lyrics.syncedLines.first.text.trim();
+    return lyrics.plainLyrics.split('\n').first.trim();
+  }
+
+  /// Lyrics published by JioSaavn (usually Latin transliteration for Indian
+  /// tracks). Returns null when unavailable.
+  Future<LyricsModel?> fetchSaavnLyrics(SongModel song) async {
+    if (song.source != SongSource.jioSaavn || song.sourceId.isEmpty) {
+      return null;
+    }
+    final uri = Uri.https(_saavnHost, '/api.php', <String, String>{
+      '__call': 'lyrics.getLyrics',
+      'api_version': '4',
+      'ctx': 'web6dot0',
+      '_format': 'json',
+      'lyrics_id': song.sourceId,
+    });
+    final response =
+        await _http.get(uri, headers: _saavnHeaders).timeout(_timeout);
+    if (response.statusCode != 200) return null;
+    final map = _asMap(jsonDecode(response.body));
+    if (map == null) return null;
+    final raw = map['lyrics']?.toString() ?? '';
+    if (raw.trim().isEmpty) return null;
+    final normalized =
+        raw.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
+    final text = _cleanText(normalized);
+    if (text.trim().isEmpty) return null;
+    return LyricsModel(plainLyrics: text.trim());
+  }
+
+  /// Fetches the best lyrics variant for [song] using [preference] (or a
+  /// per-song [override]) for language selection.
+  Future<LyricsModel> fetchLyrics(
+    SongModel song, {
+    String preference = 'auto',
+    String? override,
+  }) async {
+    final cached = _lyricsCache[song.id];
+    if (cached != null && preference == 'auto' && (override ?? '').isEmpty) {
+      return cached;
+    }
+    final request = _fetchLyrics(song).then((raw) {
+      final annotated = annotateLyrics(raw, song, source: raw.source);
+      return annotated;
+    });
+    if (preference == 'auto' && (override ?? '').isEmpty) {
+      _lyricsCache[song.id] = request;
+    }
+    try {
+      final annotated = await request;
+      if (annotated.isEmpty) return annotated;
+      final selected = selectLyricsVariant(
+        variants: <LyricsModel>[annotated],
+        song: song,
+        preference: preference,
+        override: override,
+      );
+      return selected ?? annotated;
     } catch (_) {
-      _lyricsCache.remove(song.id);
+      if (preference == 'auto' && (override ?? '').isEmpty) {
+        _lyricsCache.remove(song.id);
+      }
       rethrow;
     }
   }
@@ -203,7 +490,7 @@ class MusicApiService {
     final artists = _artistCandidates(song.artist);
     final headers = <String, String>{
       'Accept': 'application/json',
-      'User-Agent': 'Auralis/1.0.0 (https://github.com/tarungittarun/MuZic)',
+      'User-Agent': AppInfo.userAgent,
     };
     final duration = song.duration?.inSeconds;
 
@@ -223,7 +510,13 @@ class MusicApiService {
       if (response.statusCode == 200) {
         final data = _asMap(jsonDecode(response.body));
         final lyrics = _lyricsFromMap(data);
-        if (!lyrics.isEmpty) return lyrics;
+        if (!lyrics.isEmpty) {
+          logDebug('api', 'lyrics: exact LRCLIB match', <String, Object?>{
+            'song': song.title,
+            'synced': lyrics.hasSynced,
+          });
+          return lyrics.copyWith(source: 'lrclib');
+        }
       } else if (response.statusCode != 404 && response.statusCode != 400) {
         throw http.ClientException(
           'Lyrics service returned HTTP ${response.statusCode}.',
@@ -255,7 +548,12 @@ class MusicApiService {
       (value) => Map<String, dynamic>.from(value),
     );
     final best = _bestLyricsMatch(matches, song, artists);
-    return _lyricsFromMap(best);
+    final lyrics = _lyricsFromMap(best);
+    logDebug('api', 'lyrics: search fallback', <String, Object?>{
+      'song': song.title,
+      'found': !lyrics.isEmpty,
+    });
+    return lyrics.copyWith(source: 'lrclib');
   }
 
   Future<http.Response> _getLyrics(
@@ -354,6 +652,34 @@ class MusicApiService {
       }
       if (score > bestScore) {
         best = match;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  SongModel? _bestTitleMatch(List<SongModel> candidates, SongModel song) {
+    final wantedTitle = _normalizeForMatch(song.title);
+    if (wantedTitle.isEmpty) return null;
+    SongModel? best;
+    var bestScore = 0;
+    for (final candidate in candidates) {
+      if (candidate.streamUrl == null) continue;
+      final title = _normalizeForMatch(candidate.title);
+      if (title.isEmpty) continue;
+      var score = 0;
+      if (title == wantedTitle) {
+        score = 3;
+      } else if (title.contains(wantedTitle) || wantedTitle.contains(title)) {
+        score = 2;
+      } else {
+        continue;
+      }
+      final wantedArtist = _normalizeForMatch(song.artist);
+      final artist = _normalizeForMatch(candidate.artist);
+      if (wantedArtist.isNotEmpty && artist.contains(wantedArtist)) score += 1;
+      if (score > bestScore) {
+        best = candidate;
         bestScore = score;
       }
     }
@@ -680,5 +1006,11 @@ class MusicApiService {
   static bool _isHttpUrl(String value) {
     final uri = Uri.tryParse(value);
     return uri != null && (uri.scheme == 'http' || uri.scheme == 'https') && uri.host.isNotEmpty;
+  }
+
+  static bool _isEphemeralUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    return uri.host.contains('googlevideo.com');
   }
 }

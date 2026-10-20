@@ -295,7 +295,7 @@ class _ActivityTile extends StatelessWidget {
       'playlist_create' => 'Created playlist ${event.detail}',
       'playlist_add' => 'Added ${event.title} to ${event.detail}',
       'playlist_delete' => 'Deleted playlist ${event.detail}',
-      _ => event.title.isEmpty ? 'Auralis activity' : event.title,
+      _ => event.title.isEmpty ? 'Music activity' : event.title,
     };
     final subtitleParts = <String>[
       _formatTime(event.timestamp),

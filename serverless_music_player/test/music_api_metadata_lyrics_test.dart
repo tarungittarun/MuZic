@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:auralis_player/models/song_model.dart';
-import 'package:auralis_player/services/music_api_service.dart';
+import 'package:music_player/models/song_model.dart';
+import 'package:music_player/services/music_api_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';

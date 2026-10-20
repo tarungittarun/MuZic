@@ -9,7 +9,7 @@
 
     <application
         android:name="${applicationName}"
-        android:label="Auralis"
+        android:label="Music"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="false"
         android:allowBackup="false"

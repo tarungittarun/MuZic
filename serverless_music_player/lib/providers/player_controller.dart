@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/song_model.dart';
+import '../services/app_log.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/library_service.dart';
@@ -51,9 +52,14 @@ class PlayerController extends ChangeNotifier {
     _subscriptions.add(_audio.player.currentIndexStream.listen((value) {
       if (value == null || value < 0 || value >= _queue.length) return;
       _currentIndex = value;
-      _currentSong = _queue[value];
-      unawaited(_library.addRecent(_currentSong!));
-      _recordPlaybackStart(_currentSong!);
+      final song = _queue[value];
+      if (_currentSong?.id != song.id) {
+        _currentSong = song;
+        unawaited(_library.addRecent(song));
+        _recordPlaybackStart(song);
+      } else {
+        _currentSong = song;
+      }
       notifyListeners();
     }));
     _subscriptions.add(_audio.player.loopModeStream.listen((value) {
@@ -90,7 +96,8 @@ class PlayerController extends ChangeNotifier {
   double _downloadProgress = 0;
   int _pendingListeningMs = 0;
   String? _lastUsageTrackId;
-  final Set<String> _fallbackAttempted = <String>{};
+  int _playGeneration = 0;
+  final Map<String, Set<String>> _fallbackAttempts = <String, Set<String>>{};
 
   SongModel? get currentSong => _currentSong;
   List<SongModel> get queue => List<SongModel>.unmodifiable(_queue);
@@ -113,45 +120,117 @@ class PlayerController extends ChangeNotifier {
   double? downloadProgressFor(SongModel song) =>
       _downloadingId == song.id ? _downloadProgress : null;
 
+  /// Starts playback of [songs] beginning at [initialIndex].
+  ///
+  /// Only the selected track is resolved up front so playback starts fast;
+  /// the rest of the queue is resolved in the background and appended in the
+  /// original order as soon as each track is ready.
   Future<void> playQueue(
     List<SongModel> songs, {
     int initialIndex = 0,
   }) async {
     if (songs.isEmpty) return;
+    final generation = ++_playGeneration;
     final requestedIndex = initialIndex.clamp(0, songs.length - 1).toInt();
+    final requestedSong = songs[requestedIndex];
     _isResolving = true;
     notifyListeners();
+    logInfo('player', 'playQueue requested', <String, Object?>{
+      'song': requestedSong.title,
+      'index': requestedIndex,
+      'queueLength': songs.length,
+    });
     try {
-      final tasks = <Future<_ResolvedTrack?>>[];
-      for (var index = 0; index < songs.length; index++) {
-        final originalIndex = index;
-        final song = songs[index];
-        tasks.add(_resolveTrack(song, originalIndex));
+      final failures = <String>[];
+      final first = await _resolveTrack(requestedSong, failures: failures);
+      if (first == null) {
+        logError('player', 'selected track could not be resolved',
+            <String, Object?>{
+              'song': requestedSong.title,
+              'id': requestedSong.id,
+              'reasons': failures.join(' | '),
+            });
+        final reason = failures.isEmpty
+            ? 'No playable stream was found.'
+            : failures.join(' ');
+        throw StateError(
+          'Could not play "${requestedSong.title}": $reason '
+          'Check your connection or switch the search source.',
+        );
       }
-      final resolved = (await Future.wait(tasks)).whereType<_ResolvedTrack>().toList();
-      final startIndex = resolved.indexWhere(
-        (track) => track.originalIndex == requestedIndex,
-      );
-      if (startIndex < 0) {
-        throw StateError('Unable to resolve the selected track.');
-      }
+      if (generation != _playGeneration) return;
 
       _lastUsageTrackId = null;
-      _queue = resolved.map((track) => track.song).toList();
-      _sources = resolved.map((track) => track.source).toList();
-      _currentIndex = startIndex;
-      _currentSong = _queue[startIndex];
+      _queue = <SongModel>[first.song];
+      _sources = <AudioSource>[first.source];
+      _currentIndex = 0;
+      _currentSong = first.song;
       _position = Duration.zero;
-      _duration = _currentSong?.duration ?? Duration.zero;
-      await _audio.setQueue(_sources, initialIndex: startIndex);
-      if (_currentSong != null) _recordPlaybackStart(_currentSong!);
+      _duration = first.song.duration ?? Duration.zero;
+      await _audio.setQueue(_sources, initialIndex: 0);
+      if (generation != _playGeneration) return;
+      _recordPlaybackStart(first.song);
       await _requestNotificationPermission();
       _startPlayback();
-      if (_currentSong != null) unawaited(_library.addRecent(_currentSong!));
+      unawaited(_library.addRecent(first.song));
+      logInfo('player', 'playback started', <String, Object?>{
+        'song': first.song.title,
+        'urlHost': Uri.tryParse(first.song.streamUrl ?? '')?.host ?? 'local',
+      });
+      unawaited(_fillRemainingQueue(songs, requestedIndex, generation));
     } finally {
-      _isResolving = false;
+      if (generation == _playGeneration) {
+        _isResolving = false;
+      }
       notifyListeners();
     }
+  }
+
+  /// Resolves every other track of the requested list and appends/inserts them
+  /// so the queue keeps the original order around the started track.
+  Future<void> _fillRemainingQueue(
+    List<SongModel> songs,
+    int startIndex,
+    int generation,
+  ) async {
+    var added = 0;
+    var skipped = 0;
+    for (var i = 0; i < songs.length; i++) {
+      if (i == startIndex) continue;
+      if (generation != _playGeneration) return;
+      final failures = <String>[];
+      final track = await _resolveTrack(songs[i], failures: failures);
+      if (generation != _playGeneration) return;
+      if (track == null) {
+        skipped++;
+        logWarn('player', 'queue item skipped', <String, Object?>{
+          'song': songs[i].title,
+          'reasons': failures.join(' | '),
+        });
+        continue;
+      }
+      // Items before the started track are inserted at their original slot;
+      // items after it are appended in order.
+      final insertAt = i < startIndex ? i : _queue.length;
+      final entry = track.song;
+      final source = track.source;
+      if (insertAt >= _queue.length) {
+        _queue.add(entry);
+        _sources.add(source);
+        await _audio.append(source);
+      } else {
+        _queue.insert(insertAt, entry);
+        _sources.insert(insertAt, source);
+        await _audio.insert(insertAt, source);
+      }
+      added++;
+      notifyListeners();
+    }
+    if (generation != _playGeneration) return;
+    logInfo('player', 'queue fill finished', <String, Object?>{
+      'added': added,
+      'skipped': skipped,
+    });
   }
 
   Future<void> togglePlayback() async {
@@ -221,7 +300,7 @@ class PlayerController extends ChangeNotifier {
       await playQueue(<SongModel>[song]);
       return;
     }
-    final track = await _resolveTrack(song, _queue.length);
+    final track = await _resolveTrack(song);
     if (track == null) throw StateError('Could not add this track to the queue.');
     await _audio.append(track.source);
     _queue.add(track.song);
@@ -300,6 +379,15 @@ class PlayerController extends ChangeNotifier {
         );
       }
       await _usage.recordSongEvent('download', song);
+      logInfo('player', 'download finished', <String, Object?>{
+        'song': song.title,
+      });
+    } catch (error) {
+      logError('player', 'download failed', <String, Object?>{
+        'song': song.title,
+        'error': '$error',
+      });
+      rethrow;
     } finally {
       _downloadingId = null;
       _downloadProgress = 0;
@@ -312,24 +400,30 @@ class PlayerController extends ChangeNotifier {
     await _usage.recordSongEvent('download_removed', song);
   }
 
-  Future<_ResolvedTrack?> _resolveTrack(SongModel song, int originalIndex) async {
+  Future<_ResolvedTrack?> _resolveTrack(
+    SongModel song, {
+    List<String>? failures,
+  }) async {
     try {
       final localPath = await _downloads.localPathFor(song.id);
       if (localPath != null) {
+        logDebug('player', 'resolve: local file', <String, Object?>{
+          'song': song.title,
+        });
         return _ResolvedTrack(
-          originalIndex,
           song,
           _audio.sourceFor(song, localPath: localPath),
         );
       }
       final streamUrl = await _musicApi.resolveStream(song);
+      final resolvedSong = song.copyWith(streamUrl: streamUrl);
       return _ResolvedTrack(
-        originalIndex,
-        song,
-        _audio.sourceFor(song, remoteUrl: streamUrl),
+        resolvedSong,
+        _audio.sourceFor(resolvedSong, remoteUrl: streamUrl),
       );
     } catch (error) {
       debugPrint('Track resolver failed for ${song.title}: $error');
+      failures?.add('$error');
       return null;
     }
   }
@@ -360,44 +454,101 @@ class PlayerController extends ChangeNotifier {
   }
 
   void _startPlayback() {
-    unawaited(_audio.player.play().catchError((Object _) {}));
+    unawaited(_audio.player.play().catchError((Object error) {
+      logWarn('player', 'play() failed', <String, Object?>{'error': '$error'});
+    }));
   }
 
   void _onPlayerError(Object error) {
-    debugPrint('Audio playback error: $error');
-    final song = _currentSong;
+    logError('player', 'playback error', <String, Object?>{
+      'error': '$error',
+      'song': _currentSong?.title,
+    });
     final index = _currentIndex;
-    if (song == null ||
-        song.source != SongSource.jioSaavn ||
-        _fallbackAttempted.contains(song.id) ||
-        _isRecovering ||
-        index == null ||
-        index >= _sources.length) {
+    if (index == null || index < 0 || index >= _queue.length) return;
+    final song = _queue[index];
+    if (_isRecovering) return;
+    final attempts = _fallbackAttempts.putIfAbsent(song.id, () => <String>{});
+
+    // First cheap retry: the 320 kbps guess is missing on some CDN entries,
+    // so drop back to the standard 96 kbps URL before moving sources.
+    final currentUrl = song.streamUrl ?? '';
+    if (currentUrl.contains('_320.mp4') && !attempts.contains('quality')) {
+      attempts.add('quality');
+      unawaited(_replaceCurrentSource(
+        song,
+        index,
+        currentUrl.replaceFirst('_320.mp4', '_96.mp4'),
+        label: 'quality-96',
+      ));
       return;
     }
-    _fallbackAttempted.add(song.id);
-    unawaited(_recoverCurrentWithYouTube(song, index));
+    if (!attempts.contains('youtube')) {
+      attempts.add('youtube');
+      unawaited(_recoverCurrentWithYouTube(song, index));
+      return;
+    }
+    logError('player', 'all fallbacks exhausted for track', <String, Object?>{
+      'song': song.title,
+    });
   }
 
-  Future<void> _recoverCurrentWithYouTube(SongModel song, int index) async {
+  Future<void> _replaceCurrentSource(
+    SongModel song,
+    int index,
+    String url, {
+    required String label,
+  }) async {
     _isRecovering = true;
     notifyListeners();
     try {
-      final url = await _musicApi.resolveYouTubeFallback(song);
-      final wasPlaying = _audio.player.playing;
       final fallbackSong = song.copyWith(streamUrl: url);
       _queue[index] = fallbackSong;
-      _currentSong = fallbackSong;
       _sources[index] = _audio.sourceFor(fallbackSong, remoteUrl: url);
+      if (_currentSong?.id == song.id) _currentSong = fallbackSong;
       await _audio.setQueue(
         _sources,
         initialIndex: index,
         initialPosition: Duration.zero,
       );
       _position = Duration.zero;
-      if (wasPlaying) _startPlayback();
+      _startPlayback();
+      logInfo('player', 'fallback applied', <String, Object?>{
+        'song': song.title,
+        'via': label,
+      });
     } catch (fallbackError) {
-      debugPrint('YouTube fallback failed: $fallbackError');
+      logError('player', 'fallback failed', <String, Object?>{
+        'song': song.title,
+        'via': label,
+        'error': '$fallbackError',
+      });
+    } finally {
+      _isRecovering = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _recoverCurrentWithYouTube(SongModel song, int index) async {
+    _isRecovering = true;
+    notifyListeners();
+    try {
+      final String url;
+      if (song.source == SongSource.youtube) {
+        try {
+          url = await _musicApi.resolveYouTube(song, lowestBitrate: true);
+        } catch (_) {
+          url = await _musicApi.resolveYouTubeFallback(song);
+        }
+      } else {
+        url = await _musicApi.resolveYouTubeFallback(song);
+      }
+      await _replaceCurrentSource(song, index, url, label: 'youtube-fallback');
+    } catch (fallbackError) {
+      logError('player', 'YouTube fallback failed', <String, Object?>{
+        'song': song.title,
+        'error': '$fallbackError',
+      });
     } finally {
       _isRecovering = false;
       notifyListeners();
@@ -406,6 +557,7 @@ class PlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _playGeneration++;
     _flushListeningTime();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
@@ -417,9 +569,8 @@ class PlayerController extends ChangeNotifier {
 }
 
 class _ResolvedTrack {
-  const _ResolvedTrack(this.originalIndex, this.song, this.source);
+  const _ResolvedTrack(this.song, this.source);
 
-  final int originalIndex;
   final SongModel song;
   final AudioSource source;
 }

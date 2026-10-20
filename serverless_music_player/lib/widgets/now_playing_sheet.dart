@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
 
+import '../app_info.dart';
 import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
+import '../services/app_settings_service.dart';
+import '../services/lyrics_language.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
 import '../theme/app_theme.dart';
@@ -67,7 +70,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                       children: <Widget>[
                         Text('NOW PLAYING', style: TextStyle(fontSize: 10, letterSpacing: 2, color: palette.textMuted, fontWeight: FontWeight.w700)),
                         const SizedBox(height: 3),
-                        const Text('Auralis', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        Text(AppInfo.displayName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
@@ -323,73 +326,208 @@ class _LyricsPanel extends StatefulWidget {
 }
 
 class _LyricsPanelState extends State<_LyricsPanel> {
-  late Future<LyricsModel> _lyrics;
+  late Future<LyricsBundle> _bundle;
 
   @override
   void initState() {
     super.initState();
-    _lyrics = context.read<MusicApiService>().fetchLyrics(widget.song);
+    _bundle = context.read<MusicApiService>().fetchLyricsVariants(widget.song);
   }
 
   @override
   void didUpdateWidget(covariant _LyricsPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.song.id != widget.song.id) {
-      _lyrics = context.read<MusicApiService>().fetchLyrics(widget.song);
+      _bundle = context.read<MusicApiService>().fetchLyricsVariants(widget.song);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    return FutureBuilder<LyricsModel>(
-      future: _lyrics,
+    final settings = context.watch<AppSettingsService>();
+    final override = settings.lyricsLanguageOverrideFor(widget.song.id);
+    return FutureBuilder<LyricsBundle>(
+      future: _bundle,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return Center(child: Text('Lyrics are unavailable right now.', style: TextStyle(color: palette.textMuted)));
-        }
-        final lyrics = snapshot.data ?? const LyricsModel();
-        if (lyrics.syncedLines.isNotEmpty) {
-          final active = _activeLine(lyrics.syncedLines, widget.position);
-          return ListView.builder(
-            key: PageStorageKey<String>('synced-${widget.song.id}'),
-            padding: const EdgeInsets.fromLTRB(28, 22, 28, 28),
-            itemCount: lyrics.syncedLines.length,
-            itemBuilder: (context, index) => AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 180),
-              style: TextStyle(
-                fontSize: index == active ? 22 : 17,
-                height: 1.45,
-                fontWeight: index == active ? FontWeight.w800 : FontWeight.w500,
-                color: index == active ? palette.accent : palette.textMuted.withValues(alpha: 0.55),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(lyrics.syncedLines[index].text, textAlign: TextAlign.center),
-              ),
-            ),
-          );
-        }
-        if (lyrics.plainLyrics.trim().isEmpty) {
           return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Text('No lyrics found for this track.', textAlign: TextAlign.center, style: TextStyle(color: palette.textMuted)),
+            child: Text(
+              'Lyrics are unavailable right now.',
+              style: TextStyle(color: palette.textMuted),
             ),
           );
         }
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(28, 22, 28, 28),
-          child: Text(
-            lyrics.plainLyrics,
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 17, height: 1.75, color: palette.textSecondary),
-          ),
+        final variants =
+            snapshot.data?.variants ?? const <LyricsModel>[];
+        final selected = selectLyricsVariant(
+          variants: variants,
+          song: widget.song,
+          preference: settings.lyricsLanguage,
+          override: override.isEmpty ? null : override,
+        );
+        final languageLabel = selected == null
+            ? lyricsLanguageLabel(
+                override.isEmpty ? settings.lyricsLanguage : override)
+            : selected.languageLabel;
+        return Stack(
+          children: <Widget>[
+            if (selected == null || selected.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Text(
+                    'No lyrics available in “$languageLabel” for this track.\n'
+                    'Tap the language button to try another one.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: palette.textMuted, height: 1.5),
+                  ),
+                ),
+              )
+            else if (selected.hasSynced)
+              _SyncedLyricsView(
+                lyrics: selected,
+                song: widget.song,
+                position: widget.position,
+              )
+            else
+              SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(28, 56, 28, 28),
+                child: Text(
+                  selected.plainLyrics,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 17,
+                    height: 1.75,
+                    color: palette.textSecondary,
+                  ),
+                ),
+              ),
+            Positioned(
+              top: 4,
+              right: 12,
+              child: TextButton.icon(
+                onPressed: () => _pickLanguage(context, variants, settings),
+                icon: const Icon(Icons.translate_rounded, size: 17),
+                label: Text(languageLabel),
+                style: TextButton.styleFrom(
+                  foregroundColor: palette.accent,
+                  backgroundColor: palette.surface.withValues(alpha: 0.85),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+              ),
+            ),
+          ],
         );
       },
+    );
+  }
+
+  Future<void> _pickLanguage(
+    BuildContext context,
+    List<LyricsModel> variants,
+    AppSettingsService settings,
+  ) async {
+    final usage = context.read<UsageService>();
+    final usable =
+        variants.where((variant) => !variant.isEmpty).toList(growable: false);
+    final hasRomanized = usable.any((variant) => variant.isRomanized);
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: context.palette.surface,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text(
+                'Lyrics language',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.tune_rounded),
+              title: const Text('Follow default setting'),
+              subtitle: Text(lyricsLanguageLabel(settings.lyricsLanguage)),
+              onTap: () => Navigator.pop(sheetContext, '__default__'),
+            ),
+            if (!hasRomanized)
+              ListTile(
+                leading: const Icon(Icons.abc_rounded),
+                title: const Text('Romanized (Latin letters)'),
+                subtitle: const Text('Generated from the original script'),
+                onTap: () => Navigator.pop(sheetContext, 'romanized'),
+              ),
+            for (final variant in usable)
+              ListTile(
+                leading: Icon(
+                  variant.hasSynced
+                      ? Icons.lyrics_rounded
+                      : Icons.notes_rounded,
+                ),
+                title: Text(variant.languageLabel),
+                subtitle: Text(variant.displayLabel),
+                onTap: () => Navigator.pop(
+                  sheetContext,
+                  variant.isRomanized ? 'romanized' : variant.language,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    if (selected == '__default__') {
+      await settings.setLyricsLanguageOverride(widget.song.id, null);
+    } else {
+      await settings.setLyricsLanguageOverride(widget.song.id, selected);
+      unawaited(
+          usage.recordSongEvent('lyrics_check', widget.song, detail: selected));
+    }
+  }
+}
+
+class _SyncedLyricsView extends StatelessWidget {
+  const _SyncedLyricsView({
+    required this.lyrics,
+    required this.song,
+    required this.position,
+  });
+
+  final LyricsModel lyrics;
+  final SongModel song;
+  final Duration position;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final active = _activeLine(lyrics.syncedLines, position);
+    return ListView.builder(
+      key: PageStorageKey<String>('synced-${song.id}-${lyrics.source}'),
+      padding: const EdgeInsets.fromLTRB(28, 56, 28, 28),
+      itemCount: lyrics.syncedLines.length,
+      itemBuilder: (context, index) => AnimatedDefaultTextStyle(
+        duration: const Duration(milliseconds: 180),
+        style: TextStyle(
+          fontSize: index == active ? 22 : 17,
+          height: 1.45,
+          fontWeight: index == active ? FontWeight.w800 : FontWeight.w500,
+          color: index == active
+              ? palette.accent
+              : palette.textMuted.withValues(alpha: 0.55),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(lyrics.syncedLines[index].text, textAlign: TextAlign.center),
+        ),
+      ),
     );
   }
 

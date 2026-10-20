@@ -48,6 +48,9 @@ class AudioPlayerService {
 
   Future<void> append(AudioSource source) => player.addAudioSource(source);
 
+  Future<void> insert(int index, AudioSource source) =>
+      player.insertAudioSource(index, source);
+
   Future<void> move(int from, int to) => player.moveAudioSource(from, to);
 
   Future<void> dispose() async {
