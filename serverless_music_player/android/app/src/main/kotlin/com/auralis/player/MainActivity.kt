@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.Virtualizer
 import android.media.audiofx.Visualizer
 import android.net.Uri
 import android.os.Handler
