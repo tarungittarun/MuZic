@@ -38,8 +38,8 @@ jobs:
             cat analyze_out.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          grep -E '^\s+(error|warning)' analyze_out.txt | head -30 | while IFS= read -r line; do
-            echo "::error title=analyze::${line}"
+          head -40 analyze_out.txt | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=analyze::${line}"
           done
           exit $status
 
@@ -55,7 +55,7 @@ jobs:
             tail -60 test_out.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          grep -E '^[0-9]+:[0-9]+ [0-9]+:' test_out.txt | head -30 | while IFS= read -r line; do
-            echo "::error title=test::${line}"
+          tail -40 test_out.txt | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=test::${line}"
           done
           exit $status
