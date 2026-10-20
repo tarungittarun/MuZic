@@ -36,6 +36,14 @@ jobs:
       - name: Resolve Dart and Flutter packages
         run: flutter pub get
 
+      - name: Verify signing key
+        shell: bash
+        run: |
+          ls -la key.properties
+          ls -la app/*.p12 || echo "no keystore in app/"
+          keytool -list -v -keystore app/muzic-release.p12 -storetype PKCS12 \
+            -storepass MuZicRelease2026 2>&1 | grep -E "Alias|Valid|Signature algorithm|error" | head -6
+
       - name: Build per-ABI release APKs
         shell: bash
         run: |
@@ -48,8 +56,9 @@ jobs:
             tail -80 build_out.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          tail -40 build_out.txt | while IFS= read -r line; do
-            [ -n "$line" ] && echo "::error title=build::${line}"
+          grep -aE "FAILURE:|What went wrong|Caused by|error:|Exception|FAILED|Keystore|keystore|apksigner|Execution failed" build_out.txt \
+            | grep -av "Unzipping" | head -40 | while IFS= read -r line; do
+            echo "::error title=build::${line}"
           done
           exit $status
 
