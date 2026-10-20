@@ -4,14 +4,19 @@ import android.app.Activity
 import android.content.Intent
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
-import android.media.audiofx.Virtualizer
+import android.media.audiofx.Visualizer
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.OpenableColumns
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.abs
+import kotlin.math.max
 
 /**
  * Hosts the audio-effects channel. Attaches Android's Equalizer, BassBoost and
@@ -24,6 +29,10 @@ class MainActivity : AudioServiceActivity() {
     private var virtualizer: Virtualizer? = null
     private var localFilesChannel: MethodChannel? = null
     private var pendingLocalResult: MethodChannel.Result? = null
+    private var visualizerChannel: EventChannel? = null
+    private var visualizerCapture: Visualizer? = null
+    private var visualizerSink: EventChannel.EventSink? = null
+    private var visualizerHandler: Handler? = null
 
     private companion object {
         const val PICK_AUDIO_REQUEST_CODE = 4213
@@ -74,6 +83,90 @@ class MainActivity : AudioServiceActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        visualizerChannel = EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "music_player/visualizer",
+        )
+        visualizerChannel?.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                visualizerSink = events
+                startVisualizer(arguments as? Int ?: 0)
+            }
+
+            override fun onCancel(arguments: Any?) {
+                stopVisualizer()
+                visualizerSink = null
+            }
+        })
+    }
+
+    private fun startVisualizer(sessionId: Int) {
+        stopVisualizer()
+        if (sessionId == 0) {
+            visualizerSink?.error("no_session", "No playback session is active yet.", null)
+            return
+        }
+        try {
+            val capture = Visualizer(0, sessionId)
+            val range = Visualizer.getCaptureSizeRange()
+            capture.captureSize = max(range[0], 512).coerceAtMost(range[1])
+            val handler = Handler(Looper.getMainLooper())
+            visualizerHandler = handler
+            capture.setDataCaptureListener(
+                object : Visualizer.OnDataCaptureListener {
+                    override fun onWaveFormDataCapture(
+                        visualizer: Visualizer?,
+                        waveform: ByteArray?,
+                        samplingRate: Int,
+                    ) {
+                        if (waveform == null || waveform.isEmpty()) return
+                        val bands = 18
+                        val perBand = max(1, waveform.size / bands)
+                        val values = ArrayList<Double>(bands)
+                        for (band in 0 until bands) {
+                            var total = 0L
+                            val start = band * perBand
+                            val end = minOf(waveform.size, start + perBand)
+                            if (start >= end) {
+                                values.add(0.0)
+                                continue
+                            }
+                            for (index in start until end) {
+                                total += abs(waveform[index].toInt())
+                            }
+                            val average = total.toDouble() / (end - start)
+                            values.add((average / 128.0).coerceIn(0.0, 1.0))
+                        }
+                        handler.post { visualizerSink?.success(values) }
+                    }
+
+                    override fun onFftDataCapture(
+                        visualizer: Visualizer?,
+                        fft: ByteArray?,
+                        samplingRate: Int,
+                    ) = Unit
+                },
+                Visualizer.getMaxCaptureRate() / 3,
+                true,
+                false,
+            )
+            capture.enabled = true
+            visualizerCapture = capture
+        } catch (e: Exception) {
+            visualizerSink?.error("visualizer_failed", e.message, null)
+        }
+    }
+
+    private fun stopVisualizer() {
+        try {
+            visualizerCapture?.enabled = false
+            visualizerCapture?.release()
+        } catch (e: Exception) {
+        }
+        visualizerCapture = null
+        visualizerHandler?.removeCallbacksAndMessages(null)
+        visualizerHandler = null
     }
 
     private fun pickAudioFiles(result: MethodChannel.Result) {
@@ -247,6 +340,7 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onDestroy() {
+        stopVisualizer()
         releaseEffects()
         super.onDestroy()
     }

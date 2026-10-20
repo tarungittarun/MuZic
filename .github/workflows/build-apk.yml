@@ -37,7 +37,21 @@ jobs:
         run: flutter pub get
 
       - name: Build per-ABI release APKs
-        run: flutter build apk --release --target-platform=android-arm,android-arm64 --split-per-abi
+        shell: bash
+        run: |
+          set +e
+          flutter build apk --release --target-platform=android-arm,android-arm64 --split-per-abi 2>&1 | tee build_out.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo '## flutter build apk'
+            echo '```'
+            tail -80 build_out.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          tail -40 build_out.txt | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=build::${line}"
+          done
+          exit $status
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7.0.2

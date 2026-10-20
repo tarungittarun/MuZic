@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../app_info.dart';
@@ -10,11 +11,14 @@ import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
 import '../services/app_settings_service.dart';
+import '../services/audio_player_service.dart';
 import '../services/lyrics_language.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
+import '../services/visualizer_service.dart';
 import '../theme/app_theme.dart';
 import 'cover_art.dart';
+import 'visualizer_bars.dart';
 
 class NowPlayingSheet extends StatefulWidget {
   const NowPlayingSheet({super.key});
@@ -25,6 +29,49 @@ class NowPlayingSheet extends StatefulWidget {
 
 class _NowPlayingSheetState extends State<NowPlayingSheet> {
   bool _showLyrics = false;
+  bool _showVisualizer = false;
+  final VisualizerService _visualizer = VisualizerService();
+
+  @override
+  void dispose() {
+    _visualizer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggleVisualizer(PlayerController player) async {
+    if (_showVisualizer) {
+      await _visualizer.stop();
+      if (mounted) setState(() => _showVisualizer = false);
+      return;
+    }
+    final granted = await _ensureMicrophonePermission();
+    if (!mounted) return;
+    if (!granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Android only exposes the live waveform to apps with microphone '
+            'access. Grant it to see the visualizer.',
+          ),
+        ),
+      );
+      return;
+    }
+    final sessionId = context.read<AudioPlayerService>().player.androidAudioSessionId;
+    _visualizer.start(sessionId);
+    setState(() => _showVisualizer = true);
+  }
+
+  Future<bool> _ensureMicrophonePermission() async {
+    try {
+      final status = await Permission.microphone.status;
+      if (status.isGranted) return true;
+      final result = await Permission.microphone.request();
+      return result.isGranted;
+    } catch (_) {
+      return false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -76,6 +123,18 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                     ),
                   ),
                   IconButton(
+                    tooltip: _showVisualizer
+                        ? 'Hide visualizer'
+                        : 'Show live visualizer',
+                    onPressed: () => _toggleVisualizer(player),
+                    icon: Icon(
+                      _showVisualizer
+                          ? Icons.bar_chart_rounded
+                          : Icons.graphic_eq_rounded,
+                      color: _showVisualizer ? palette.accent : null,
+                    ),
+                  ),
+                  IconButton(
                     tooltip: 'Up next',
                     onPressed: () => _showQueue(context),
                     icon: const Icon(Icons.queue_music_rounded),
@@ -84,15 +143,55 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
               ),
             ),
             Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                child: _showLyrics
-                    ? _LyricsPanel(
-                        key: ValueKey<String>('lyrics-${song.id}'),
-                        song: song,
-                        position: player.position,
-                      )
-                    : _ArtworkPanel(key: ValueKey<String>('art-${song.id}'), song: song),
+              child: Stack(
+                children: <Widget>[
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: _showLyrics
+                        ? _LyricsPanel(
+                            key: ValueKey<String>('lyrics-${song.id}'),
+                            song: song,
+                            position: player.position,
+                          )
+                        : _ArtworkPanel(
+                            key: ValueKey<String>('art-${song.id}'),
+                            song: song,
+                          ),
+                  ),
+                  if (_showVisualizer)
+                    Positioned(
+                      left: 24,
+                      right: 24,
+                      bottom: 12,
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                        decoration: BoxDecoration(
+                          color: palette.surface.withValues(alpha: 0.92),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: palette.outline.withValues(alpha: 0.6),
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              'LIVE WAVEFORM',
+                              style: TextStyle(
+                                fontSize: 9,
+                                letterSpacing: 1.6,
+                                fontWeight: FontWeight.w800,
+                                color: palette.textMuted,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            VisualizerBars(service: _visualizer),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
             Padding(
