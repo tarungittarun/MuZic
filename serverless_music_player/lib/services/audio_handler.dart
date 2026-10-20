@@ -55,9 +55,8 @@ class MuzicAudioHandler extends BaseAudioHandler
   /// Publishes the current track (and the queue) so the notification has a
   /// title, artist, artwork and duration.
   void _broadcastMediaItem() {
-    final sequenceState = _player.sequenceState;
-    if (sequenceState == null) return;
-    final sequence = sequenceState.effectiveSequence.toList(growable: false);
+    final sequence =
+        _player.sequenceState.effectiveSequence.toList(growable: false);
     if (sequence.isEmpty) return;
 
     final items = <MediaItem>[];
@@ -75,7 +74,7 @@ class MuzicAudioHandler extends BaseAudioHandler
       duration: _player.duration ?? tag.duration,
     );
     final previous = mediaItem.value;
-    if (previous.id != current.id || previous.duration != current.duration) {
+    if (previous?.id != current.id || previous?.duration != current.duration) {
       mediaItem.add(current);
       logDebug('audio', 'notification media item', <String, Object?>{
         'title': current.title,
