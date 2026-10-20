@@ -27,7 +27,35 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
-        run: flutter analyze --no-fatal-infos --fatal-warnings
+        shell: bash
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos --fatal-warnings 2>&1 | tee analyze_out.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo '## flutter analyze'
+            echo '```'
+            cat analyze_out.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^\s+(error|warning)' analyze_out.txt | head -30 | while IFS= read -r line; do
+            echo "::error title=analyze::${line}"
+          done
+          exit $status
 
       - name: Run tests
-        run: flutter test
+        shell: bash
+        run: |
+          set +e
+          flutter test 2>&1 | tee test_out.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo '## flutter test'
+            echo '```'
+            tail -60 test_out.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^[0-9]+:[0-9]+ [0-9]+:' test_out.txt | head -30 | while IFS= read -r line; do
+            echo "::error title=test::${line}"
+          done
+          exit $status
