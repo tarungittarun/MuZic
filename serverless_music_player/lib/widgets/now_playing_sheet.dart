@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
 
 import '../app_info.dart';
+import '../models/audio_quality.dart';
 import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
@@ -111,6 +112,8 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(color: palette.textSecondary, fontSize: 14)),
+                        const SizedBox(height: 6),
+                        _QualityChip(song: song),
                       ],
                     ),
                   ),
@@ -124,7 +127,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                   ),
                   IconButton(
                     tooltip: player.isDownloaded(song) ? 'Saved offline' : 'Download',
-                    onPressed: player.isDownloaded(song) || player.isDownloading
+                    onPressed: player.isDownloaded(song) || player.isDownloading || song.isLiveStream
                         ? null
                         : () => _download(context, song),
                     icon: player.downloadProgressFor(song) != null
@@ -285,6 +288,131 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
         LoopMode.all => 'all',
         LoopMode.one => 'one',
       };
+}
+
+class _QualityChip extends StatelessWidget {
+  const _QualityChip({required this.song});
+
+  final SongModel song;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final quality = describeAudio(song);
+    return GestureDetector(
+      onTap: () => _showQualitySheet(context, song, quality),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: (quality.isLossless ? palette.mint : palette.accent)
+              .withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: (quality.isLossless ? palette.mint : palette.accent)
+                .withValues(alpha: 0.35),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              quality.isLossless
+                  ? Icons.workspace_premium_rounded
+                  : Icons.graphic_eq_rounded,
+              size: 11,
+              color: quality.isLossless ? palette.mint : palette.accent,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              quality.label,
+              style: TextStyle(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w700,
+                color: quality.isLossless ? palette.mint : palette.accent,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showQualitySheet(
+    BuildContext context,
+    SongModel song,
+    AudioQualityInfo quality,
+  ) {
+    final palette = context.palette;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: palette.surface,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 4, 22, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Audio quality & signal path',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+              ),
+              const SizedBox(height: 14),
+              _PathRow('Quality', quality.label),
+              _PathRow('Fidelity', quality.detail),
+              _PathRow('Source', _sourceName(song)),
+              if (song.streamUrl != null)
+                _PathRow('Stream host', Uri.tryParse(song.streamUrl!)?.host ?? '—'),
+              const SizedBox(height: 10),
+              Text(
+                'Signal path: stream → device decoder → Android audio mixer. '
+                'Note: Android may resample audio to 48 kHz unless a USB DAC '
+                'with exclusive output is used.',
+                style: TextStyle(color: palette.textMuted, fontSize: 11.5, height: 1.5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _sourceName(SongModel song) => switch (song.source) {
+        SongSource.jioSaavn => 'JioSaavn',
+        SongSource.youtube => 'YouTube',
+        SongSource.radio => 'Lossless radio',
+        SongSource.local => 'Local file',
+      };
+}
+
+class _PathRow extends StatelessWidget {
+  const _PathRow(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(
+            width: 105,
+            child: Text(label,
+                style: TextStyle(color: palette.textMuted, fontSize: 11)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: TextStyle(color: palette.textSecondary, fontSize: 11)),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ArtworkPanel extends StatelessWidget {

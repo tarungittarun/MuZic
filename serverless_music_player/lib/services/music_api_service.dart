@@ -218,6 +218,15 @@ class MusicApiService {
         return cached.url;
       }
 
+      // Imported local files are played straight from disk.
+      if (song.source == SongSource.local) {
+        final path = song.localPath ?? song.streamUrl;
+        if (path != null && path.isNotEmpty) {
+          return remember(path);
+        }
+        throw StateError('This local file is no longer available.');
+      }
+
       final direct = song.streamUrl;
       if (direct != null && MusicApiService._isHttpUrl(direct)) {
         final secure = direct.replaceFirst(RegExp(r'^http://'), 'https://');
@@ -238,7 +247,11 @@ class MusicApiService {
         }
       }
 
-      if (song.source != SongSource.youtube) {
+      if (song.source == SongSource.radio || song.source == SongSource.local) {
+        throw StateError('No playable URL is stored for this track.');
+      }
+
+      if (song.source == SongSource.jioSaavn) {
         try {
           final matches = await searchJioSaavn(
             '${song.title} ${song.artist}',

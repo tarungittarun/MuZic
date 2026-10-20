@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/audio_quality.dart';
 import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
@@ -139,8 +140,12 @@ class _SongTileState extends State<SongTile> {
                         visualDensity: VisualDensity.compact,
                         constraints: const BoxConstraints.tightFor(width: 36, height: 38),
                         padding: EdgeInsets.zero,
-                        tooltip: downloaded ? 'Saved offline' : 'Download',
-                        onPressed: downloaded || progress != null
+                        tooltip: song.isLiveStream
+                            ? 'Live stream'
+                            : downloaded
+                                ? 'Saved offline'
+                                : 'Download',
+                        onPressed: downloaded || progress != null || song.isLiveStream
                             ? null
                             : () => _download(context),
                         icon: progress != null
@@ -337,6 +342,7 @@ class _TrackDetails extends StatelessWidget {
         _InfoRow(label: 'Play count', value: song.playCount == null ? null : _formatCount(song.playCount!)),
         _InfoRow(label: 'Copyright', value: song.copyright),
         _InfoRow(label: 'Source', value: _sourceLabel(song.source)),
+        _InfoRow(label: 'Audio quality', value: describeAudio(song).toString()),
         if (song.isExplicit != null)
           _InfoRow(label: 'Content', value: song.isExplicit! ? 'Explicit' : 'Clean'),
         if (song.hasLyrics != null)
@@ -472,4 +478,6 @@ String _formatCount(int value) {
 String _sourceLabel(SongSource source) => switch (source) {
       SongSource.jioSaavn => 'JioSaavn',
       SongSource.youtube => 'YouTube',
+      SongSource.radio => 'Lossless radio',
+      SongSource.local => 'Local file',
     };

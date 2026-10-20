@@ -6,6 +6,7 @@ import 'app.dart';
 import 'providers/player_controller.dart';
 import 'services/app_log.dart';
 import 'services/app_settings_service.dart';
+import 'services/audio_effects_service.dart';
 import 'services/audio_player_service.dart';
 import 'services/diagnostics_service.dart';
 import 'services/download_service.dart';
@@ -62,6 +63,8 @@ Future<void> main() async {
     player: player,
     musicApi: musicApi,
   );
+  final effects = AudioEffectsService(settings: settings, player: audio.player);
+  effects.attach();
 
   logInfo('app', 'application starting');
 
@@ -74,5 +77,6 @@ Future<void> main() async {
     settings: settings,
     usage: usage,
     diagnostics: diagnostics,
+    effects: effects,
   ));
 }

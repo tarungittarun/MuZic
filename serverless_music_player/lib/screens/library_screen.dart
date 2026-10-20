@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
 import '../services/library_service.dart';
+import '../services/local_files_service.dart';
 import '../services/usage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/empty_state.dart';
@@ -17,7 +18,7 @@ class LibraryScreen extends StatelessWidget {
     final library = context.watch<LibraryService>();
     final palette = context.palette;
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Builder(
         builder: (tabContext) => Column(
           children: <Widget>[
@@ -36,6 +37,12 @@ class LibraryScreen extends StatelessWidget {
                     ),
                   ),
                   IconButton.filledTonal(
+                    tooltip: 'Import files from this device',
+                    onPressed: () => _importLocalFiles(tabContext),
+                    icon: const Icon(Icons.library_add_rounded),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton.filledTonal(
                     tooltip: 'Create playlist',
                     onPressed: () => _createPlaylist(tabContext),
                     icon: const Icon(Icons.add_rounded),
@@ -50,6 +57,7 @@ class LibraryScreen extends StatelessWidget {
                 Tab(text: 'Downloads'),
                 Tab(text: 'Recent'),
                 Tab(text: 'Playlists'),
+                Tab(text: 'Local'),
               ],
             ),
             Expanded(
@@ -74,10 +82,44 @@ class LibraryScreen extends StatelessWidget {
                     emptyMessage: 'Recently played tracks appear on this device only.',
                   ),
                   _PlaylistList(playlists: library.playlists),
+                  _LocalList(songs: library.localSongs),
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _importLocalFiles(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final library = context.read<LibraryService>();
+    final files = await LocalFilesService().pickAudioFiles();
+    if (files.isEmpty) return;
+    var imported = 0;
+    var lossless = 0;
+    for (final file in files) {
+      final song = SongModel(
+        id: 'local:${file.path}',
+        sourceId: file.path,
+        title: file.title.isEmpty ? file.name : file.title,
+        artist: 'Local file',
+        album: 'Imported music',
+        source: SongSource.local,
+        localPath: file.path,
+        streamUrl: file.path,
+      );
+      await library.saveLocalSong(song);
+      imported++;
+      if (file.isLosslessFormat) lossless++;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          imported == 1
+              ? 'Imported 1 track${lossless > 0 ? ' (lossless)' : ''}.'
+              : 'Imported $imported tracks ($lossless lossless).',
         ),
       ),
     );
@@ -119,6 +161,38 @@ class LibraryScreen extends StatelessWidget {
       if (!context.mounted) return;
       DefaultTabController.of(context).animateTo(3);
     }
+  }
+}
+
+class _LocalList extends StatelessWidget {
+  const _LocalList({required this.songs});
+
+  final List<SongModel> songs;
+
+  @override
+  Widget build(BuildContext context) {
+    if (songs.isEmpty) {
+      return const EmptyState(
+        icon: Icons.folder_open_rounded,
+        title: 'Bring your own FLACs',
+        message:
+            'Tap the import button above to add FLAC, WAV, AIFF or MP3 files '
+            'from this device. They play losslessly, offline.',
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 14),
+      itemCount: songs.length,
+      itemBuilder: (context, index) {
+        final song = songs[index];
+        return SongTile(
+          song: song,
+          onTap: () => context
+              .read<PlayerController>()
+              .playQueue(songs, initialIndex: index),
+        );
+      },
+    );
   }
 }
 

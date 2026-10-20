@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_info.dart';
 import '../services/app_settings_service.dart';
+import '../services/audio_effects_service.dart';
 import '../services/lyrics_language.dart';
 import '../theme/app_theme.dart';
 import 'diagnostics_screen.dart';
@@ -123,6 +124,137 @@ class SettingsScreen extends StatelessWidget {
                     onTap: () => _pickLyricsLanguage(context, settings),
                   ),
                   const SizedBox(height: 10),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'AUDIO EFFECTS',
+            style: TextStyle(
+              color: palette.textMuted,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.8,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              child: Column(
+                children: <Widget>[
+                  SwitchListTile(
+                    secondary: Icon(Icons.surround_sound_rounded,
+                        color: settings.virtualizerEnabled
+                            ? palette.accent
+                            : palette.textSecondary),
+                    title: const Text('Virtualizer (surround)'),
+                    subtitle: Text(
+                      'Widens the sound stage — closest thing to spatial '
+                      'audio on this device.',
+                      style: TextStyle(color: palette.textMuted, fontSize: 12),
+                    ),
+                    value: settings.virtualizerEnabled,
+                    onChanged: (value) async {
+                      await settings.setVirtualizer(enabled: value);
+                      await context.read<AudioEffectsService>().apply();
+                    },
+                  ),
+                  if (settings.virtualizerEnabled)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Row(
+                        children: <Widget>[
+                          const Text('Strength', style: TextStyle(fontSize: 12)),
+                          Expanded(
+                            child: Slider(
+                              value: settings.virtualizerStrength
+                                  .clamp(0, 100)
+                                  .toDouble(),
+                              min: 0,
+                              max: 100,
+                              divisions: 20,
+                              label: '${settings.virtualizerStrength}%',
+                              onChanged: (value) => settings.setVirtualizer(
+                                enabled: true,
+                                strength: value.round(),
+                              ),
+                              onChangeEnd: (value) =>
+                                  context.read<AudioEffectsService>().apply(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
+                  SwitchListTile(
+                    secondary: Icon(Icons.equalizer_rounded,
+                        color: settings.bassBoostEnabled
+                            ? palette.accent
+                            : palette.textSecondary),
+                    title: const Text('Bass boost'),
+                    subtitle: Text(
+                      'Enhances low frequencies.',
+                      style: TextStyle(color: palette.textMuted, fontSize: 12),
+                    ),
+                    value: settings.bassBoostEnabled,
+                    onChanged: (value) async {
+                      await settings.setBassBoost(enabled: value);
+                      await context.read<AudioEffectsService>().apply();
+                    },
+                  ),
+                  if (settings.bassBoostEnabled)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Row(
+                        children: <Widget>[
+                          const Text('Strength', style: TextStyle(fontSize: 12)),
+                          Expanded(
+                            child: Slider(
+                              value: settings.bassBoostStrength
+                                  .clamp(0, 100)
+                                  .toDouble(),
+                              min: 0,
+                              max: 100,
+                              divisions: 20,
+                              label: '${settings.bassBoostStrength}%',
+                              onChanged: (value) => settings.setBassBoost(
+                                enabled: true,
+                                strength: value.round(),
+                              ),
+                              onChangeEnd: (value) =>
+                                  context.read<AudioEffectsService>().apply(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
+                  SwitchListTile(
+                    secondary: Icon(Icons.tune_rounded,
+                        color: settings.equalizerEnabled
+                            ? palette.accent
+                            : palette.textSecondary),
+                    title: const Text('Equalizer'),
+                    subtitle: Text(
+                      'Preset: ${_eqPresetName(settings.equalizerPreset)}',
+                      style: TextStyle(color: palette.textMuted, fontSize: 12),
+                    ),
+                    value: settings.equalizerEnabled,
+                    onChanged: (value) async {
+                      await settings.setEqualizer(enabled: value);
+                      await context.read<AudioEffectsService>().apply();
+                    },
+                  ),
+                  if (settings.equalizerEnabled)
+                    ListTile(
+                      contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                      title: const Text('Preset'),
+                      subtitle: Text(_eqPresetName(settings.equalizerPreset)),
+                      trailing: const Icon(Icons.expand_more_rounded),
+                      onTap: () => _pickEqPreset(context, settings),
+                    ),
                 ],
               ),
             ),
@@ -250,6 +382,62 @@ class SettingsScreen extends StatelessWidget {
     );
     if (selected != null) {
       await settings.setLyricsLanguage(selected);
+    }
+  }
+
+  String _eqPresetName(int preset) {
+    const names = <String>[
+      'Normal',
+      'Classical',
+      'Dance',
+      'Flat',
+      'Folk',
+      'Heavy metal',
+      'Hip hop',
+      'Jazz',
+      'Pop',
+      'Rock',
+    ];
+    return preset >= 0 && preset < names.length ? names[preset] : 'Normal';
+  }
+
+  Future<void> _pickEqPreset(
+    BuildContext context,
+    AppSettingsService settings,
+  ) async {
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: context.palette.surface,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text(
+                'Equalizer preset',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+              ),
+            ),
+            for (var preset = 0; preset < 10; preset++)
+              ListTile(
+                title: Text(_eqPresetName(preset)),
+                trailing: settings.equalizerPreset == preset
+                    ? Icon(Icons.check_rounded,
+                        color: context.palette.accent)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, preset),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) {
+      await settings.setEqualizer(enabled: true, preset: selected);
+      if (context.mounted) {
+        await context.read<AudioEffectsService>().apply();
+      }
     }
   }
 }

@@ -345,6 +345,9 @@ class PlayerController extends ChangeNotifier {
   }
 
   Future<void> downloadSong(SongModel song) async {
+    if (song.isLiveStream) {
+      throw StateError('Live radio streams cannot be downloaded.');
+    }
     if (_library.isDownloaded(song.id)) {
       final path = await _downloads.localPathFor(song.id);
       if (path != null) return;
@@ -417,6 +420,12 @@ class PlayerController extends ChangeNotifier {
       }
       final streamUrl = await _musicApi.resolveStream(song);
       final resolvedSong = song.copyWith(streamUrl: streamUrl);
+      if (song.source == SongSource.local) {
+        return _ResolvedTrack(
+          resolvedSong,
+          _audio.sourceFor(resolvedSong, localPath: streamUrl),
+        );
+      }
       return _ResolvedTrack(
         resolvedSong,
         _audio.sourceFor(resolvedSong, remoteUrl: streamUrl),
@@ -484,6 +493,13 @@ class PlayerController extends ChangeNotifier {
       return;
     }
     if (!attempts.contains('youtube')) {
+      if (song.source == SongSource.radio || song.source == SongSource.local) {
+        logError('player', 'no automatic fallback for this source', <String, Object?>{
+          'song': song.title,
+          'source': song.source.name,
+        });
+        return;
+      }
       attempts.add('youtube');
       unawaited(_recoverCurrentWithYouTube(song, index));
       return;

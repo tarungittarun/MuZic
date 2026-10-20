@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../app_info.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
+import '../services/lossless_radio_service.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
 import '../theme/app_theme.dart';
@@ -162,6 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+        _losslessRadioRow(),
         if (_loading) const LinearProgressIndicator(minHeight: 2),
         Expanded(
           child: _results.isNotEmpty
@@ -203,6 +205,41 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ],
     );
+  }
+
+  Widget _losslessRadioRow() {
+    final palette = context.palette;
+    return SizedBox(
+      height: 68,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 6, 18, 4),
+        scrollDirection: Axis.horizontal,
+        children: <Widget>[
+          for (final station in LosslessRadioService.stations) ...<Widget>[
+            _RadioStationChip(
+              station: station,
+              onTap: () => _playStation(station),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _playStation(RadioStation station) async {
+    try {
+      await context
+          .read<PlayerController>()
+          .playQueue(<SongModel>[station.toSong()]);
+    } catch (error) {
+      if (mounted) {
+        final message = error is StateError ? error.message : '$error';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not start the radio stream: $message')),
+        );
+      }
+    }
   }
 
   Widget _sourceChip(SearchSource source, String label) {
@@ -302,6 +339,60 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     }
+  }
+}
+
+class _RadioStationChip extends StatelessWidget {
+  const _RadioStationChip({required this.station, required this.onTap});
+
+  final RadioStation station;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Material(
+      color: palette.surface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 14, 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: palette.outline.withValues(alpha: 0.55)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(Icons.podcasts_rounded, color: palette.mint, size: 20),
+              const SizedBox(width: 9),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    station.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'FLAC · lossless radio',
+                    style: TextStyle(fontSize: 9.5, color: palette.mint),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
