@@ -81,6 +81,11 @@ class MainActivity : AudioServiceActivity() {
         localFilesChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "pickAudioFiles" -> pickAudioFiles(result)
+                "shareText" -> shareText(
+                    call.argument<String>("subject") ?: "MuZic diagnostics",
+                    call.argument<String>("text") ?: "",
+                    result,
+                )
                 else -> result.notImplemented()
             }
         }
@@ -168,6 +173,20 @@ class MainActivity : AudioServiceActivity() {
         visualizerCapture = null
         visualizerHandler?.removeCallbacksAndMessages(null)
         visualizerHandler = null
+    }
+
+    private fun shareText(subject: String, text: String, result: MethodChannel.Result) {
+        try {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, subject)
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
+            startActivity(Intent.createChooser(intent, "Share diagnostics report"))
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("share_failed", e.message, null)
+        }
     }
 
     private fun pickAudioFiles(result: MethodChannel.Result) {

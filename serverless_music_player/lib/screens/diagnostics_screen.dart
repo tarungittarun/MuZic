@@ -28,7 +28,8 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   }
 
   void _onLog(LogEntry entry) {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
   }
 
   @override
@@ -210,9 +211,19 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                             : 'Run simulated checks'),
                       ),
                       OutlinedButton.icon(
-                        onPressed: () => _exportReport(context),
-                        icon: const Icon(Icons.ios_share_rounded),
-                        label: const Text('Export & copy report'),
+                        onPressed: () => _copyReport(context),
+                        icon: const Icon(Icons.copy_all_rounded),
+                        label: const Text('Copy report'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _saveReport(context),
+                        icon: const Icon(Icons.save_alt_rounded),
+                        label: const Text('Save to file'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _shareReport(context),
+                        icon: const Icon(Icons.share_rounded),
+                        label: const Text('Share report'),
                       ),
                     ],
                   ),
@@ -278,8 +289,13 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
               ),
               const Spacer(),
               Text(
-                '${AppLog.entries.length} entries',
-                style: TextStyle(color: palette.textMuted, fontSize: 11),
+                captureOn
+                    ? 'live · ${AppLog.entries.length} entries'
+                    : 'capture off',
+                style: TextStyle(
+                  color: captureOn ? palette.mint : palette.textMuted,
+                  fontSize: 11,
+                ),
               ),
             ],
           ),
@@ -316,20 +332,45 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     );
   }
 
-  Future<void> _exportReport(BuildContext context) async {
+  Future<void> _copyReport(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     final diagnostics = context.read<DiagnosticsService>();
-    final report = diagnostics.buildReport();
+    final report = diagnostics.clipboardReport();
     await Clipboard.setData(ClipboardData(text: report));
-    final path = await diagnostics.exportReport();
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          'Report copied to clipboard and saved to:\n$path',
+          'Report copied to clipboard (${report.length} characters).',
         ),
+      ),
+    );
+  }
+
+  Future<void> _saveReport(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final diagnostics = context.read<DiagnosticsService>();
+    final path = await diagnostics.exportReport();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Report saved to:\n$path'),
         duration: const Duration(seconds: 6),
       ),
     );
+  }
+
+  Future<void> _shareReport(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final diagnostics = context.read<DiagnosticsService>();
+    final shared = await diagnostics.shareReport();
+    if (!shared) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Sharing is unavailable here — use Copy or Save instead.',
+          ),
+        ),
+      );
+    }
   }
 }
 

@@ -2,6 +2,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 
 import 'app_log.dart';
+import 'app_settings_service.dart';
 
 /// Media session + notification bridge for the app's single [AudioPlayer].
 ///
@@ -11,32 +12,57 @@ import 'app_log.dart';
 /// commands back to the player.
 class MuzicAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
-  MuzicAudioHandler(this._player) {
-    _player.playbackEventStream.map(_transformEvent).pipe(playbackState);
+  MuzicAudioHandler(this._player, this._settings) {
+    _player.playbackEventStream.listen((event) {
+      _lastEvent = event;
+      playbackState.add(_transformEvent(event));
+    });
     _player.currentIndexStream.listen((_) => _broadcastMediaItem());
     _player.durationStream.listen((_) => _broadcastMediaItem());
     _player.sequenceStateStream.listen((_) => _broadcastMediaItem());
+    // Notification layout toggles apply immediately, without a restart.
+    _settings.addListener(_republish);
     _broadcastMediaItem();
     logInfo('audio', 'media session handler created');
   }
 
   final AudioPlayer _player;
+  final AppSettingsService _settings;
+  PlaybackEvent? _lastEvent;
+
+  void _republish() {
+    final event = _lastEvent;
+    if (event != null) playbackState.add(_transformEvent(event));
+    _broadcastMediaItem();
+    logInfo('audio', 'notification layout updated', <String, Object?>{
+      'previous': _settings.notificationPrevious,
+      'next': _settings.notificationNext,
+      'seekBar': _settings.notificationSeekBar,
+    });
+  }
 
   PlaybackState _transformEvent(PlaybackEvent event) {
+    final controls = <MediaControl>[
+      if (_settings.notificationPrevious) MediaControl.skipToPrevious,
+      if (_player.playing) MediaControl.pause else MediaControl.play,
+      if (_settings.notificationNext) MediaControl.skipToNext,
+    ];
+    if (controls.isEmpty) controls.add(MediaControl.play);
+    final compact = <int>[
+      for (var index = 0; index < controls.length; index++) index,
+    ];
     return PlaybackState(
-      controls: <MediaControl>[
-        MediaControl.skipToPrevious,
-        if (_player.playing) MediaControl.pause else MediaControl.play,
-        MediaControl.skipToNext,
-      ],
-      systemActions: const <MediaAction>{
-        MediaAction.seek,
-        MediaAction.seekForward,
-        MediaAction.seekBackward,
+      controls: controls,
+      systemActions: <MediaAction>{
+        if (_settings.notificationSeekBar) ...<MediaAction>{
+          MediaAction.seek,
+          MediaAction.seekForward,
+          MediaAction.seekBackward,
+        },
         MediaAction.play,
         MediaAction.pause,
       },
-      androidCompactActionIndices: const <int>[0, 1, 2],
+      androidCompactActionIndices: compact,
       processingState: switch (_player.processingState) {
         ProcessingState.idle => AudioProcessingState.idle,
         ProcessingState.loading => AudioProcessingState.loading,

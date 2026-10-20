@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../app_info.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
+import '../services/app_settings_service.dart';
+import '../services/discover_options.dart';
 import '../services/library_service.dart';
 import '../services/lossless_radio_service.dart';
 import '../services/music_api_service.dart';
@@ -26,11 +28,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<SongModel> _results = <SongModel>[];
   List<AlbumSummary> _albums = <AlbumSummary>[];
-  List<SongModel> _trending = <SongModel>[];
+  final Map<String, List<SongModel>> _trendingByLanguage =
+      <String, List<SongModel>>{};
   SearchSource _source = SearchSource.automatic;
   bool _loading = false;
   bool _searching = false;
   String _lastQuery = '';
+  String _languageSignature = '';
 
   @override
   void initState() {
@@ -46,9 +50,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadTrending() async {
     final api = context.read<MusicApiService>();
-    final songs = await api.fetchTrending(limit: 20);
-    if (!mounted) return;
-    setState(() => _trending = songs);
+    final settings = context.read<AppSettingsService>();
+    final languages = settings.languages.isEmpty
+        ? const <String>['english']
+        : settings.languages;
+    for (final code in languages) {
+      final songs = await api.fetchTrending(limit: 20, language: code);
+      if (!mounted) return;
+      if (songs.isEmpty) continue;
+      setState(() => _trendingByLanguage[code] = songs);
+    }
   }
 
   Future<void> _search([String? query]) async {
@@ -131,6 +142,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final palette = context.palette;
     final library = context.watch<LibraryService>();
+    final appSettings = context.watch<AppSettingsService>();
+    // Reload recommendation shelves when the user changes languages.
+    final signature = appSettings.languages.join(',');
+    if (signature != _languageSignature) {
+      _languageSignature = signature;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadTrending());
+      });
+    }
     final recent = library.recentSongs;
     final favorites = library.favoriteSongs;
     final playlists = library.playlists;
@@ -255,13 +275,14 @@ class _HomeScreenState extends State<HomeScreen> {
           songs: favorites,
           onPlay: (index) => _play(favorites, index),
         ),
-      if (_trending.isNotEmpty)
-        _SongShelf(
-          title: 'Trending now',
-          subtitle: 'Popular on JioSaavn',
-          songs: _trending,
-          onPlay: (index) => _play(_trending, index),
-        ),
+      for (final entry in _trendingByLanguage.entries)
+        if (entry.value.isNotEmpty)
+          _SongShelf(
+            title: 'Trending in ${kDiscoverLanguageLabel[entry.key] ?? entry.key}',
+            subtitle: 'Popular on JioSaavn',
+            songs: entry.value,
+            onPlay: (index) => _play(entry.value, index),
+          ),
       _LosslessRadioShelf(onPlay: (station) => _play(<SongModel>[station.toSong()], 0)),
       if (playlists.isNotEmpty)
         _ShelfHeader(

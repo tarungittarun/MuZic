@@ -5,6 +5,7 @@ import '../app_info.dart';
 import '../services/app_log.dart';
 import '../services/app_settings_service.dart';
 import '../services/audio_effects_service.dart';
+import '../services/discover_options.dart';
 import '../services/lyrics_language.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
@@ -142,22 +143,176 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Card(
-            child: ListTile(
-              leading: Icon(Icons.notifications_active_outlined,
-                  color: palette.accent),
-              title: const Text('Media notification'),
-              subtitle: Text(
-                'Playback controls in the notification shade and lock screen. '
-                'If they do not appear, allow notifications for MuZic here.',
-                style: TextStyle(color: palette.textMuted, fontSize: 12),
-              ),
-              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
-              onTap: () async {
-                final granted = await NotificationService.ensurePermission();
-                if (!granted) {
-                  await NotificationService.openSystemSettings();
-                }
-              },
+            child: Column(
+              children: <Widget>[
+                FutureBuilder<bool>(
+                  future: NotificationService.areEnabled(),
+                  builder: (context, snapshot) {
+                    final granted = snapshot.data ?? false;
+                    final pending = snapshot.connectionState !=
+                        ConnectionState.done;
+                    return ListTile(
+                      leading: Icon(
+                        granted
+                            ? Icons.notifications_active_rounded
+                            : Icons.notifications_off_outlined,
+                        color: granted ? palette.mint : palette.accent,
+                      ),
+                      title: const Text('Notification access'),
+                      subtitle: Text(
+                        pending
+                            ? 'Checking…'
+                            : granted
+                                ? 'Allowed — playback controls can appear in the shade.'
+                                : 'Blocked — Android hides the media controls. Allow it here.',
+                        style: TextStyle(
+                          color: granted ? palette.textMuted : palette.accent,
+                          fontSize: 12,
+                        ),
+                      ),
+                      trailing: granted
+                          ? const Icon(Icons.check_circle_rounded, size: 18)
+                          : FilledButton(
+                              onPressed: () async {
+                                final ok = await NotificationService
+                                    .ensurePermission(force: true);
+                                if (!ok) {
+                                  await NotificationService.openSystemSettings();
+                                }
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        ok
+                                            ? 'Notifications allowed — the media card can now appear.'
+                                            : 'Still blocked. Enable notifications for MuZic in system settings.',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              },
+                              child: const Text('Allow'),
+                            ),
+                    );
+                  },
+                ),
+                Divider(height: 1, color: palette.outline),
+                SwitchListTile(
+                  value: settings.notificationEnabled,
+                  secondary: Icon(Icons.play_circle_outline_rounded,
+                      color: settings.notificationEnabled
+                          ? palette.accent
+                          : palette.textSecondary),
+                  title: const Text('Show playback notification'),
+                  subtitle: Text(
+                    'Media card with title, artwork and controls while playing.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  onChanged: (value) =>
+                      settings.setNotificationEnabled(value),
+                ),
+                if (settings.notificationEnabled) ...<Widget>[
+                  SwitchListTile(
+                    value: settings.notificationPrevious,
+                    title: const Text('Previous button'),
+                    onChanged: (value) =>
+                        settings.setNotificationLayout(previous: value),
+                  ),
+                  SwitchListTile(
+                    value: settings.notificationNext,
+                    title: const Text('Next button'),
+                    onChanged: (value) =>
+                        settings.setNotificationLayout(next: value),
+                  ),
+                  SwitchListTile(
+                    value: settings.notificationSeekBar,
+                    title: const Text('Seek bar'),
+                    subtitle: Text(
+                      'Drag to scrub straight from the shade.',
+                      style: TextStyle(color: palette.textMuted, fontSize: 12),
+                    ),
+                    onChanged: (value) =>
+                        settings.setNotificationLayout(seekBar: value),
+                  ),
+                  SwitchListTile(
+                    value: settings.keepNotificationOnPause,
+                    title: const Text('Keep notification when paused'),
+                    subtitle: Text(
+                      'Takes effect after the app restarts.',
+                      style: TextStyle(color: palette.textMuted, fontSize: 12),
+                    ),
+                    onChanged: (value) =>
+                        settings.setKeepNotificationOnPause(value),
+                  ),
+                ],
+                Divider(height: 1, color: palette.outline),
+                ListTile(
+                  leading: Icon(Icons.battery_saver_rounded,
+                      color: palette.textSecondary),
+                  title: const Text('Allow background playback'),
+                  subtitle: Text(
+                    'Exempt MuZic from battery optimisation so the media card '
+                    'is not killed (needed on MIUI, ColorOS, FuntouchOS).',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    await NotificationService.requestBatteryExemption();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Allow MuZic to run in the background in the '
+                            'system dialog to keep the media card alive.',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'DISCOVER',
+            style: TextStyle(
+              color: palette.textMuted,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.8,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: Column(
+              children: <Widget>[
+                ListTile(
+                  leading: Icon(Icons.public_rounded, color: palette.accent),
+                  title: const Text('Region'),
+                  subtitle: Text(
+                    kRegionOptions[settings.region] ?? settings.region,
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.expand_more_rounded),
+                  onTap: () => _pickRegion(context, settings),
+                ),
+                Divider(height: 1, color: palette.outline),
+                ListTile(
+                  leading: Icon(Icons.translate_rounded, color: palette.accent),
+                  title: const Text('Languages'),
+                  subtitle: Text(
+                    settings.languages.isEmpty
+                        ? 'English'
+                        : settings.languages
+                            .map((code) => kDiscoverLanguageLabel[code] ?? code)
+                            .join(', '),
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.expand_more_rounded),
+                  onTap: () => _pickLanguages(context, settings),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 24),
@@ -445,6 +600,103 @@ class SettingsScreen extends StatelessWidget {
     if (selected != null) {
       await settings.setLyricsLanguage(selected);
     }
+  }
+
+  Future<void> _pickRegion(
+    BuildContext context,
+    AppSettingsService settings,
+  ) async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: context.palette.surface,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text('Your region',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+            ),
+            for (final entry in kRegionOptions.entries)
+              ListTile(
+                title: Text(entry.value),
+                trailing: settings.region == entry.key
+                    ? Icon(Icons.check_rounded, color: context.palette.accent)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, entry.key),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) await settings.setRegion(selected);
+  }
+
+  Future<void> _pickLanguages(
+    BuildContext context,
+    AppSettingsService settings,
+  ) async {
+    final options = kDiscoverLanguageLabel.keys.toList(growable: false);
+    final chosen = <String>{...settings.languages};
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: context.palette.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Languages for recommendations',
+                      style:
+                          TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+                ),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: <Widget>[
+                    for (final code in options)
+                      CheckboxListTile(
+                        dense: true,
+                        value: chosen.contains(code),
+                        title: Text(kDiscoverLanguageLabel[code] ?? code),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            if (value == true) {
+                              chosen.add(code);
+                            } else {
+                              chosen.remove(code);
+                            }
+                          });
+                          settings.setLanguages(chosen.toList());
+                        },
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    child: const Text('Done'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   String _eqPresetName(int preset) {

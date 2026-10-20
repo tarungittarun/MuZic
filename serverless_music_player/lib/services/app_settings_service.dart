@@ -13,6 +13,13 @@ class AppSettingsService extends ChangeNotifier {
   static const String _eqEnabledKey = 'equalizer_enabled';
   static const String _eqPresetKey = 'equalizer_preset';
   static const String _diagnosticsKey = 'diagnostics_capture';
+  static const String _notificationEnabledKey = 'notification_enabled';
+  static const String _notificationPrevKey = 'notification_prev';
+  static const String _notificationNextKey = 'notification_next';
+  static const String _notificationSeekKey = 'notification_seek';
+  static const String _notificationPauseKey = 'notification_keep_on_pause';
+  static const String _regionKey = 'discover_region';
+  static const String _languagesKey = 'discover_languages';
 
   late Box<dynamic> _settings;
   ThemeMode _themeMode = ThemeMode.dark;
@@ -24,6 +31,13 @@ class AppSettingsService extends ChangeNotifier {
   bool _equalizerEnabled = false;
   int _equalizerPreset = 0;
   bool _diagnosticsEnabled = false;
+  bool _notificationEnabled = true;
+  bool _notificationPrevious = true;
+  bool _notificationNext = true;
+  bool _notificationSeekBar = true;
+  bool _keepNotificationOnPause = false;
+  String _region = 'IN';
+  List<String> _languages = const <String>['hindi', 'english'];
 
   ThemeMode get themeMode => _themeMode;
 
@@ -42,6 +56,18 @@ class AppSettingsService extends ChangeNotifier {
   /// is recorded or exported unless they explicitly turn it on.
   bool get diagnosticsEnabled => _diagnosticsEnabled;
 
+  bool get notificationEnabled => _notificationEnabled;
+  bool get notificationPrevious => _notificationPrevious;
+  bool get notificationNext => _notificationNext;
+  bool get notificationSeekBar => _notificationSeekBar;
+  bool get keepNotificationOnPause => _keepNotificationOnPause;
+
+  /// Region used for Discover recommendations (ISO country code).
+  String get region => _region;
+
+  /// Languages used for Discover recommendation shelves.
+  List<String> get languages => _languages;
+
   Future<void> init() async {
     _settings = await Hive.openBox<dynamic>(_boxName);
     final saved = _settings.get(_themeModeKey)?.toString();
@@ -59,6 +85,66 @@ class AppSettingsService extends ChangeNotifier {
     _equalizerEnabled = _settings.get(_eqEnabledKey) == true;
     _equalizerPreset = _readInt(_eqPresetKey, 0);
     _diagnosticsEnabled = _settings.get(_diagnosticsKey) == true;
+    _notificationEnabled = _settings.get(_notificationEnabledKey) != false;
+    _notificationPrevious = _settings.get(_notificationPrevKey) != false;
+    _notificationNext = _settings.get(_notificationNextKey) != false;
+    _notificationSeekBar = _settings.get(_notificationSeekKey) != false;
+    _keepNotificationOnPause = _settings.get(_notificationPauseKey) == true;
+    final savedRegion = _settings.get(_regionKey)?.toString().trim() ?? '';
+    _region = savedRegion.isEmpty ? 'IN' : savedRegion;
+    final savedLanguages = _settings.get(_languagesKey)?.toString() ?? '';
+    final parsed = savedLanguages
+        .split(',')
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    _languages = parsed.isEmpty ? const <String>['hindi', 'english'] : parsed;
+  }
+
+  Future<void> setNotificationEnabled(bool value) async {
+    _notificationEnabled = value;
+    await _settings.put(_notificationEnabledKey, value);
+    notifyListeners();
+  }
+
+  Future<void> setNotificationLayout({
+    bool? previous,
+    bool? next,
+    bool? seekBar,
+  }) async {
+    if (previous != null) {
+      _notificationPrevious = previous;
+      await _settings.put(_notificationPrevKey, previous);
+    }
+    if (next != null) {
+      _notificationNext = next;
+      await _settings.put(_notificationNextKey, next);
+    }
+    if (seekBar != null) {
+      _notificationSeekBar = seekBar;
+      await _settings.put(_notificationSeekKey, seekBar);
+    }
+    notifyListeners();
+  }
+
+  Future<void> setKeepNotificationOnPause(bool value) async {
+    _keepNotificationOnPause = value;
+    await _settings.put(_notificationPauseKey, value);
+    notifyListeners();
+  }
+
+  Future<void> setRegion(String code) async {
+    _region = code;
+    await _settings.put(_regionKey, code);
+    notifyListeners();
+  }
+
+  Future<void> setLanguages(List<String> codes) async {
+    _languages = List<String>.unmodifiable(
+      codes.isEmpty ? const <String>['english'] : codes,
+    );
+    await _settings.put(_languagesKey, _languages.join(','));
+    notifyListeners();
   }
 
   int _readInt(String key, int fallback) {

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
@@ -246,6 +247,31 @@ class DiagnosticsService extends ChangeNotifier {
   }
 
   /// Writes the report to app storage and returns the file path.
+  /// Opens the system share sheet with the report text (WhatsApp, Gmail...).
+  Future<bool> shareReport() async {
+    final report = buildReport();
+    try {
+      final shared = await const MethodChannel('music_player/local_files')
+          .invokeMethod<bool>('shareText', <String, Object?>{
+        'subject': '${AppInfo.displayName} diagnostics report',
+        'text': report,
+      });
+      logInfo('diagnostics', 'report shared', <String, Object?>{
+        'length': report.length,
+        'ok': shared,
+      });
+      return shared ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException catch (error) {
+      logWarn('diagnostics', 'share failed', <String, Object?>{'error': '$error'});
+      return false;
+    }
+  }
+
+  /// Text of the most recent report for copying to the clipboard.
+  String clipboardReport() => buildReport();
+
   Future<String> exportReport() async {
     final report = buildReport();
     final documents = await getApplicationDocumentsDirectory();

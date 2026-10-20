@@ -50,13 +50,14 @@ Future<void> main() async {
   // Registers the media session that backs the playback notification, lock
   // screen and Bluetooth/headset controls.
   await AudioService.init(
-    builder: () => MuzicAudioHandler(audio.player),
-    config: const AudioServiceConfig(
+    builder: () => MuzicAudioHandler(audio.player, settings),
+    config: AudioServiceConfig(
       androidNotificationChannelId: 'com.music.player.audio',
       androidNotificationChannelName: 'MuZic playback',
       androidNotificationOngoing: true,
-      androidStopForegroundOnPause: true,
+      androidStopForegroundOnPause: !settings.keepNotificationOnPause,
       androidNotificationClickStartsActivity: true,
+      androidNotificationIcon: 'mipmap/ic_launcher',
     ),
   );
 
@@ -78,8 +79,6 @@ Future<void> main() async {
   final effects = AudioEffectsService(settings: settings, player: audio.player);
   effects.attach();
 
-  // The playback notification needs POST_NOTIFICATIONS on Android 13+.
-  await NotificationService.ensurePermission();
 
   logInfo('app', 'application starting');
 
@@ -94,4 +93,11 @@ Future<void> main() async {
     diagnostics: diagnostics,
     effects: effects,
   ));
+
+  // Ask for notification access once the UI is up: Android only shows the
+  // system dialog from a resumed activity, so asking before runApp fails
+  // silently — which is why the media notification never appeared.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    NotificationService.ensurePermission();
+  });
 }
