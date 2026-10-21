@@ -28,8 +28,10 @@ android {
         applicationId = "com.auralis.player"
         minSdk = 23
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // No versionCode/versionName here: hard-coding them silently overrode
+        // pubspec.yaml, so every APK built so far installed as 1.0.0 (code 1)
+        // no matter what the pubspec said. The Flutter Gradle plugin injects
+        // both from the pubspec `version: x.y.z+n` field.
     }
 
     splits {

@@ -1,9 +1,7 @@
 # MuZic end-to-end test report
 
-Generated: 2026-10-21 02:48 UTC  
-Commit: `0982a98` · Run: `22`
-
-What this suite covers, why it exists and what it has found: [FINDINGS.md](FINDINGS.md).
+Generated: 2026-10-21 02:34 UTC  
+Commit: `c822a8d` · Run: `21`
 
 ## 1. Static analysis
 
@@ -28,50 +26,50 @@ Line coverage: **55.0%** (686/1247 lines)
 
 | API level | Step | Status | Time | Detail |
 | --- | --- | --- | --- | --- |
-| 30 | `cold_start` | ✅ PASS | 1.90s |  |
-| 30 | `time_to_first_frame` | ✅ PASS | 1.90s |  |
-| 30 | `home_discover_feed` | ✅ PASS | 0.04s |  |
-| 30 | `home_recommendation_shelves` | ✅ PASS | 0.41s |  |
-| 30 | `search_flow` | ✅ PASS | 2.77s |  |
+| 30 | `cold_start` | ✅ PASS | 3.45s |  |
+| 30 | `time_to_first_frame` | ✅ PASS | 3.46s |  |
+| 30 | `home_discover_feed` | ✅ PASS | 0.02s |  |
+| 30 | `home_recommendation_shelves` | ✅ PASS | 0.52s |  |
+| 30 | `search_flow` | ✅ PASS | 2.89s |  |
 | 30 | `search_results_structure` | ✅ PASS | 0.00s |  |
-| 30 | `playback_start` | ✅ PASS | 0.65s |  |
-| 30 | `now_playing_and_lyrics` | ✅ PASS | 7.57s |  |
-| 30 | `lyrics_language_picker` | ✅ PASS | 1.46s |  |
-| 30 | `settings_sections` | ✅ PASS | 3.20s |  |
-| 30 | `sleep_timer_toggle` | ✅ PASS | 1.07s |  |
-| 30 | `audio_effects_toggle` | ✅ PASS | 0.82s |  |
-| 30 | `diagnostics_capture` | ✅ PASS | 2.13s |  |
-| 30 | `navigation_back_home` | ✅ PASS | 0.25s |  |
-| 34 | `cold_start` | ✅ PASS | 5.35s |  |
-| 34 | `time_to_first_frame` | ✅ PASS | 5.36s |  |
-| 34 | `home_discover_feed` | ✅ PASS | 0.08s |  |
-| 34 | `home_recommendation_shelves` | ✅ PASS | 0.49s |  |
-| 34 | `search_flow` | ✅ PASS | 4.36s |  |
-| 34 | `search_results_structure` | ✅ PASS | 0.01s |  |
-| 34 | `playback_start` | ✅ PASS | 0.94s |  |
-| 34 | `now_playing_and_lyrics` | ✅ PASS | 12.96s |  |
-| 34 | `lyrics_language_picker` | ✅ PASS | 2.54s |  |
-| 34 | `settings_sections` | ✅ PASS | 7.96s |  |
-| 34 | `sleep_timer_toggle` | ✅ PASS | 1.41s |  |
-| 34 | `audio_effects_toggle` | ✅ PASS | 0.70s |  |
-| 34 | `diagnostics_capture` | ✅ PASS | 2.31s |  |
-| 34 | `navigation_back_home` | ✅ PASS | 0.31s |  |
+| 30 | `playback_start` | ✅ PASS | 1.24s |  |
+| 30 | `now_playing_and_lyrics` | ✅ PASS | 8.46s |  |
+| 30 | `lyrics_language_picker` | ✅ PASS | 1.69s |  |
+| 30 | `settings_sections` | ✅ PASS | 4.18s |  |
+| 30 | `sleep_timer_toggle` | ✅ PASS | 1.43s |  |
+| 30 | `audio_effects_toggle` | ✅ PASS | 0.84s |  |
+| 30 | `diagnostics_capture` | ✅ PASS | 2.36s |  |
+| 30 | `navigation_back_home` | ✅ PASS | 0.18s |  |
+| 34 | `cold_start` | ✅ PASS | 3.52s |  |
+| 34 | `time_to_first_frame` | ✅ PASS | 3.52s |  |
+| 34 | `home_discover_feed` | ✅ PASS | 0.03s |  |
+| 34 | `home_recommendation_shelves` | ✅ PASS | 1.06s |  |
+| 34 | `search_flow` | ✅ PASS | 3.01s |  |
+| 34 | `search_results_structure` | ✅ PASS | 0.00s |  |
+| 34 | `playback_start` | ✅ PASS | 1.06s |  |
+| 34 | `now_playing_and_lyrics` | ✅ PASS | 14.35s |  |
+| 34 | `lyrics_language_picker` | ✅ PASS | 1.76s |  |
+| 34 | `settings_sections` | ✅ PASS | 7.16s |  |
+| 34 | `sleep_timer_toggle` | ✅ PASS | 2.36s |  |
+| 34 | `audio_effects_toggle` | ✅ PASS | 1.45s |  |
+| 34 | `diagnostics_capture` | ✅ PASS | 2.12s |  |
+| 34 | `navigation_back_home` | ✅ PASS | 0.40s |  |
 
 ## 4. Device matrix
 
-| Device | Android | ABI | MuZic build | APK | Journey |
-| --- | --- | --- | --- | --- | --- |
-| emulator-30 (API 30) | 11 | x86_64 | `1.0.0+1` | 153.8 MB | ✅ 14/14 |
-| emulator-34 (API 34) | 14 | x86_64 | `1.0.0+1` | 153.8 MB | ✅ 14/14 |
+| API level | Android | ABI | Installed package |
+| --- | --- | --- | --- |
+| 30 | 11 | x86_64 | `not installed` |
+| 34 | 14 | x86_64 | `not installed` |
 
 ## 5. Timings & budgets
 
 | Step | Measured | Budget | Verdict |
 | --- | --- | --- | --- |
-| `cold_start` | 1.90s | 8.0s | ✅ within |
-| `time_to_first_frame` | 1.90s | 8.0s | ✅ within |
-| `search_flow` | 2.77s | 12.0s | ✅ within |
-| `playback_start` | 0.65s | 15.0s | ✅ within |
+| `cold_start` | 3.45s | 8.0s | ✅ within |
+| `time_to_first_frame` | 3.46s | 8.0s | ✅ within |
+| `search_flow` | 2.89s | 12.0s | ✅ within |
+| `playback_start` | 1.24s | 15.0s | ✅ within |
 
 ## 6. Notes
 

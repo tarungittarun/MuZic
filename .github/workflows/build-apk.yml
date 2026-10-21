@@ -75,6 +75,29 @@ jobs:
             echo "::notice title=APK signing certificate::${line}"
           done
 
+      - name: Verify versionName / versionCode
+        shell: bash
+        run: |
+          # Guard against the Gradle file silently overriding the pubspec
+          # version: the device only ever sees what is inside the manifest.
+          set +e
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | tail -1)
+          PUBSPEC_VERSION=$(grep -m1 '^version:' serverless_music_player/pubspec.yaml | awk '{print $2}')
+          BADGING=$("$BT/aapt2" dump badging \
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk 2>/dev/null \
+            | grep -m1 "^package:")
+          echo "pubspec=$PUBSPEC_VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "badging=$BADGING" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=APK version::pubspec=${PUBSPEC_VERSION} ${BADGING}"
+          code=$(echo "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+          name=$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          expected_code=${PUBSPEC_VERSION##*+}
+          if [ -n "$code" ] && [ "$code" != "$expected_code" ]; then
+            echo "::error title=version-mismatch::manifest versionCode=$code but pubspec asks for $expected_code"
+            exit 1
+          fi
+          echo "::notice title=APK version::OK versionName=$name versionCode=$code"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7.0.2
         with:
