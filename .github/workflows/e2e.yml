@@ -309,7 +309,7 @@ jobs:
           # flutter test installs and then removes the app, so record the
           # package facts while it is actually on the device.
           APK="${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-debug.apk"
-          adb install -r "$APK" > /dev/null 2>&1 || true
+          install_out=$(adb install -r "$APK" 2>&1 | tail -1 | tr -d '\r')
           {
             echo "api_level=${{ matrix.api-level }}"
             echo "android_version=$(adb shell getprop ro.build.version.release | tr -d '\r')"
@@ -317,6 +317,7 @@ jobs:
             echo "version_name=$(adb shell dumpsys package ${{ env.APP_ID }} | grep -m1 versionName | tr -d '\r' | cut -d= -f2)"
             echo "version_code=$(adb shell dumpsys package ${{ env.APP_ID }} | grep -m1 versionCode | tr -d '\r' | sed 's/.*versionCode=\([0-9]*\).*/\1/')"
             echo "apk_bytes=$(stat -c%s "$APK" 2>/dev/null || echo 0)"
+            echo "install_result=${install_out:-unknown}"
           } > "device-${{ matrix.api-level }}.txt" || true
 
           echo '--- adb devices ---'
@@ -523,8 +524,10 @@ jobs:
               for api, row in sorted(facts.items()):
                   size = row.get('apk_bytes', '0')
                   mib = f'{int(size) / 1048576:.1f} MB' if size.isdigit() and int(size) else '—'
-                  version = row.get('version_name') or '—'
-                  code = row.get('version_code') or '?'
+                  version = row.get('version_name') or ''
+                  code = row.get('version_code') or ''
+                  if version in ('', 'null'):
+                      version, code = '—', '—'
                   result = '✅ 14/14' if str(api) in green_apis else '❌ see §3'
                   lines.append(f'| emulator-{api} (API {api}) | '
                                f'{row.get("android_version", "?")} | '
