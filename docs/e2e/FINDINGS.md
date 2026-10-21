@@ -29,10 +29,10 @@ Steps that need the live JioSaavn / YouTube CDN are marked `soft` — they repor
 **WARN** instead of failing the build, so a flaky network never hides a real
 regression inside the app.
 
-### The 14 steps
+### The 15 steps
 
 `cold_start` · `time_to_first_frame` · `home_discover_feed` ·
-`home_recommendation_shelves` · `search_flow` · `search_results_structure` ·
+`home_recommendation_shelves` · `search_flow` · `search_results_structure` · `media_notification` ·
 `playback_start` · `now_playing_and_lyrics` · `lyrics_language_picker` ·
 `settings_sections` · `sleep_timer_toggle` · `audio_effects_toggle` ·
 `diagnostics_capture` · `navigation_back_home`
@@ -126,6 +126,39 @@ report says *what the user would have seen*.
 
 **Fixed in:** commit `9c5606d`.
 
+### 2.5 The media notification: what the probe actually proved
+
+Three earlier "fixes" guessed at the cause. This round added a native probe
+(`mediaNotificationDiagnostics`) that reports the whole chain, and an E2E step
+that asserts on it after playback starts. Result on both emulators:
+
+| Probe | API 30 | API 34 |
+| --- | --- | --- |
+| `notificationsEnabled` | true | true |
+| `postPermission` | false (not a runtime permission before 33) | true |
+| `playbackChannelExists` | true | true |
+| `playbackChannelImportance` | 3 (DEFAULT) | 3 (DEFAULT) |
+| `audioServiceDeclared` | true | true |
+| `smallIconResolves` | true | true |
+| `postedCount` | 1 | 1 |
+
+So `audio_service` **does** post a media card, on a channel with visible
+importance, with a resolvable icon. The failure was therefore never "the app
+doesn't post it" — it was either a channel that had been created wrong in an
+earlier build (Android channels are immutable, so it stays wrong forever), or
+the device hiding/blocking it.
+
+Fix: MuZic now owns the channel id, versions it
+(`com.music.player.playback.v2`) and creates it itself in
+`MainActivity.onCreate` with `IMPORTANCE_DEFAULT`, public lock-screen
+visibility and no sound, before `audio_service` posts. A new channel id also
+sidesteps whatever state the old `com.music.player.audio` channel is in on any
+existing install.
+
+Verification path that does not need a developer: **Settings → Playback →
+Media notification health** prints the same chain on the phone and offers to
+open Android's notification settings.
+
 ---
 
 ## 3. CI infrastructure findings (why the device jobs failed for six attempts)
@@ -151,16 +184,16 @@ KVM was never the problem: `/dev/kvm` is present and `kvm-ok` reports
 
 ## 4. Current results
 
-From [`LATEST.md`](LATEST.md) (run 26, commit `308bd6d`):
+From [`LATEST.md`](LATEST.md) (run 35, commit `8048d95`):
 
 | Area | Result |
 | --- | --- |
 | Static analysis | 0 errors, 0 warnings, 9 lint infos |
-| Unit & widget tests | 37 passed, 0 failed (100 %) |
-| Line coverage | 55.0 % (686/1247 lines) |
-| E2E steps, API 30 (Android 11) | 14/14 PASS |
-| E2E steps, API 34 (Android 14) | 14/14 PASS |
-| Version seen on device | `1.4.2+7` on both emulators (was `1.0.0+1`) |
+| Unit & widget tests | 43 passed, 0 failed (100 %) |
+| Line coverage | 57.1 % (757/1325 lines) |
+| E2E steps, API 30 (Android 11) | 15/15 PASS |
+| E2E steps, API 34 (Android 14) | 15/15 PASS |
+| Version seen on device | `1.5.1+9` on both emulators (was `1.0.0+1`) |
 | Cold start (software-rendered emulator) | 5.27 s worst case — budget 8 s |
 | Search round trip | 2.74 s — budget 12 s |
 | Playback start | 0.90 s — budget 15 s |

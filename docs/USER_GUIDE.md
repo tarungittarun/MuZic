@@ -262,15 +262,30 @@ In the now-playing sheet tap the **film icon**:
 
 1. If the track is not downloaded yet, MuZic downloads it first (needed for the
    audio track).
-2. A progress dialog shows the percentage while the video is rendered.
-3. When it finishes the file is saved to **Movies/MuZic/** (visible in Gallery
+2. The film icon becomes a **ring with the live percentage** while the video
+   renders. No dialog blocks the app — you can keep browsing, search, or close
+   the player and the render continues in the background.
+3. The same percentage also appears above the mini player, so you never lose
+   track of it. Tap either one to open the export sheet.
+4. To stop early, tap the percentage and choose **Stop exporting**. The partial
+   file is thrown away; nothing half-written reaches your gallery.
+5. When it finishes the file is saved to **Movies/MuZic/** (visible in Gallery
    and Files) and a confirmation appears.
 
-The video is 720×720, 30 fps, H.264 + AAC, and contains the cover art, a
-waveform driven by the real audio level, the synced lyrics (current + next
-line) and a progress bar — ready to post to WhatsApp Status, Reels or Shorts.
+The video is 720×720, 24 fps, H.264 + AAC, and contains the cover art, a
+waveform, the synced lyrics (current + next line) and a progress bar — ready to
+post to WhatsApp Status, Reels or Shorts.
+
+Rendering is far faster than it used to be: audio is copied through instead of
+being decoded and re-encoded, and the background layer is painted once instead
+of on every frame.
 
 Everything is encoded **on the device**; nothing is uploaded.
+
+Exported videos also appear in **Library → Downloads**, in their own
+**Lyric videos** section (with a duration and date badge), separate from your
+offline songs. Removing an entry there only clears it from MuZic — the file
+stays in Movies/MuZic.
 
 ---
 
