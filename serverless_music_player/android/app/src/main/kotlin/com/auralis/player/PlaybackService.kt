@@ -53,7 +53,6 @@ class PlaybackService : Service() {
     companion object {
         const val CHANNEL_ID = "com.music.player.playback.v2"
         private const val CHANNEL_NAME = "MuZic playback"
-        const val NOTIFICATION_ID = 1201
 
         /**
          * Plain (non-media) card so playback controls also appear in the
@@ -107,7 +106,7 @@ class PlaybackService : Service() {
         private const val KEY_SHADE_LAYOUT_REV = "shade_layout_rev"
 
         /** Bump when the shade-card layouts change: re-trials level 2. */
-        private const val SHADE_LAYOUT_REV = 5
+        private const val SHADE_LAYOUT_REV = 6
 
         /** Set by MainActivity: receives transport commands from the card. */
         var commandSink: ((String, Double?) -> Unit)? = null
@@ -318,9 +317,13 @@ class PlaybackService : Service() {
 
         publishSessionState()
         loadArtworkIfNeeded()
-        // Must be foreground for the card to survive the app going to the
-        // background, and for Android to treat it as a media notification.
-        startForeground(NOTIFICATION_ID, buildNotification())
+        // The shade card IS the foreground notification: the shade holds
+        // exactly one MuZic player (this card) instead of the card plus a
+        // separate stock-template MediaStyle notification next to it.
+        // Anchor the foreground state right away (a foreground service
+        // must do so within seconds of starting); postShadeCard then
+        // keeps the anchor on whichever slot the card level uses.
+        ensureForeground()
         postShadeCard()
         return START_STICKY
     }
@@ -460,8 +463,6 @@ class PlaybackService : Service() {
             shadeArtworkBitmap = Bitmap.createScaledBitmap(bitmap, 192, 192, true)
             shadeBannerBitmap = runCatching { makeBannerBitmap(bitmap) }.getOrNull()
             publishSessionState()
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.notify(NOTIFICATION_ID, buildNotification())
             postShadeCard()
         }
     }
@@ -565,51 +566,6 @@ class PlaybackService : Service() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-    }
-
-    private fun buildNotification(): Notification {
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_muzic)
-            .setContentTitle(latestTitle)
-            .setContentText(latestArtist)
-            .setSubText(latestAlbum)
-            .setContentIntent(contentIntent())
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setShowWhen(false)
-            .setOnlyAlertOnce(true)
-            .setOngoing(playing)
-            .setSilent(true)
-
-        artworkBitmap?.let { builder.setLargeIcon(it) }
-
-        if (hasPrevious) {
-            builder.addAction(
-                R.drawable.ic_skip_previous,
-                "Previous",
-                transportIntent("previous"),
-            )
-        }
-        builder.addAction(
-            if (playing) R.drawable.ic_pause else R.drawable.ic_play,
-            if (playing) "Pause" else "Play",
-            transportIntent("toggle"),
-        )
-        if (hasNext) {
-            builder.addAction(
-                R.drawable.ic_skip_next,
-                "Next",
-                transportIntent("next"),
-            )
-        }
-
-        val style = androidx.media.app.NotificationCompat.MediaStyle()
-            .setMediaSession(session?.sessionToken)
-            .setShowActionsInCompactView(0, 1, 2)
-        builder.setStyle(style)
-
-        return builder.build()
     }
 
     /**
@@ -924,6 +880,10 @@ class PlaybackService : Service() {
     @Volatile
     private var shadePendingId = SHADE_NOTIFICATION_ID
 
+    /** Slot currently registered as the foreground-service notification. */
+    @Volatile
+    private var foregroundSlotId = -1
+
     /**
      * Some devices drop a freshly posted notification when the app was
      * just force-stopped or swiped away; a screen-on / unlock wake
@@ -943,6 +903,38 @@ class PlaybackService : Service() {
     /** True while a post-verification is queued. */
     private var shadeVerifyPending = false
 
+    /**
+     * Anchors the service in the foreground using the shade card itself,
+     * so the shade holds exactly one MuZic player (this card) instead of
+     * the card plus a separate stock-template notification next to it.
+     */
+    private fun ensureForeground() {
+        val level = if (shadeStyle == "rich") shadeLevel else 0
+        val slotId = SHADE_LEVEL_IDS[level]
+        runCatching { startForeground(slotId, buildShadeCard()) }
+        foregroundSlotId = slotId
+    }
+
+    /** Keeps the foreground anchor on the slot the card currently uses. */
+    private fun syncForeground(slotId: Int, card: Notification) {
+        if (slotId == foregroundSlotId) return
+        runCatching { startForeground(slotId, card) }
+        val previous = foregroundSlotId
+        foregroundSlotId = slotId
+        if (previous >= 0 && previous != slotId) {
+            runCatching {
+                getSystemService(NotificationManager::class.java)
+                    ?.cancel(previous)
+            }
+        }
+    }
+
+    private fun detachForeground() {
+        if (foregroundSlotId < 0) return
+        foregroundSlotId = -1
+        runCatching { stopForeground(true) }
+    }
+
     private fun postShadeCard() {
         val manager = getSystemService(NotificationManager::class.java) ?: return
         val gate = when {
@@ -960,6 +952,7 @@ class PlaybackService : Service() {
             runCatching {
                 SHADE_LEVEL_IDS.forEach { slotId -> manager.cancel(slotId) }
             }
+            detachForeground()
             return
         }
         // Device diagnostics proved a nasty failure mode: playback runs,
@@ -978,7 +971,9 @@ class PlaybackService : Service() {
         val slotId = SHADE_LEVEL_IDS[level]
         shadePendingId = slotId
         try {
-            manager.notify(slotId, buildShadeCard())
+            val card = buildShadeCard()
+            manager.notify(slotId, card)
+            syncForeground(slotId, card)
             shadeVerifyPending = false
             verifyShadeCardPosted(manager, level)
         } catch (error: Throwable) {
