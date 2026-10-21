@@ -55,7 +55,11 @@ Future<void> main() async {
     config: AudioServiceConfig(
       androidNotificationChannelId: 'com.music.player.audio',
       androidNotificationChannelName: 'MuZic playback',
-      androidNotificationOngoing: true,
+      // audio_service asserts that an "ongoing" (non-dismissible) card is only
+      // valid when the service leaves the foreground on pause - which would
+      // remove the card as soon as playback pauses. Keeping the card visible
+      // while paused is a product requirement, so the card stays dismissible.
+      androidNotificationOngoing: false,
       androidStopForegroundOnPause: !settings.keepNotificationOnPause,
       androidNotificationClickStartsActivity: true,
       androidNotificationIcon: 'drawable/ic_stat_muzic',
