@@ -160,65 +160,8 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
   }
 
   /// Tapping the percentage asks whether to stop the render.
-  Future<void> _confirmStopExport(VideoExportManager manager) async {
-    final stop = await showModalBottomSheet<bool>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-              child: Text(
-                'Rendering lyric video',
-                style: Theme.of(sheetContext).textTheme.titleMedium,
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-              child: AnimatedBuilder(
-                animation: manager,
-                builder: (context, _) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    LinearProgressIndicator(value: manager.progress),
-                    const SizedBox(height: 10),
-                    Text(
-                      '${manager.percent}% · ${manager.songTitle ?? ''}',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'It keeps running in the background while you use the app.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.palette.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.stop_circle_outlined),
-              title: const Text('Stop exporting'),
-              subtitle: const Text('The partial file is discarded.'),
-              onTap: () => Navigator.of(sheetContext).pop(true),
-            ),
-            ListTile(
-              leading: const Icon(Icons.play_arrow_rounded),
-              title: const Text('Keep rendering'),
-              onTap: () => Navigator.of(sheetContext).pop(false),
-            ),
-            const SizedBox(height: 6),
-          ],
-        ),
-      ),
-    );
-    if (stop == true) await manager.cancel();
-  }
+  Future<void> _confirmStopExport(VideoExportManager manager) =>
+      showExportProgress(context);
 
   Future<bool> _ensureMicrophonePermission() async {
     try {
@@ -1291,4 +1234,76 @@ class _QueueSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// Bottom sheet that shows an in-flight lyric-video render and offers to stop
+/// it. Reachable from the player's export button and from the mini player, so
+/// the percentage is always one tap away even after closing the player.
+Future<void> showExportProgress(BuildContext context) async {
+  final manager = context.read<VideoExportManager>();
+  final stop = await showModalBottomSheet<bool>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+            child: Text(
+              'Rendering lyric video',
+              style: Theme.of(sheetContext).textTheme.titleMedium,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: AnimatedBuilder(
+              animation: manager,
+              builder: (context, _) {
+                if (!manager.isBusy) {
+                  return const Text('Finished — check Downloads for the video.');
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    LinearProgressIndicator(
+                      value: manager.percent == 0 ? null : manager.progress,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '${manager.percent}% complete · ${manager.songTitle ?? ''}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'It keeps rendering in the background while you use the app.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.palette.textMuted,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.stop_circle_outlined),
+            title: const Text('Stop exporting'),
+            subtitle: const Text('The partial file is discarded.'),
+            onTap: () => Navigator.of(sheetContext).pop(true),
+          ),
+          ListTile(
+            leading: const Icon(Icons.play_arrow_rounded),
+            title: const Text('Keep rendering'),
+            onTap: () => Navigator.of(sheetContext).pop(false),
+          ),
+          const SizedBox(height: 6),
+        ],
+      ),
+    ),
+  );
+  if (stop == true) await manager.cancel();
 }

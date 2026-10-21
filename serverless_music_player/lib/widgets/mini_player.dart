@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/player_controller.dart';
 import '../services/sleep_timer_service.dart';
+import '../services/video_export_manager.dart';
 import '../theme/app_theme.dart';
 import 'cover_art.dart';
 import 'now_playing_sheet.dart';
@@ -17,6 +18,7 @@ class MiniPlayer extends StatelessWidget {
     final song = player.currentSong;
     if (song == null) return const SizedBox.shrink();
     final sleepTimer = context.watch<SleepTimerService>();
+    final export = context.watch<VideoExportManager>();
     final max = player.duration.inMilliseconds;
     final value = max <= 0
         ? 0.0
@@ -53,6 +55,46 @@ class MiniPlayer extends StatelessWidget {
                     textStyle: const TextStyle(fontSize: 11),
                   ),
                   child: const Text("I'm here"),
+                ),
+              ],
+            ),
+          ),
+        if (export.isBusy)
+          Container(
+            margin: const EdgeInsets.fromLTRB(10, 4, 10, 0),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            decoration: BoxDecoration(
+              color: palette.accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: palette.accent.withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              children: <Widget>[
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    value: export.percent == 0 ? null : export.progress,
+                    strokeWidth: 2,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Rendering lyric video · ${export.percent}%'
+                    '${export.songTitle == null ? '' : ' · ${export.songTitle}'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11.5),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => showExportProgress(context),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    textStyle: const TextStyle(fontSize: 11),
+                  ),
+                  child: const Text('Stop'),
                 ),
               ],
             ),
