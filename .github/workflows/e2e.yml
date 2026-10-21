@@ -306,6 +306,19 @@ jobs:
           adb shell settings put global transition_animation_scale 0 || true
           adb shell settings put global animator_duration_scale 0 || true
           adb shell svc power stayon true || true
+          # flutter test installs and then removes the app, so record the
+          # package facts while it is actually on the device.
+          APK="${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-debug.apk"
+          adb install -r "$APK" > /dev/null 2>&1 || true
+          {
+            echo "api_level=${{ matrix.api-level }}"
+            echo "android_version=$(adb shell getprop ro.build.version.release | tr -d '\r')"
+            echo "abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
+            echo "version_name=$(adb shell dumpsys package ${{ env.APP_ID }} | grep -m1 versionName | tr -d '\r' | cut -d= -f2)"
+            echo "version_code=$(adb shell dumpsys package ${{ env.APP_ID }} | grep -m1 versionCode | tr -d '\r' | sed 's/.*versionCode=\([0-9]*\).*/\1/')"
+            echo "apk_bytes=$(stat -c%s "$APK" 2>/dev/null || echo 0)"
+          } > "device-${{ matrix.api-level }}.txt" || true
+
           echo '--- adb devices ---'
           adb devices
           echo '--- flutter devices ---'
@@ -340,13 +353,9 @@ jobs:
         shell: bash
         run: |
           export PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/platform-tools:$PATH"
-          {
-            echo "api_level=${{ matrix.api-level }}"
-            adb shell getprop ro.build.version.release 2>/dev/null | sed 's/^/android_version=/'
-            adb shell getprop ro.product.cpu.abi 2>/dev/null | sed 's/^/abi=/'
-            adb shell dumpsys package ${{ env.APP_ID }} 2>/dev/null \
-              | grep -E 'versionName|versionCode' | head -2 | sed 's/^/package=/'
-          } > device-${{ matrix.api-level }}.txt || true
+          FACTS="device-${{ matrix.api-level }}.txt"
+          [ -f "$FACTS" ] || echo "api_level=${{ matrix.api-level }}" > "$FACTS"
+          echo "after_test_installed=$(adb shell pm list packages 2>/dev/null | grep -c ${{ env.APP_ID }})" >> "$FACTS"
           cat device-${{ matrix.api-level }}.txt
 
       - name: Upload E2E artefacts
@@ -397,6 +406,9 @@ jobs:
           lines.append(f'Generated: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}  ')
           lines.append(f'Commit: `{os.environ.get("GITHUB_SHA", "")[:7]}` · '
                        f'Run: `{os.environ.get("GITHUB_RUN_NUMBER", "")}`')
+          lines.append('')
+          lines.append('What this suite covers, why it exists and what it has '
+                       'found: [FINDINGS.md](FINDINGS.md).')
           lines.append('')
 
           # ---- static analysis ----
@@ -466,6 +478,7 @@ jobs:
           lines.append('| API level | Step | Status | Time | Detail |')
           lines.append('| --- | --- | --- | --- | --- |')
           step_rows = 0
+          api_counts = {}
           for log in sorted(glob.glob('artefacts/e2e-api-*/e2e-*.log')):
               api = re.search(r'api-(\d+)', log).group(1)
               for line in read(log).splitlines():
@@ -479,11 +492,19 @@ jobs:
                   detail = (detail or '').replace('|', '/')[:110]
                   lines.append(f'| {api} | `{name}` | {icon} {status} | '
                                f'{int(ms) / 1000:.2f}s | {detail} |')
+                  counts = api_counts.setdefault(api, {'pass': 0, 'bad': 0})
+                  if status == 'PASS':
+                      counts['pass'] += 1
+                  elif status == 'FAIL':
+                      counts['bad'] += 1
                   step_rows += 1
           if step_rows == 0:
               lines.append('| – | no journey output | ❌ | – | emulator job failed '
                            'before emitting steps |')
           lines.append('')
+
+          green_apis = {api for api, c in api_counts.items()
+                        if c['bad'] == 0 and c['pass'] > 0}
 
           # ---- device compatibility ----
           lines.append('## 4. Device matrix')
@@ -497,12 +518,18 @@ jobs:
                       key, value = line.split('=', 1)
                       row[key.strip()] = value.strip()
           if facts:
-              lines.append('| API level | Android | ABI | Installed package |')
-              lines.append('| --- | --- | --- | --- |')
+              lines.append('| Device | Android | ABI | MuZic build | APK | Journey |')
+              lines.append('| --- | --- | --- | --- | --- | --- |')
               for api, row in sorted(facts.items()):
-                  package = row.get('package', 'not installed')
-                  lines.append(f'| {api} | {row.get("android_version", "?")} | '
-                               f'{row.get("abi", "?")} | `{package}` |')
+                  size = row.get('apk_bytes', '0')
+                  mib = f'{int(size) / 1048576:.1f} MB' if size.isdigit() and int(size) else '—'
+                  version = row.get('version_name') or '—'
+                  code = row.get('version_code') or '?'
+                  result = '✅ 14/14' if str(api) in green_apis else '❌ see §3'
+                  lines.append(f'| emulator-{api} (API {api}) | '
+                               f'{row.get("android_version", "?")} | '
+                               f'{row.get("abi", "?")} | `{version}+{code}` | '
+                               f'{mib} | {result} |')
           else:
               lines.append('| – | no device facts | – | – |')
           lines.append('')
