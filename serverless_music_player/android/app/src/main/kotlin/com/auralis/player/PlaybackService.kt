@@ -405,10 +405,12 @@ class PlaybackService : Service() {
 
     /**
      * Custom-layout shade card that mirrors the lock-screen media player:
-     * album artwork, title/artist/album, a round accent play/pause button,
-     * previous/next and a progress bar with elapsed/total times and 10-second
-     * seek buttons. A RemoteViews progress bar cannot be dragged, so seeking
-     * is offered as -10s/+10s taps instead of the lock screen's slider.
+     * full-bleed artwork under a gradient scrim, title/artist bottom-left,
+     * a big pale play/pause button bottom-right, previous/next and a
+     * progress bar with elapsed/total times and 10-second seek buttons.
+     * A RemoteViews progress bar cannot be dragged, so seeking is offered
+     * as -10s/+10s taps instead of the lock screen's slider. The collapsed
+     * form stays a compact artwork/title/controls strip.
      */
     private fun buildRichShadeCard(): Notification {
         val collapsed = RemoteViews(packageName, R.layout.notification_shade_collapsed)
@@ -425,21 +427,34 @@ class PlaybackService : Service() {
     private fun populateShadeViews(views: RemoteViews, expanded: Boolean) {
         views.setTextViewText(R.id.shade_title, latestTitle)
         views.setTextViewText(R.id.shade_artist, latestArtist)
-        if (expanded) {
-            views.setTextViewText(R.id.shade_album, latestAlbum)
-        }
 
         val art = artworkBitmap
-        if (shadeArtwork && art != null) {
+        val showArt = shadeArtwork && art != null
+        if (showArt) {
             views.setViewVisibility(R.id.shade_art, View.VISIBLE)
             views.setImageViewBitmap(R.id.shade_art, art)
         } else {
             views.setViewVisibility(R.id.shade_art, View.GONE)
         }
+        if (expanded) {
+            // The gradient scrim only makes sense over artwork; without art
+            // the card falls back to its flat themed background.
+            views.setViewVisibility(
+                R.id.shade_scrim,
+                if (showArt) View.VISIBLE else View.GONE,
+            )
+        }
 
+        // Expanded card: dark glyph on the pale circle (lock-screen look).
+        // Collapsed card: white glyph on the accent circle.
         views.setImageViewResource(
             R.id.shade_play,
-            if (playing) R.drawable.ic_pause else R.drawable.ic_play,
+            when {
+                expanded && playing -> R.drawable.ic_pause_dark
+                expanded -> R.drawable.ic_play_dark
+                playing -> R.drawable.ic_pause
+                else -> R.drawable.ic_play
+            },
         )
         views.setOnClickPendingIntent(R.id.shade_play, transportIntent("toggle"))
 
@@ -467,6 +482,15 @@ class PlaybackService : Service() {
             val showProgress = shadeProgress && durationMs > 0
             views.setViewVisibility(
                 R.id.shade_progress_row,
+                if (showProgress) View.VISIBLE else View.GONE,
+            )
+            // The -10s/+10s seek taps belong to the progress row.
+            views.setViewVisibility(
+                R.id.shade_seek_back,
+                if (showProgress) View.VISIBLE else View.GONE,
+            )
+            views.setViewVisibility(
+                R.id.shade_seek_forward,
                 if (showProgress) View.VISIBLE else View.GONE,
             )
             if (showProgress) {
@@ -497,6 +521,9 @@ class PlaybackService : Service() {
      * dark/light re-skins the card at build time.
      */
     private fun applyShadeTheme(views: RemoteViews, expanded: Boolean) {
+        // Over artwork the expanded card always uses the lock-screen look
+        // (white text on the gradient scrim) regardless of theme.
+        if (expanded && shadeArtwork && artworkBitmap != null) return
         val dark = when (shadeTheme) {
             "dark" -> true
             "light" -> false
@@ -514,7 +541,6 @@ class PlaybackService : Service() {
         views.setInt(R.id.shade_prev, "setColorFilter", titleColor)
         views.setInt(R.id.shade_next, "setColorFilter", titleColor)
         if (expanded) {
-            views.setTextColor(R.id.shade_album, subColor)
             views.setTextColor(R.id.shade_elapsed, subColor)
             views.setTextColor(R.id.shade_duration, subColor)
             views.setTextColor(R.id.shade_seek_back, subColor)
