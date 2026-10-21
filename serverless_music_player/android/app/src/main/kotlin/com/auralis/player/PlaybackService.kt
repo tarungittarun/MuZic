@@ -370,10 +370,11 @@ class PlaybackService : Service() {
      * just like the main card.
      */
     private fun buildShadeCard(): Notification {
-        return if (shadeStyle == "rich" && !shadeRichBroken) {
-            buildRichShadeCard()
-        } else {
-            buildSimpleShadeCard()
+        if (shadeStyle != "rich") return buildSimpleShadeCard()
+        return when {
+            shadeLevel >= 2 -> buildBannerShadeCard()
+            shadeLevel == 1 -> buildLinearShadeCard()
+            else -> buildSimpleShadeCard()
         }
     }
 
@@ -423,19 +424,17 @@ class PlaybackService : Service() {
     }
 
     /**
-     * Custom-layout shade card that mirrors the lock-screen media player:
-     * full-bleed artwork under a gradient scrim, title/artist bottom-left,
-     * a big pale play/pause button bottom-right, previous/next and a
-     * progress bar with elapsed/total times and 10-second seek buttons.
-     * A RemoteViews progress bar cannot be dragged, so seeking is offered
-     * as -10s/+10s taps instead of the lock screen's slider. The collapsed
-     * form stays a compact artwork/title/controls strip.
+     * Rich shade card, artwork-banner style: the album art spans the top of
+     * the card with title/artist and the big pale play button overlaid
+     * (lock-screen look), transport row on the solid card below. The root
+     * is a wrap_content LinearLayout - a fixed-height full-bleed root was
+     * discarded outright by some SystemUI builds.
      */
-    private fun buildRichShadeCard(): Notification {
+    private fun buildBannerShadeCard(): Notification {
         val collapsed = RemoteViews(packageName, R.layout.notification_shade_collapsed)
         val expanded = RemoteViews(packageName, R.layout.notification_shade_expanded)
-        populateShadeViews(collapsed, expanded = false)
-        populateShadeViews(expanded, expanded = true)
+        populateShadeViews(collapsed, expanded = false, variant = 2)
+        populateShadeViews(expanded, expanded = true, variant = 2)
         return shadeBaseBuilder()
             .setCustomContentView(collapsed)
             .setCustomBigContentView(expanded)
@@ -443,7 +442,24 @@ class PlaybackService : Service() {
             .build()
     }
 
-    private fun populateShadeViews(views: RemoteViews, expanded: Boolean) {
+    /**
+     * Rich shade card, conservative linear style (thumbnail header, controls
+     * row, progress below). The automatic fallback on devices that discard
+     * the banner layout.
+     */
+    private fun buildLinearShadeCard(): Notification {
+        val collapsed = RemoteViews(packageName, R.layout.notification_shade_collapsed)
+        val expanded = RemoteViews(packageName, R.layout.notification_shade_linear)
+        populateShadeViews(collapsed, expanded = false, variant = 1)
+        populateShadeViews(expanded, expanded = true, variant = 1)
+        return shadeBaseBuilder()
+            .setCustomContentView(collapsed)
+            .setCustomBigContentView(expanded)
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .build()
+    }
+
+    private fun populateShadeViews(views: RemoteViews, expanded: Boolean, variant: Int) {
         views.setTextViewText(R.id.shade_title, latestTitle)
         views.setTextViewText(R.id.shade_artist, latestArtist)
 
@@ -455,7 +471,7 @@ class PlaybackService : Service() {
         } else {
             views.setViewVisibility(R.id.shade_art, View.GONE)
         }
-        if (expanded) {
+        if (expanded && variant == 2) {
             // The gradient scrim only makes sense over artwork; without art
             // the card falls back to its flat themed background.
             views.setViewVisibility(
@@ -464,13 +480,13 @@ class PlaybackService : Service() {
             )
         }
 
-        // Expanded card: dark glyph on the pale circle (lock-screen look).
-        // Collapsed card: white glyph on the accent circle.
+        // Banner card: dark glyph on the pale circle (lock-screen look).
+        // Everywhere else: white glyph on the accent circle.
         views.setImageViewResource(
             R.id.shade_play,
             when {
-                expanded && playing -> R.drawable.ic_pause_dark
-                expanded -> R.drawable.ic_play_dark
+                expanded && variant == 2 && playing -> R.drawable.ic_pause_dark
+                expanded && variant == 2 -> R.drawable.ic_play_dark
                 playing -> R.drawable.ic_pause
                 else -> R.drawable.ic_play
             },
@@ -531,7 +547,7 @@ class PlaybackService : Service() {
                 )
             }
         }
-        applyShadeTheme(views, expanded)
+        applyShadeTheme(views, expanded, variant)
     }
 
     /**
@@ -539,10 +555,10 @@ class PlaybackService : Service() {
      * device's light/dark mode via values-night); an explicit user choice of
      * dark/light re-skins the card at build time.
      */
-    private fun applyShadeTheme(views: RemoteViews, expanded: Boolean) {
-        // Over artwork the expanded card always uses the lock-screen look
+    private fun applyShadeTheme(views: RemoteViews, expanded: Boolean, variant: Int) {
+        // Over artwork the banner card always uses the lock-screen look
         // (white text on the gradient scrim) regardless of theme.
-        if (expanded && shadeArtwork &&
+        if (expanded && variant == 2 && shadeArtwork &&
             (shadeArtworkBitmap ?: artworkBitmap) != null
         ) {
             return
@@ -581,8 +597,14 @@ class PlaybackService : Service() {
     /** Last shade-card gate outcome, so changes are reported once. */
     private var lastShadeGate: String? = null
 
-    /** Set once the rich layout proves unpostable on this device. */
-    private var shadeRichBroken = false
+    /**
+     * Richness level for the shade card on this device: 2 = artwork-banner
+     * layout, 1 = conservative linear rich layout, 0 = plain system card.
+     * Demoted automatically (and permanently for the session) whenever a
+     * level posts but does not land in the active notifications - some
+     * SystemUI builds silently discard fancier custom layouts.
+     */
+    private var shadeLevel = 2
 
     /** True while a post-verification is queued. */
     private var shadeVerifyPending = false
@@ -605,41 +627,46 @@ class PlaybackService : Service() {
             return
         }
         // Device diagnostics proved a nasty failure mode: playback runs,
-        // notify() returns without any Exception, yet the shade card never
-        // lands in the active notifications. So: catch Throwable (not just
-        // Exception), verify the record actually stuck shortly after
-        // posting, and if the rich layout is the problem, stick to the
-        // plain system-style card for the rest of the session. Every step
-        // reports through errorSink so the outcome is in the diagnostics.
-        val rich = shadeStyle == "rich" && !shadeRichBroken
+        // notify() returns without any exception, yet the shade card never
+        // lands in the active notifications - the device's SystemUI
+        // discards the custom layout. So posting is self-verifying: catch
+        // Throwable, check the record stuck, and demote the richness level
+        // (banner -> linear -> plain) until one lands. Every step reports
+        // through errorSink so the outcome is in the diagnostics.
+        val level = if (shadeStyle == "rich") shadeLevel else 0
         try {
             manager.notify(SHADE_NOTIFICATION_ID, buildShadeCard())
-            if (rich) verifyShadeCardPosted(manager)
+            verifyShadeCardPosted(manager, level)
         } catch (error: Throwable) {
             errorSink?.invoke(
-                "shade card (${if (rich) "rich" else "simple"}) post threw " +
-                    "${error.javaClass.simpleName}: ${error.message}" +
-                    if (rich) "; falling back to simple style" else "",
-            )
-            if (rich) {
-                shadeRichBroken = true
-                postSimpleShadeCard(manager, "exception fallback")
-            }
-        }
-    }
-
-    private fun postSimpleShadeCard(manager: NotificationManager, reason: String) {
-        try {
-            manager.notify(SHADE_NOTIFICATION_ID, buildSimpleShadeCard())
-        } catch (error: Throwable) {
-            errorSink?.invoke(
-                "shade card simple post ($reason) threw " +
+                "shade card (level $level) post threw " +
                     "${error.javaClass.simpleName}: ${error.message}",
             )
+            demoteShadeLevel(level, "post threw")
         }
     }
 
-    private fun verifyShadeCardPosted(manager: NotificationManager) {
+    /**
+     * Drops the shade card one richness level and reposts, unless a newer
+     * post has already moved the level. At level 0 there is nowhere left
+     * to demote to; that outcome is reported too.
+     */
+    private fun demoteShadeLevel(fromLevel: Int, reason: String) {
+        if (fromLevel <= 0) {
+            errorSink?.invoke(
+                "shade card: even the plain style is not landing ($reason)",
+            )
+            return
+        }
+        if (shadeLevel != fromLevel) return
+        shadeLevel = fromLevel - 1
+        errorSink?.invoke(
+            "shade card: level $fromLevel $reason; switching to level $shadeLevel",
+        )
+        postShadeCard()
+    }
+
+    private fun verifyShadeCardPosted(manager: NotificationManager, level: Int) {
         if (shadeVerifyPending) return
         shadeVerifyPending = true
         try {
@@ -649,13 +676,12 @@ class PlaybackService : Service() {
                     val present = manager.activeNotifications.any {
                         it.id == SHADE_NOTIFICATION_ID
                     }
+                    shadeVerifyPending = false
                     if (!present) {
-                        shadeRichBroken = true
-                        errorSink?.invoke(
-                            "shade card (rich) posted but is not in active " +
-                                "notifications afterwards; using simple style",
+                        demoteShadeLevel(
+                            level,
+                            "posted but is not in active notifications afterwards",
                         )
-                        postSimpleShadeCard(manager, "missing-after-post")
                     }
                 } catch (error: Throwable) {
                     errorSink?.invoke(
