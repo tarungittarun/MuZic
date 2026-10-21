@@ -107,7 +107,7 @@ class PlaybackService : Service() {
         private const val KEY_SHADE_LAYOUT_REV = "shade_layout_rev"
 
         /** Bump when the shade-card layouts change: re-trials level 2. */
-        private const val SHADE_LAYOUT_REV = 7
+        private const val SHADE_LAYOUT_REV = 8
 
         /** Set by MainActivity: receives transport commands from the card. */
         var commandSink: ((String, Double?) -> Unit)? = null
@@ -739,10 +739,11 @@ class PlaybackService : Service() {
             }
             views.setTextColor(R.id.shade_title, 0xFFFFFFFF.toInt())
             views.setTextColor(R.id.shade_artist, 0xE8FFFFFF.toInt())
-            // Transport glyphs overlay the banner too: force them white
-            // whatever the theme (their XML tints are theme resources).
-            views.setInt(R.id.shade_prev, "setColorFilter", 0xFFFFFFFF.toInt())
-            views.setInt(R.id.shade_next, "setColorFilter", 0xFFFFFFFF.toInt())
+            // Transport glyphs stay white via their layout XML tints.
+            // Deliberately NO setInt("setColorFilter") reflection calls
+            // anywhere in this file: on the reference device every card
+            // that used one was silently dropped by SystemUI, while the
+            // one card using only core RemoteViews actions landed.
         } else if (showArt) {
             views.setViewVisibility(R.id.shade_art, View.VISIBLE)
             views.setImageViewBitmap(R.id.shade_art, art)
@@ -839,14 +840,20 @@ class PlaybackService : Service() {
                     transportIntent("seekForward"),
                 )
             }
-            if (variant >= 1) {
+            if (variant == 2) {
                 // Shuffle/repeat, mirroring the system player's control
-                // row: accent tint when active, dim white when off; the
-                // repeat glyph gains a "1" in repeat-one mode.
-                views.setInt(
+                // row. State is shown with pre-tinted drawable variants
+                // (accent = active, dim white = off; the repeat glyph
+                // gains a "1" in repeat-one mode) via the core
+                // setImageViewResource action - never a setColorFilter
+                // reflection call (see the note above).
+                views.setImageViewResource(
                     R.id.shade_shuffle,
-                    "setColorFilter",
-                    if (shuffleOn) 0xFF6C5CE7.toInt() else 0xB3FFFFFF.toInt(),
+                    if (shuffleOn) {
+                        R.drawable.ic_shuffle_on
+                    } else {
+                        R.drawable.ic_shuffle_off
+                    },
                 )
                 views.setOnClickPendingIntent(
                     R.id.shade_shuffle,
@@ -854,16 +861,11 @@ class PlaybackService : Service() {
                 )
                 views.setImageViewResource(
                     R.id.shade_repeat,
-                    if (repeatMode == 2) {
-                        R.drawable.ic_repeat_one
-                    } else {
-                        R.drawable.ic_repeat
+                    when (repeatMode) {
+                        2 -> R.drawable.ic_repeat_one_on
+                        1 -> R.drawable.ic_repeat_on
+                        else -> R.drawable.ic_repeat_off
                     },
-                )
-                views.setInt(
-                    R.id.shade_repeat,
-                    "setColorFilter",
-                    if (repeatMode == 0) 0xB3FFFFFF.toInt() else 0xFF6C5CE7.toInt(),
                 )
                 views.setOnClickPendingIntent(
                     R.id.shade_repeat,

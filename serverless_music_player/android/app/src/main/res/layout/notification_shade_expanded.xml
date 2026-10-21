@@ -142,26 +142,23 @@
 
         <TextView
             android:id="@+id/shade_seek_back"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="36dp"
-            android:gravity="center"
-            android:minWidth="42dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical|end"
+            android:paddingEnd="6dp"
             android:text="-10s"
             android:textColor="#E8FFFFFF"
             android:textSize="11sp"
             android:textStyle="bold" />
 
-        <View
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
-
         <TextView
             android:id="@+id/shade_seek_forward"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="36dp"
-            android:gravity="center"
-            android:minWidth="42dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical|start"
+            android:paddingStart="6dp"
             android:text="+10s"
             android:textColor="#E8FFFFFF"
             android:textSize="11sp"
