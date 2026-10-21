@@ -359,6 +359,13 @@ class MainActivity : AudioServiceActivity() {
                     "ongoing" to status.notification.flags.let { flags ->
                         (flags and Notification.FLAG_ONGOING_EVENT) != 0
                     },
+                    // True when the notification carries a media session
+                    // token - the thing SystemUI needs before it will render
+                    // a media player in the shade / Quick Settings.
+                    "mediaSession" to status.notification.extras.containsKey(
+                        Notification.EXTRA_MEDIA_SESSION,
+                    ),
+                    "category" to status.notification.category,
                     "title" to status.notification.extras.getCharSequence(
                         Notification.EXTRA_TITLE,
                     )?.toString(),

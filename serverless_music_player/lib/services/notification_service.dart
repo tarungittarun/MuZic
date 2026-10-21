@@ -59,7 +59,7 @@ class NotificationService {
         final map = Map<String, dynamic>.from(entry);
         parts.add(
           '#${map['id']} ch=${map['channelId']} ongoing=${map['ongoing']} '
-          'title=${map['title']}',
+          'mediaSession=${map['mediaSession']} title=${map['title']}',
         );
       }
       lastStatus = '${raw.length} active: ${parts.join(' | ')}';
