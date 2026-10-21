@@ -298,7 +298,7 @@ class PlaybackService : Service() {
         val style = androidx.media.app.NotificationCompat.MediaStyle()
             .setMediaSession(session?.sessionToken)
             .setShowActionsInCompactView(0, 1, 2)
-        builder.style = style
+        builder.setStyle(style)
 
         return builder.build()
     }
@@ -348,7 +348,7 @@ class TransportReceiver : BroadcastReceiver() {
             "play" -> "play"
             "pause" -> "pause"
             else -> return
-        }
+        } ?: return
         PlaybackService.commandSink?.invoke(command, null)
     }
 
