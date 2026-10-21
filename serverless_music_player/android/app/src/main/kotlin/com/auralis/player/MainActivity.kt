@@ -124,6 +124,8 @@ class MainActivity : AudioServiceActivity() {
                     result.success(true)
                 }
                 "activeNotifications" -> result.success(activeNotifications())
+                "mediaNotificationDiagnostics" ->
+                    result.success(mediaNotificationDiagnostics())
                 "saveText" -> result.success(
                     saveTextToDownloads(
                         call.argument<String>("fileName") ?: "muzic_report.txt",
@@ -241,6 +243,73 @@ class MainActivity : AudioServiceActivity() {
         visualizerCapture = null
         visualizerHandler?.removeCallbacksAndMessages(null)
         visualizerHandler = null
+    }
+
+    /**
+     * Full chain report for the media notification: is the app allowed to post
+     * at all, does the playback channel exist and what importance does it have,
+     * is the audio service actually running, and what is currently posted.
+     *
+     * Any "no card on screen" report can be narrowed down from this alone.
+     */
+    private fun mediaNotificationDiagnostics(): Map<String, Any?> {
+        val manager = getSystemService(NotificationManager::class.java)
+        val notificationsEnabled = manager?.areNotificationsEnabled() ?: false
+        val playbackChannelId = "com.music.player.audio"
+        val channel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager?.getNotificationChannel(playbackChannelId)
+        } else {
+            null
+        }
+        val channelImportance = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            channel?.importance ?: -1
+        } else {
+            -2
+        }
+        val appChannelCount = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager?.notificationChannels?.size ?: 0
+        } else {
+            -1
+        }
+
+        val serviceRunning = try {
+            val info = packageManager.getServiceInfo(
+                android.content.ComponentName(
+                    packageName,
+                    "com.ryanheise.audioservice.AudioService",
+                ),
+                0,
+            )
+            info.enabled && info.exported
+        } catch (e: Exception) {
+            false
+        }
+
+        val posted = activeNotifications().map { entry ->
+            "${entry["channelId"]}#${entry["id"]}${if (entry["ongoing"] == true) " ongoing" else ""}"
+        }
+
+        val smallIconValid = try {
+            getDrawable(R.drawable.ic_stat_muzic) != null
+        } catch (e: Exception) {
+            false
+        }
+
+        return mapOf(
+            "sdkInt" to Build.VERSION.SDK_INT,
+            "notificationsEnabled" to notificationsEnabled,
+            "postPermission" to (
+                checkSelfPermission("android.permission.POST_NOTIFICATIONS") ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                ),
+            "playbackChannelExists" to (channel != null),
+            "playbackChannelImportance" to channelImportance,
+            "appChannelCount" to appChannelCount,
+            "audioServiceDeclared" to serviceRunning,
+            "smallIconResolves" to smallIconValid,
+            "posted" to posted,
+            "postedCount" to posted.size,
+        )
     }
 
     /**

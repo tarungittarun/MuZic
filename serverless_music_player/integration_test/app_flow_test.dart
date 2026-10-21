@@ -9,6 +9,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:music_player/main.dart' as app;
@@ -105,7 +106,7 @@ void main() {
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
   // ignore: avoid_print
-  print('[E2E] suite=app_flow steps_expected=14');
+  print('[E2E] suite=app_flow steps_expected=15');
 
   testWidgets(
     'MuZic end-to-end journey',
@@ -180,6 +181,31 @@ void main() {
         // queued; playback itself needs the live CDN, so this stays soft.
         await waitFor(tester, find.byIcon(Icons.skip_next_rounded),
             timeout: const Duration(seconds: 25));
+      }, soft: true);
+
+      await step('media_notification', () async {
+        // The media card is the one thing that has never been verifiable from
+        // the app side: log it from Android's own NotificationManager.
+        const system = MethodChannel('music_player/system');
+        Map<Object?, Object?> report = <Object?, Object?>{};
+        for (var attempt = 0; attempt < 15; attempt++) {
+          final raw = await system.invokeMethod<Map<Object?, Object?>>(
+              'mediaNotificationDiagnostics');
+          if (raw != null) report = raw;
+          if ((report['postedCount'] as int? ?? 0) > 0) break;
+          await tester.pump(const Duration(seconds: 1));
+        }
+        // ignore: avoid_print
+        print('[E2E] notification-report ${report.entries.map((e) => '${e.key}=${e.value}').join(' ')}');
+        expect(report['notificationsEnabled'], isTrue,
+            reason: 'app notifications are disabled at OS level');
+        expect(report['playbackChannelExists'], isTrue,
+            reason: 'audio_service never created its playback channel, so it '
+                'never reached the notification step');
+        expect(report['smallIconResolves'], isTrue,
+            reason: 'drawable/ic_stat_muzic is not in the build');
+        expect(report['postedCount'], greaterThan(0),
+            reason: 'playback is running but Android has no MuZic notification');
       }, soft: true);
 
       await step('now_playing_and_lyrics', () async {

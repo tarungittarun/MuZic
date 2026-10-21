@@ -346,6 +346,11 @@ jobs:
             --reporter expanded 2>&1 | tee "../e2e-${{ matrix.api-level }}.log"
           status=${PIPESTATUS[0]}
           cd ..
+          # Android's own view of the media notification: if the card is
+          # missing on a real phone, this says which link in the chain broke.
+          adb logcat -d -v brief \
+            | grep -aiE "audioservice|audio_service|NotificationService|MediaSession|muZic.*notif|Bad notification|not valid|crash" \
+            | tail -80 > "logcat-${{ matrix.api-level }}.txt" || true
           echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
           exit $status
 
@@ -384,6 +389,7 @@ jobs:
             e2e-${{ matrix.api-level }}.log
             emulator-${{ matrix.api-level }}.log
             device-${{ matrix.api-level }}.txt
+            logcat-${{ matrix.api-level }}.txt
             ${{ env.APP_DIR }}/build-debug.log
           if-no-files-found: warn
           retention-days: 14
