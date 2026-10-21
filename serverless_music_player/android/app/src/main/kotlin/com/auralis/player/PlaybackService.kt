@@ -323,7 +323,7 @@ class PlaybackService : Service() {
             height * 0.30f,
             0f,
             height.toFloat(),
-            intArrayOf(0x00000000, 0xC2000000),
+            intArrayOf(0x00000000, 0xC2000000.toInt()),
             floatArrayOf(0f, 1f),
             Shader.TileMode.CLAMP,
         )
