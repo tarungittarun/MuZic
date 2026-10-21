@@ -107,7 +107,7 @@ class PlaybackService : Service() {
         private const val KEY_SHADE_LAYOUT_REV = "shade_layout_rev"
 
         /** Bump when the shade-card layouts change: re-trials level 2. */
-        private const val SHADE_LAYOUT_REV = 4
+        private const val SHADE_LAYOUT_REV = 5
 
         /** Set by MainActivity: receives transport commands from the card. */
         var commandSink: ((String, Double?) -> Unit)? = null
@@ -718,9 +718,9 @@ class PlaybackService : Service() {
         val showArt = shadeArtwork && art != null
         if (expanded && variant == 2) {
             // Banner: always visible (branded placeholder until the real
-            // artwork arrives) so the negative-margin title row below it
-            // always has something to overlay. Title text is forced white
-            // here - artwork and placeholder are both dark.
+            // artwork arrives) so the artwork header never collapses.
+            // Title text is forced white here - artwork and placeholder
+            // are both dark.
             views.setViewVisibility(R.id.shade_art, View.VISIBLE)
             val banner = shadeBannerBitmap ?: art
             if (shadeArtwork && banner != null) {
@@ -833,7 +833,7 @@ class PlaybackService : Service() {
                     transportIntent("seekForward"),
                 )
             }
-            if (variant == 2) {
+            if (variant >= 1) {
                 // Shuffle/repeat, mirroring the system player's control
                 // row: accent tint when active, dim white when off; the
                 // repeat glyph gains a "1" in repeat-one mode.
@@ -1030,9 +1030,16 @@ class PlaybackService : Service() {
         try {
             artworkLoader.execute {
                 try {
-                    Thread.sleep(400)
-                    val present = manager.activeNotifications.any {
-                        it.id == shadePendingId
+                    // SystemUI can take a moment to register a fresh card
+                    // on a busy device; check twice before concluding the
+                    // layout was discarded and stepping down a level.
+                    var present = false
+                    for (delayMs in longArrayOf(500L, 1000L)) {
+                        Thread.sleep(delayMs)
+                        present = manager.activeNotifications.any {
+                            it.id == shadePendingId
+                        }
+                        if (present) break
                     }
                     shadeVerifyPending = false
                     if (!present) {
