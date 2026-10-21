@@ -1,7 +1,7 @@
 # MuZic end-to-end test report
 
-Generated: 2026-10-21 06:30 UTC  
-Commit: `48a6089` · Run: `37`
+Generated: 2026-10-21 06:43 UTC  
+Commit: `c48f870` · Run: `38`
 
 What this suite covers, why it exists and what it has found: [FINDINGS.md](FINDINGS.md).
 
@@ -9,18 +9,20 @@ What this suite covers, why it exists and what it has found: [FINDINGS.md](FINDI
 
 | Metric | Value |
 | --- | --- |
-| Errors | 4 |
+| Errors | 0 |
 | Warnings | 0 |
-| Lint infos | 8 |
-| Verdict | ❌ issues |
+| Lint infos | 3 |
+| Verdict | ✅ clean |
 
 ## 2. Unit & widget tests
 
 | Metric | Value |
 | --- | --- |
-| Passed | 0 |
+| Passed | 44 |
 | Failed | 0 |
-| Pass rate | 0.0% |
+| Pass rate | 100.0% |
+
+Line coverage: **57.1%** (757/1325 lines)
 
 ## 3. End-to-end journeys (real Android emulator)
 
