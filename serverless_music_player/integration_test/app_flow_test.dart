@@ -17,6 +17,24 @@ import 'package:music_player/widgets/song_tile.dart';
 
 final List<String> _failureLog = <String>[];
 int _currentStepIndex = 0;
+WidgetTester? _activeTester;
+
+/// Short list of the text currently on screen — attached to every failure so a
+/// CI report says *what the user would have seen*, not just the exception.
+String _visibleText() {
+  final tester = _activeTester;
+  if (tester == null) return '';
+  final labels = <String>[];
+  for (final element in find.byType(Text).evaluate()) {
+    final widget = element.widget as Text;
+    final data = widget.data ?? widget.textSpan?.toPlainText() ?? '';
+    final trimmed = data.trim().replaceAll('|', '/');
+    if (trimmed.isEmpty || labels.contains(trimmed)) continue;
+    labels.add(trimmed);
+    if (labels.length >= 12) break;
+  }
+  return labels.join(' / ');
+}
 
 void _emit(
   String step, {
@@ -40,7 +58,9 @@ Future<void> step(
     await action();
     _emit(name, status: 'PASS', ms: watch.elapsedMilliseconds);
   } catch (error) {
-    final text = '$error'.split('\n').first;
+    final screen = _visibleText();
+    final first = '$error'.split('\n').first;
+    final text = screen.isEmpty ? first : '$first [screen: $screen]';
     if (soft) {
       _emit(name, status: 'WARN', ms: watch.elapsedMilliseconds, detail: text);
       return;
@@ -90,6 +110,7 @@ void main() {
   testWidgets(
     'MuZic end-to-end journey',
     (WidgetTester tester) async {
+      _activeTester = tester;
       final bootWatch = Stopwatch()..start();
 
       await step('cold_start', () async {
@@ -196,36 +217,58 @@ void main() {
       }, soft: true);
 
       await step('settings_sections', () async {
-        // Close the player sheet first.
-        final close = find.byTooltip('Close player');
-        if (close.evaluate().isNotEmpty) {
+        // Get back to a known state: close the player sheet if it is open.
+        for (var attempt = 0; attempt < 3; attempt++) {
+          final close = find.byTooltip('Close player');
+          if (close.evaluate().isEmpty) break;
           await tester.tap(close.first);
-          await tester.pump(const Duration(milliseconds: 500));
+          await settle(tester);
         }
-        final tune = find.byIcon(Icons.tune_rounded);
-        expect(tune, findsWidgets);
-        await tester.tap(tune.first);
-        await tester.pump(const Duration(milliseconds: 800));
+
+        // The settings entry point has a stable tooltip; the tune icon is also
+        // used inside the player sheet and the effects sheet.
+        final settingsButton = find.byTooltip('Settings');
+        for (var attempt = 0;
+            attempt < 4 && settingsButton.evaluate().isEmpty;
+            attempt++) {
+          final back = find.byTooltip('Back');
+          if (back.evaluate().isEmpty) break;
+          await tester.tap(back.first);
+          await settle(tester);
+        }
+        expect(settingsButton, findsWidgets,
+            reason: 'no Settings entry point reachable');
+        await tester.tap(settingsButton.first);
         await settle(tester);
+        expect(find.text('Settings'), findsWidgets,
+            reason: 'Settings screen did not open');
+
+        // Sections appear in this order top to bottom; scrolling only goes
+        // downwards, so walk them in document order.
         for (final section in <String>[
           'PLAYBACK',
           'SLEEP TIMER',
-          'AUDIO EFFECTS',
           'DISCOVER',
+          'AUDIO EFFECTS',
           'DIAGNOSTICS',
         ]) {
           final found = find.text(section);
-          if (found.evaluate().isEmpty) {
-            await tester.scrollUntilVisible(found, 240,
-                scrollable: find.byType(Scrollable).first);
+          final scrollables = find.byType(Scrollable);
+          if (found.evaluate().isEmpty && scrollables.evaluate().isNotEmpty) {
+            await tester.scrollUntilVisible(found, 220,
+                scrollable: scrollables.first);
+            await tester.pump(const Duration(milliseconds: 200));
           }
           expect(found.evaluate().isNotEmpty, isTrue,
               reason: 'missing settings section $section');
         }
+
         // Back to the top for the following steps.
-        await tester.drag(find.byType(Scrollable).first,
-            const Offset(0, 3000));
-        await tester.pump(const Duration(milliseconds: 400));
+        final scrollables = find.byType(Scrollable);
+        if (scrollables.evaluate().isNotEmpty) {
+          await tester.drag(scrollables.first, const Offset(0, 4000));
+          await tester.pump(const Duration(milliseconds: 400));
+        }
       });
 
       await step('sleep_timer_toggle', () async {

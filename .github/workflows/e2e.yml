@@ -485,13 +485,23 @@ jobs:
           # ---- device compatibility ----
           lines.append('## 4. Device matrix')
           lines.append('')
-          lines.append('| Fact | Value |')
-          lines.append('| --- | --- |')
-          for path in sorted(glob.glob('artefacts/device-*.txt')):
-              for row in read(path).splitlines():
-                  if '=' in row:
-                      key, value = row.split('=', 1)
-                      lines.append(f'| {key} | {value} |')
+          facts = {}
+          for path in sorted(glob.glob('artefacts/e2e-api-*/device-*.txt')):
+              api = re.search(r'api-(\d+)', path).group(1)
+              row = facts.setdefault(api, {})
+              for line in read(path).splitlines():
+                  if '=' in line:
+                      key, value = line.split('=', 1)
+                      row[key.strip()] = value.strip()
+          if facts:
+              lines.append('| API level | Android | ABI | Installed package |')
+              lines.append('| --- | --- | --- | --- |')
+              for api, row in sorted(facts.items()):
+                  package = row.get('package', 'not installed')
+                  lines.append(f'| {api} | {row.get("android_version", "?")} | '
+                               f'{row.get("abi", "?")} | `{package}` |')
+          else:
+              lines.append('| – | no device facts | – | – |')
           lines.append('')
 
           # ---- timings ----
