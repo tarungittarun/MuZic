@@ -1,0 +1,428 @@
+name: End-to-end test report
+
+on:
+  push:
+    branches:
+      - 'arena/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_DIR: serverless_music_player
+  APP_ID: com.auralis.player
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Fast gate: static analysis + unit/widget tests with coverage and JUnit XML.
+  # ---------------------------------------------------------------------------
+  static:
+    name: Static analysis & unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve packages
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      - name: Analyze (warnings are errors)
+        id: analyze
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set +e
+          start=$(date +%s)
+          flutter analyze --no-fatal-infos --fatal-warnings 2>&1 | tee analyze.txt
+          status=${PIPESTATUS[0]}
+          echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          issues=$(grep -cE '^\s+(error|warning) •' analyze.txt || true)
+          echo "issues=$issues" >> "$GITHUB_OUTPUT"
+          exit $status
+
+      - name: Unit & widget tests (JUnit + coverage)
+        id: unit
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set +e
+          start=$(date +%s)
+          flutter test --reporter json --coverage > test.json 2> test.err
+          status=$?
+          echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          tail -5 test.err
+          exit $status
+
+      - name: Summarise unit tests
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          python3 - <<'PY' > summary.txt
+          import json
+          passed = failed = 0
+          durations = {}
+          current = None
+          with open('test.json') as handle:
+              for line in handle:
+                  try:
+                      event = json.loads(line)
+                  except Exception:
+                      continue
+                  if event.get('type') == 'testStart':
+                      current = event['test']['name']
+                  elif event.get('type') == 'testDone' and not event.get('hidden'):
+                      if event.get('result') == 'success':
+                          passed += 1
+                      else:
+                          failed += 1
+                      durations[current] = event.get('time', 0)
+          slowest = sorted(durations.items(), key=lambda kv: kv[1], reverse=True)[:5]
+          print(f'passed={passed} failed={failed}')
+          for name, ms in slowest:
+              print(f'slow {ms} {name[:80]}')
+          PY
+          cat summary.txt
+          {
+            echo "## flutter test"
+            echo '```'
+            cat summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload static artefacts
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: static-report
+          path: |
+            ${{ env.APP_DIR }}/analyze.txt
+            ${{ env.APP_DIR }}/test.json
+            ${{ env.APP_DIR }}/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Device matrix: real end-to-end journey on multiple Android API levels.
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: E2E · Android API ${{ matrix.api-level }}
+    needs: static
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [30, 34]
+        include:
+          - api-level: 30
+            target: google_apis
+          - api-level: 34
+            target: google_apis
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Resolve packages
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      - name: Build debug APK
+        id: build
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          start=$(date +%s)
+          flutter build apk --debug 2>&1 | tail -20
+          echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: Run E2E journey on emulator
+        id: e2e
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: >-
+            -no-window -no-audio -no-boot-anim -camera-back none
+            -camera-front none -no-snapshot-save -gpu swiftshader_indirect
+          script: |
+            set +e
+            adb shell pm grant ${{ env.APP_ID }} android.permission.POST_NOTIFICATIONS || true
+            adb shell pm grant ${{ env.APP_ID }} android.permission.RECORD_AUDIO || true
+            adb shell settings put global window_animation_scale 0 || true
+            adb shell settings put global transition_animation_scale 0 || true
+            adb shell settings put global animator_duration_scale 0 || true
+            adb shell svc power stayon true || true
+            adb shell dumpsys window | grep -E 'mCurrentFocus' | head -3
+            start=$(date +%s)
+            cd ${{ env.APP_DIR }}
+            flutter test integration_test/app_flow_test.dart \
+              -d emulator-5554 \
+              --reporter expanded 2>&1 | tee e2e-${{ matrix.api-level }}.log
+            status=${PIPESTATUS[0]}
+            echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+            exit $status
+
+      - name: Collect device facts
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "api_level=${{ matrix.api-level }}"
+            adb shell getprop ro.build.version.release 2>/dev/null | sed 's/^/android_version=/'
+            adb shell getprop ro.product.cpu.abi 2>/dev/null | sed 's/^/abi=/'
+            adb shell dumpsys package ${{ env.APP_ID }} 2>/dev/null \
+              | grep -E 'versionName|versionCode' | head -2 | sed 's/^/package=/'
+          } > device-${{ matrix.api-level }}.txt || true
+          cat device-${{ matrix.api-level }}.txt
+
+      - name: Upload E2E artefacts
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: e2e-api-${{ matrix.api-level }}
+          path: |
+            ${{ env.APP_DIR }}/e2e-${{ matrix.api-level }}.log
+            device-${{ matrix.api-level }}.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Aggregate everything into one Markdown report, publish it and commit it back
+  # so the report is readable without downloading artefacts.
+  # ---------------------------------------------------------------------------
+  report:
+    name: Publish E2E report
+    needs: [static, e2e]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: artefacts
+
+      - name: Build report
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, os, re, json
+          from datetime import datetime, timezone
+
+          def read(path, default=''):
+              try:
+                  with open(path, errors='ignore') as handle:
+                      return handle.read()
+              except FileNotFoundError:
+                  return default
+
+          lines = []
+          lines.append('# MuZic end-to-end test report')
+          lines.append('')
+          lines.append(f'Generated: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}  ')
+          lines.append(f'Commit: `{os.environ.get("GITHUB_SHA", "")[:7]}` · '
+                       f'Run: `{os.environ.get("GITHUB_RUN_NUMBER", "")}`')
+          lines.append('')
+
+          # ---- static analysis ----
+          analyze = read('artefacts/static-report/analyze.txt')
+          errors = len(re.findall(r'^\s+error •', analyze, re.M))
+          warnings = len(re.findall(r'^\s+warning •', analyze, re.M))
+          infos = len(re.findall(r'^\s+info •', analyze, re.M))
+          verdict = '✅ clean' if errors == 0 and warnings == 0 else '❌ issues'
+          lines.append('## 1. Static analysis')
+          lines.append('')
+          lines.append('| Metric | Value |')
+          lines.append('| --- | --- |')
+          lines.append(f'| Errors | {errors} |')
+          lines.append(f'| Warnings | {warnings} |')
+          lines.append(f'| Lint infos | {infos} |')
+          lines.append(f'| Verdict | {verdict} |')
+          lines.append('')
+
+          # ---- unit tests ----
+          passed = failed = skipped = 0
+          durations = {}
+          current = None
+          for line in read('artefacts/static-report/test.json').splitlines():
+              try:
+                  event = json.loads(line)
+              except Exception:
+                  continue
+              if event.get('type') == 'testStart':
+                  current = event['test']['name']
+              elif event.get('type') == 'testDone' and not event.get('hidden'):
+                  if event.get('skipped'):
+                      skipped += 1
+                  elif event.get('result') == 'success':
+                      passed += 1
+                  else:
+                      failed += 1
+                  durations[current] = event.get('time', 0)
+
+          total = passed + failed
+          rate = (passed / total * 100) if total else 0
+          lines.append('## 2. Unit & widget tests')
+          lines.append('')
+          lines.append('| Metric | Value |')
+          lines.append('| --- | --- |')
+          lines.append(f'| Passed | {passed} |')
+          lines.append(f'| Failed | {failed} |')
+          lines.append(f'| Pass rate | {rate:.1f}% |')
+          lines.append('')
+
+          lcov = read('artefacts/static-report/coverage/lcov.info')
+          hits = found = 0
+          for row in lcov.splitlines():
+              if row.startswith('DA:'):
+                  parts = row[3:].split(',')
+                  if len(parts) == 2:
+                      found += 1
+                      if int(parts[1]) > 0:
+                          hits += 1
+          if found:
+              lines.append(f'Line coverage: **{hits / found * 100:.1f}%** '
+                           f'({hits}/{found} lines)')
+              lines.append('')
+
+          # ---- e2e ----
+          lines.append('## 3. End-to-end journeys (real Android emulator)')
+          lines.append('')
+          lines.append('| API level | Step | Status | Time | Detail |')
+          lines.append('| --- | --- | --- | --- | --- |')
+          step_rows = 0
+          for log in sorted(glob.glob('artefacts/e2e-api-*/e2e-*.log')):
+              api = re.search(r'api-(\d+)', log).group(1)
+              for line in read(log).splitlines():
+                  match = re.search(
+                      r'\[E2E\] step=(\S+) status=(\w+) ms=(\d+)(?: detail=(.*))?',
+                      line)
+                  if not match:
+                      continue
+                  name, status, ms, detail = match.groups()
+                  icon = {'PASS': '✅', 'FAIL': '❌', 'WARN': '⚠️'}.get(status, '•')
+                  detail = (detail or '').replace('|', '/')[:110]
+                  lines.append(f'| {api} | `{name}` | {icon} {status} | '
+                               f'{int(ms) / 1000:.2f}s | {detail} |')
+                  step_rows += 1
+          if step_rows == 0:
+              lines.append('| – | no journey output | ❌ | – | emulator job failed '
+                           'before emitting steps |')
+          lines.append('')
+
+          # ---- device compatibility ----
+          lines.append('## 4. Device matrix')
+          lines.append('')
+          lines.append('| Fact | Value |')
+          lines.append('| --- | --- |')
+          for path in sorted(glob.glob('artefacts/device-*.txt')):
+              for row in read(path).splitlines():
+                  if '=' in row:
+                      key, value = row.split('=', 1)
+                      lines.append(f'| {key} | {value} |')
+          lines.append('')
+
+          # ---- timings ----
+          lines.append('## 5. Timings & budgets')
+          lines.append('')
+          budgets = {
+              'cold_start': 8000,
+              'time_to_first_frame': 8000,
+              'search_flow': 12000,
+              'playback_start': 15000,
+          }
+          lines.append('| Step | Measured | Budget | Verdict |')
+          lines.append('| --- | --- | --- | --- |')
+          seen = set()
+          for log in sorted(glob.glob('artefacts/e2e-api-*/e2e-*.log')):
+              for line in read(log).splitlines():
+                  match = re.search(
+                      r'\[E2E\] step=(\S+) status=\w+ ms=(\d+)', line)
+                  if not match:
+                      continue
+                  name, ms = match.group(1), int(match.group(2))
+                  if name in seen or name not in budgets:
+                      continue
+                  seen.add(name)
+                  ok = ms <= budgets[name]
+                  lines.append(f'| `{name}` | {ms / 1000:.2f}s | '
+                               f'{budgets[name] / 1000:.1f}s | '
+                               f'{"✅ within" if ok else "⚠️ over"} |')
+          lines.append('')
+
+          lines.append('## 6. Notes')
+          lines.append('')
+          lines.append('- Steps marked ⚠️ depend on the live JioSaavn/YouTube '
+                       'network and do not fail the build.')
+          lines.append('- `cold_start` measures process start → first rendered '
+                       'home frame on a software-rendered emulator, so real '
+                       'hardware is faster.')
+          lines.append('- The device matrix runs the same journey on API 30 '
+                       '(Android 11) and API 34 (Android 14).')
+          lines.append('')
+
+          report = '\n'.join(lines)
+          os.makedirs('docs/e2e', exist_ok=True)
+          with open('docs/e2e/LATEST.md', 'w') as handle:
+              handle.write(report)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as handle:
+              handle.write(report)
+          print(report)
+          PY
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: e2e-report
+          path: docs/e2e/LATEST.md
+          retention-days: 30
+
+      - name: Commit report back to the branch
+        if: |
+          always() &&
+          github.event_name != 'pull_request' &&
+          !contains(github.event.head_commit.message, '[e2e-report]')
+        shell: bash
+        run: |
+          git config user.name 'muzic-ci'
+          git config user.email 'ci@users.noreply.github.com'
+          git add docs/e2e/LATEST.md
+          if git diff --cached --quiet; then
+            echo 'report unchanged'
+            exit 0
+          fi
+          git commit -m 'Update end-to-end test report [e2e-report]'
+          git push
