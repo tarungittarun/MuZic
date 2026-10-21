@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Collapsed shade strip. Sized to stay under Android's collapsed
+     custom-view height cap (~64dp): 6dp padding + 44dp controls =
+     56dp total, so the title/artist are never clipped. Structure and
+     ids are the proven ones shared by both custom card levels; only
+     dimensions may change here. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/shade_root"
     android:layout_width="match_parent"
@@ -6,13 +11,13 @@
     android:background="@drawable/shade_card_bg"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:padding="10dp">
+    android:padding="6dp">
 
     <ImageView
         android:id="@+id/shade_art"
-        android:layout_width="52dp"
-        android:layout_height="52dp"
-        android:layout_marginEnd="12dp"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginEnd="10dp"
         android:contentDescription="Album artwork"
         android:scaleType="centerCrop" />
 
@@ -54,8 +59,8 @@
 
     <ImageView
         android:id="@+id/shade_play"
-        android:layout_width="46dp"
-        android:layout_height="46dp"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
         android:layout_marginStart="4dp"
         android:background="@drawable/shade_play_bg"
         android:contentDescription="Play or pause"

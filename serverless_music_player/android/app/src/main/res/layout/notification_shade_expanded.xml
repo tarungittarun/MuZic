@@ -9,6 +9,13 @@
      target: RemoteViews delivers no drag/scrub events, so tapping the
      waveform jumps playback to that part of the song.
 
+     The root background is transparent on purpose: the card draws
+     directly on the system notification surface instead of putting a
+     second dark card inside the system's frame (the header, side
+     margins and snooze footer are SystemUI chrome that no app can
+     remove), so the expanded notification reads as one surface,
+     like the lock-screen player and other apps' rich notifications.
+
      Construct discipline (learned the hard way on the reference
      device, a Motorola Edge 60 Neo on Android 16): plain LinearLayouts
      and core RemoteViews actions only - reflection actions such as
@@ -19,7 +26,7 @@
     android:id="@+id/shade_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/shade_card_bg_dark"
+    android:background="@android:color/transparent"
     android:orientation="vertical">
 
     <ImageView

@@ -136,7 +136,10 @@ gradient, and the full transport row (shuffle, previous, −10s,
 waveform to jump to that part of the song (the notification system
 offers no drag-scrubbing to apps, so the card seeks by tap). Tap
 the card's expand arrow to open the full card; the collapsed strip
-is kept slim by Android itself. The two surfaces never fight: the lock screen and Quick
+is kept slim by Android itself. The card draws directly on the system
+notification surface rather than as a card inside a card — the slim
+header and margins around an expanded notification are drawn by
+Android itself, for every app. The two surfaces never fight: the lock screen and Quick
 Settings keep the exact system player, the shade shows the MuZic card.
 The card posts on its own notification slot, verifies that Android
 actually kept it, and steps down to a simpler big-artwork layout
