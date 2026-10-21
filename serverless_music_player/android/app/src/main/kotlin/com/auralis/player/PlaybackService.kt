@@ -11,6 +11,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Shader
 import android.media.AudioManager
 import android.os.Build
 import android.os.IBinder
@@ -77,6 +82,9 @@ class PlaybackService : Service() {
         const val EXTRA_SHADE_PROGRESS = "shadeProgress"
         const val EXTRA_SHADE_KEEP_ON_PAUSE = "shadeKeepOnPause"
 
+        private const val SHADE_PREFS = "muzic_shade_card"
+        private const val KEY_SHADE_LEVEL = "shade_level"
+
         /** Set by MainActivity: receives transport commands from the card. */
         var commandSink: ((String, Double?) -> Unit)? = null
 
@@ -102,6 +110,13 @@ class PlaybackService : Service() {
      * binder transaction limit, which makes notify() fail outright.
      */
     private var shadeArtworkBitmap: Bitmap? = null
+
+    /**
+     * Wide banner copy of the artwork (512x200, bottom gradient baked in)
+     * for the level-2 shade card, so the overlaid title stays readable
+     * without needing an extra scrim view in the layout.
+     */
+    private var shadeBannerBitmap: Bitmap? = null
     private var artworkKey: String? = null
     private var latestArtworkUrl: String? = null
     private var latestArtworkPath: String? = null
@@ -141,6 +156,11 @@ class PlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
+        // Remember the richest shade-card level this device accepts, so a
+        // demotion survives restarts instead of being retried every launch.
+        shadeLevel = getSharedPreferences(SHADE_PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_SHADE_LEVEL, 2)
+            .coerceIn(0, 2)
         val mediaSession = MediaSessionCompat(this, "MuZic").apply {
             setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
@@ -183,7 +203,14 @@ class PlaybackService : Service() {
         hasNext = intent.getBooleanExtra(EXTRA_HAS_NEXT, hasNext)
         hasPrevious = intent.getBooleanExtra(EXTRA_HAS_PREVIOUS, hasPrevious)
         shadeEnabled = intent.getBooleanExtra(EXTRA_SHADE_ENABLED, shadeEnabled)
-        intent.getStringExtra(EXTRA_SHADE_STYLE)?.let { shadeStyle = it }
+        intent.getStringExtra(EXTRA_SHADE_STYLE)?.let { newStyle ->
+            if (newStyle != shadeStyle) {
+                shadeStyle = newStyle
+                // The user changed card style: give the richest layout a
+                // fresh trial on this device.
+                shadeLevel = 2
+            }
+        }
         intent.getStringExtra(EXTRA_SHADE_THEME)?.let { shadeTheme = it }
         shadeArtwork = intent.getBooleanExtra(EXTRA_SHADE_ARTWORK, shadeArtwork)
         shadePrevious = intent.getBooleanExtra(EXTRA_SHADE_PREVIOUS, shadePrevious)
@@ -241,6 +268,7 @@ class PlaybackService : Service() {
             if (bitmap == null) return@execute
             artworkBitmap = bitmap
             shadeArtworkBitmap = Bitmap.createScaledBitmap(bitmap, 192, 192, true)
+            shadeBannerBitmap = runCatching { makeBannerBitmap(bitmap) }.getOrNull()
             publishSessionState()
             val manager = getSystemService(NotificationManager::class.java)
             manager?.notify(NOTIFICATION_ID, buildNotification())
@@ -266,6 +294,50 @@ class PlaybackService : Service() {
         }.let { bitmap ->
             if (bitmap == null) null else scaleSquare(bitmap)
         }
+    }
+
+    /**
+     * Centre-crops [source] to a wide 512x200 banner and burns a bottom
+     * gradient (transparent -> near-black) into it, so white title text
+     * overlaid on the banner stays readable on any artwork.
+     */
+    private fun makeBannerBitmap(source: Bitmap): Bitmap {
+        val width = 512
+        val height = 200
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val scale = maxOf(
+            width.toFloat() / source.width,
+            height.toFloat() / source.height,
+        )
+        val matrix = Matrix().apply {
+            setScale(scale, scale)
+            postTranslate(
+                (width - source.width * scale) / 2f,
+                (height - source.height * scale) / 2f,
+            )
+        }
+        canvas.drawBitmap(source, matrix, Paint(Paint.FILTER_BITMAP_FLAG))
+        val gradient = LinearGradient(
+            0f,
+            height * 0.30f,
+            0f,
+            height.toFloat(),
+            intArrayOf(0x00000000, 0xC2000000),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        canvas.drawRect(
+            0f,
+            0f,
+            width.toFloat(),
+            height.toFloat(),
+            Paint().apply {
+                shader = gradient
+                isDither = true
+            },
+        )
+        return output
     }
 
     private fun scaleSquare(source: Bitmap): Bitmap {
@@ -465,19 +537,28 @@ class PlaybackService : Service() {
 
         val art = shadeArtworkBitmap ?: artworkBitmap
         val showArt = shadeArtwork && art != null
-        if (showArt) {
+        if (expanded && variant == 2) {
+            // Banner: always visible (branded placeholder until the real
+            // artwork arrives) so the negative-margin title row below it
+            // always has something to overlay. Title text is forced white
+            // here - artwork and placeholder are both dark.
+            views.setViewVisibility(R.id.shade_art, View.VISIBLE)
+            val banner = shadeBannerBitmap ?: art
+            if (shadeArtwork && banner != null) {
+                views.setImageViewBitmap(R.id.shade_art, banner)
+            } else {
+                views.setImageViewResource(
+                    R.id.shade_art,
+                    R.drawable.shade_banner_placeholder,
+                )
+            }
+            views.setTextColor(R.id.shade_title, 0xFFFFFFFF.toInt())
+            views.setTextColor(R.id.shade_artist, 0xE8FFFFFF.toInt())
+        } else if (showArt) {
             views.setViewVisibility(R.id.shade_art, View.VISIBLE)
             views.setImageViewBitmap(R.id.shade_art, art)
         } else {
             views.setViewVisibility(R.id.shade_art, View.GONE)
-        }
-        if (expanded && variant == 2) {
-            // The gradient scrim only makes sense over artwork; without art
-            // the card falls back to its flat themed background.
-            views.setViewVisibility(
-                R.id.shade_scrim,
-                if (showArt) View.VISIBLE else View.GONE,
-            )
         }
 
         // Banner card: dark glyph on the pale circle (lock-screen look).
@@ -493,50 +574,61 @@ class PlaybackService : Service() {
         )
         views.setOnClickPendingIntent(R.id.shade_play, transportIntent("toggle"))
 
-        val showPrevious = hasPrevious && shadePrevious
+        // Like the lock-screen player, previous/next are always shown
+        // (subject to the user's own toggles) instead of appearing and
+        // disappearing with queue position - a button that vanishes
+        // mid-gesture reads as "controls are missing".
         views.setViewVisibility(
             R.id.shade_prev,
-            if (showPrevious) View.VISIBLE else View.GONE,
+            if (shadePrevious) View.VISIBLE else View.GONE,
         )
-        if (showPrevious) {
+        if (shadePrevious) {
             views.setOnClickPendingIntent(
                 R.id.shade_prev,
                 transportIntent("previous"),
             )
         }
-        val showNext = hasNext && shadeNext
         views.setViewVisibility(
             R.id.shade_next,
-            if (showNext) View.VISIBLE else View.GONE,
+            if (shadeNext) View.VISIBLE else View.GONE,
         )
-        if (showNext) {
+        if (shadeNext) {
             views.setOnClickPendingIntent(R.id.shade_next, transportIntent("next"))
         }
 
         if (expanded) {
-            val showProgress = shadeProgress && durationMs > 0
+            // The progress row keeps its place during track changes: while
+            // the new track's duration is unknown it shows an indeterminate
+            // bar instead of the whole row (and its seek buttons) vanishing
+            // for a moment.
             views.setViewVisibility(
                 R.id.shade_progress_row,
-                if (showProgress) View.VISIBLE else View.GONE,
+                if (shadeProgress) View.VISIBLE else View.GONE,
             )
             // The -10s/+10s seek taps belong to the progress row.
             views.setViewVisibility(
                 R.id.shade_seek_back,
-                if (showProgress) View.VISIBLE else View.GONE,
+                if (shadeProgress) View.VISIBLE else View.GONE,
             )
             views.setViewVisibility(
                 R.id.shade_seek_forward,
-                if (showProgress) View.VISIBLE else View.GONE,
+                if (shadeProgress) View.VISIBLE else View.GONE,
             )
-            if (showProgress) {
-                views.setProgressBar(
-                    R.id.shade_progress,
-                    durationMs.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
-                    positionMs.coerceIn(0L, durationMs).toInt(),
-                    false,
-                )
-                views.setTextViewText(R.id.shade_elapsed, formatTime(positionMs))
-                views.setTextViewText(R.id.shade_duration, formatTime(durationMs))
+            if (shadeProgress) {
+                if (durationMs > 0) {
+                    views.setProgressBar(
+                        R.id.shade_progress,
+                        durationMs.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+                        positionMs.coerceIn(0L, durationMs).toInt(),
+                        false,
+                    )
+                    views.setTextViewText(R.id.shade_elapsed, formatTime(positionMs))
+                    views.setTextViewText(R.id.shade_duration, formatTime(durationMs))
+                } else {
+                    views.setProgressBar(R.id.shade_progress, 0, 0, true)
+                    views.setTextViewText(R.id.shade_elapsed, "0:00")
+                    views.setTextViewText(R.id.shade_duration, "--:--")
+                }
                 views.setOnClickPendingIntent(
                     R.id.shade_seek_back,
                     transportIntent("seekBack"),
@@ -556,13 +648,9 @@ class PlaybackService : Service() {
      * dark/light re-skins the card at build time.
      */
     private fun applyShadeTheme(views: RemoteViews, expanded: Boolean, variant: Int) {
-        // Over artwork the banner card always uses the lock-screen look
-        // (white text on the gradient scrim) regardless of theme.
-        if (expanded && variant == 2 && shadeArtwork &&
-            (shadeArtworkBitmap ?: artworkBitmap) != null
-        ) {
-            return
-        }
+        // The banner card always uses the lock-screen look (white text
+        // over artwork/placeholder) regardless of theme.
+        if (expanded && variant == 2) return
         val dark = when (shadeTheme) {
             "dark" -> true
             "light" -> false
@@ -660,6 +748,14 @@ class PlaybackService : Service() {
         }
         if (shadeLevel != fromLevel) return
         shadeLevel = fromLevel - 1
+        // Persist so the next launch starts at the level this device
+        // accepts instead of retrying (and briefly losing) the fancy one.
+        runCatching {
+            getSharedPreferences(SHADE_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putInt(KEY_SHADE_LEVEL, shadeLevel)
+                .apply()
+        }
         errorSink?.invoke(
             "shade card: level $fromLevel $reason; switching to level $shadeLevel",
         )

@@ -1,54 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Expanded shade card, "banner" style: artwork banner across the top
-     (title/artist and the big pale play button overlaid, like the
-     lock-screen player), transport row on the solid card below. The root
-     stays a wrap_content LinearLayout: a fixed-height full-bleed
-     FrameLayout as the notification root was discarded by some SystemUI
-     builds, while this envelope is proven to post. -->
+<!-- Expanded shade card styled after the lock-screen media player, built
+     with LinearLayout only (this app's device data shows SystemUI builds
+     that discard custom cards containing a FrameLayout). The artwork
+     banner carries a burned-in gradient scrim; the title/artist/play row
+     overlays its bottom edge via a negative top margin; transport sits
+     below. Total height ~208dp. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/shade_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/shade_card_bg"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:paddingBottom="12dp">
 
-    <FrameLayout
+    <ImageView
+        android:id="@+id/shade_art"
         android:layout_width="match_parent"
-        android:layout_height="148dp">
+        android:layout_height="152dp"
+        android:contentDescription="Album artwork"
+        android:scaleType="centerCrop"
+        android:src="@drawable/shade_banner_placeholder" />
 
-        <ImageView
-            android:id="@+id/shade_art"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:contentDescription="Album artwork"
-            android:scaleType="centerCrop" />
-
-        <View
-            android:id="@+id/shade_scrim"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@drawable/shade_scrim" />
-
-        <ImageView
-            android:id="@+id/shade_play"
-            android:layout_width="54dp"
-            android:layout_height="54dp"
-            android:layout_gravity="bottom|end"
-            android:layout_marginEnd="12dp"
-            android:layout_marginBottom="12dp"
-            android:background="@drawable/shade_play_bg_light"
-            android:contentDescription="Play or pause"
-            android:padding="14dp"
-            android:src="@drawable/ic_play_dark" />
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="58dp"
+        android:layout_marginTop="-58dp"
+        android:gravity="bottom"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="12dp">
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom"
-            android:layout_marginEnd="74dp"
+            android:layout_weight="1"
             android:orientation="vertical"
-            android:paddingStart="14dp"
-            android:paddingBottom="12dp">
+            android:paddingBottom="2dp">
 
             <TextView
                 android:id="@+id/shade_title"
@@ -66,25 +53,34 @@
                 android:id="@+id/shade_artist"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="1dp"
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:shadowColor="#80000000"
                 android:shadowRadius="4"
                 android:textColor="#E8FFFFFF"
-                android:textSize="13sp" />
+                android:textSize="12.5sp" />
         </LinearLayout>
-    </FrameLayout>
+
+        <ImageView
+            android:id="@+id/shade_play"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/shade_play_bg_light"
+            android:contentDescription="Play or pause"
+            android:padding="13dp"
+            android:src="@drawable/ic_play_dark" />
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="12dp"
-        android:paddingTop="10dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="12dp">
+        android:paddingEnd="12dp">
 
         <ImageView
             android:id="@+id/shade_prev"
