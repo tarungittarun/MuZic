@@ -15,7 +15,6 @@ import '../services/app_log.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/video_export_manager.dart';
-import '../services/video_export_service.dart';
 import '../services/video_library_service.dart';
 import '../services/lyrics_language.dart';
 import '../services/music_api_service.dart';
@@ -283,7 +282,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                               fontWeight: FontWeight.w700,
                             )),
                         const SizedBox(height: 3),
-                        Text(AppInfo.displayName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        const Text(AppInfo.displayName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
@@ -298,7 +297,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                       }
                       final percent = export.percent;
                       return Tooltip(
-                        message: 'Rendering ${percent}% — tap to stop',
+                        message: 'Rendering $percent% — tap to stop',
                         child: InkWell(
                           borderRadius: BorderRadius.circular(24),
                           onTap: () => _confirmStopExport(export),
@@ -928,7 +927,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
                   ),
                 ),
               ),
-              _LanguageSectionLabel(text: 'AVAILABLE FOR THIS TRACK'),
+              const _LanguageSectionLabel(text: 'AVAILABLE FOR THIS TRACK'),
               ListTile(
                 leading: const Icon(Icons.tune_rounded),
                 title: const Text('Follow default setting'),
