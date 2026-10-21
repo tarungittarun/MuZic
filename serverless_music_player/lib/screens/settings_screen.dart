@@ -99,10 +99,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: <Widget>[
                       Icon(Icons.lyrics_outlined, color: palette.mint),
                       const SizedBox(width: 13),
-                      Expanded(
+                      const Expanded(
                         child: Text(
                           'Default lyrics language',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 14,
                           ),

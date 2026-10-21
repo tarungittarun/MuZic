@@ -80,6 +80,7 @@ class PlayerController extends ChangeNotifier {
     _subscriptions.add(_audio.player.errorStream.listen(_onPlayerError));
   }
 
+  final MediaSessionService? _mediaSession;
   final AudioPlayerService _audio;
   final MusicApiService _musicApi;
   final DownloadService _downloads;

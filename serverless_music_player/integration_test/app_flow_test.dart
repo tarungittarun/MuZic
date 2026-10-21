@@ -1,7 +1,7 @@
 /// End-to-end journey across the real app on a real Android device/emulator.
 ///
 /// Every step prints a machine-readable line so CI can build a report:
-///   [E2E] step=<name> status=PASS|FAIL|WARN ms=<duration> detail=<text>
+///   [E2E] step=NAME status=PASS|FAIL|WARN ms=DURATION detail=TEXT
 ///
 /// Core UI/navigation steps are strict (they fail the build). Steps that need
 /// the live JioSaavn/YouTube network are recorded as WARN so a flaky CDN never
