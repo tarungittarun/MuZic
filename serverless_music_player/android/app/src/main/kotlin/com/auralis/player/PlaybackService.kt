@@ -353,12 +353,14 @@ class TransportReceiver : BroadcastReceiver() {
     }
 
     private fun mediaKeyCommand(intent: Intent): String? {
-        val event = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
-        } ?: return null
+        val event: android.view.KeyEvent? =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT) as? android.view.KeyEvent
+            }
+        if (event == null) return null
         if (event.action != android.view.KeyEvent.ACTION_DOWN) return null
         if (event.repeatCount > 0) return null
         return when (event.keyCode) {
