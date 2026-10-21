@@ -203,34 +203,77 @@ jobs:
             -d pixel_5 --force 2>&1 | tail -3
           echo "::notice title=avd::created=$(avdmanager list avd | grep -c muzic)"
 
-      - name: Boot emulator
-        id: boot
+      - name: Check emulator prerequisites
         shell: bash
         run: |
           set +e
           SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          EMU="$SDK_ROOT/emulator/emulator"
+          echo "::notice title=emu::binary=$(ls -l "$EMU" 2>/dev/null | awk '{print $5" bytes"}')"
+          echo "::notice title=emu::version=$("$EMU" -version 2>&1 | head -1)"
+          echo "::notice title=emu::accel=$("$EMU" -accel-check 2>&1 | tail -2 | tr '\n' ' ')"
+          missing=$(ldd "$EMU" 2>/dev/null | grep 'not found' | wc -l)
+          echo "::notice title=emu::missing-libs=$missing"
+          ldd "$EMU" 2>/dev/null | grep 'not found' | head -5
+          adb start-server 2>&1 | tail -2
+          echo "::notice title=emu::adb=$(adb version | head -1)"
+
+      - name: Boot emulator
+        id: boot
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set +e
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          EMU="$SDK_ROOT/emulator/emulator"
+          LOG="emulator-${{ matrix.api-level }}.log"
           export PATH="${SDK_ROOT}/platform-tools:${SDK_ROOT}/emulator:$PATH"
-          echo "::notice title=boot::emulator=$(command -v emulator || echo missing)"
-          nohup "${SDK_ROOT}/emulator/emulator" -avd muzic-${{ matrix.api-level }} \
-            -no-window -no-audio -no-boot-anim -no-snapshot -camera-back none \
-            -camera-front none -gpu swiftshader_indirect -accel on \
-            > emulator-${{ matrix.api-level }}.log 2>&1 &
-          adb start-server
-          adb wait-for-device
+
+          setsid "$EMU" -avd "muzic-${{ matrix.api-level }}" \
+            -no-window -no-audio -no-boot-anim \
+            -no-snapshot -no-snapshot-save -no-snapshot-load \
+            -camera-back none -camera-front none \
+            -gpu swiftshader_indirect -accel on \
+            -netdelay none -netspeed full \
+            -wipe-data \
+            > "$LOG" 2>&1 &
+          EMU_PID=$!
+          echo "::notice title=boot::launched pid=$EMU_PID log=$LOG"
+
+          booted=0
           for i in $(seq 1 90); do
-            booted=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-            if [ "$booted" = "1" ]; then
-              echo "::notice title=emulator::booted after $((i * 10))s"
-              adb shell input keyevent 82
-              exit 0
+            if ! kill -0 "$EMU_PID" 2>/dev/null; then
+              echo "::error title=boot::emulator process exited at t+$((i * 10))s"
+              break
+            fi
+            state=$(timeout 20 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            if [ "$state" = "1" ]; then
+              booted=1
+              echo "::notice title=boot::booted after $((i * 10))s"
+              break
+            fi
+            if [ $((i % 6)) -eq 0 ]; then
+              devices=$(adb devices | grep -c 'emulator-')
+              echo "::notice title=boot::t+$((i * 10))s devices=$devices boot_completed=[${state}] last=$(tail -1 "$LOG" 2>/dev/null | cut -c1-150)"
             fi
             sleep 10
           done
-          echo "::error title=emulator::did not boot within 900s"
-          tail -40 emulator-${{ matrix.api-level }}.log | while IFS= read -r l; do
-            echo "::error title=emulator-log::${l}"
-          done
-          exit 1
+
+          if [ "$booted" != "1" ]; then
+            echo "::error title=boot::emulator did not become ready — see attached log"
+            tail -60 "$LOG" 2>/dev/null | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=emulator-log::$(echo "$line" | cut -c1-300)"
+            done
+            exit 1
+          fi
+
+          adb shell input keyevent 82 || true
+          adb shell settings put global window_animation_scale 0 || true
+          adb shell settings put global transition_animation_scale 0 || true
+          adb shell settings put global animator_duration_scale 0 || true
+          adb shell svc power stayon true || true
+          adb shell wm dismiss-keyguard || true
+          echo "::notice title=boot::device=$(adb shell getprop ro.build.version.sdk | tr -d '\r') api ready"
 
       - name: Run E2E journey on emulator
         id: e2e
