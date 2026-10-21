@@ -149,6 +149,24 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Probe emulator prerequisites
+        shell: bash
+        run: |
+          set +e
+          if [ -e /dev/kvm ]; then
+            echo "::notice title=env::/dev/kvm present"
+            ls -l /dev/kvm
+          else
+            echo "::error title=env::/dev/kvm missing — hardware acceleration unavailable"
+          fi
+          echo "::notice title=env::cpu-virtualisation=$(egrep -c '(vmx|svm)' /proc/cpuinfo)"
+          echo "::notice title=env::cpus=$(nproc) memory=$(free -g | awk '/Mem:/ {print $2}')GB"
+          sudo apt-get -qq update >/dev/null 2>&1
+          sudo apt-get -qq install -y cpu-checker >/dev/null 2>&1
+          kvm-ok 2>&1 | while IFS= read -r line; do
+            echo "::notice title=kvm-ok::${line}"
+          done
+
       - name: Resolve packages
         working-directory: ${{ env.APP_DIR }}
         run: flutter pub get
@@ -169,11 +187,11 @@ jobs:
           api-level: ${{ matrix.api-level }}
           target: ${{ matrix.target }}
           arch: x86_64
-          profile: pixel_6
           disable-animations: true
+          emulator-boot-timeout: 900
           emulator-options: >-
             -no-window -no-audio -no-boot-anim -camera-back none
-            -camera-front none -no-snapshot-save -gpu swiftshader_indirect
+            -camera-front none -no-snapshot -gpu swiftshader_indirect
           script: |
             set +e
             adb shell pm grant ${{ env.APP_ID }} android.permission.POST_NOTIFICATIONS || true
