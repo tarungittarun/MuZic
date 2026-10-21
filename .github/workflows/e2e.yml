@@ -298,6 +298,8 @@ jobs:
         shell: bash
         run: |
           set +e
+          # Each step is a fresh shell: the SDK tools are not on PATH by default.
+          export PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/platform-tools:${ANDROID_SDK_ROOT:-$ANDROID_HOME}/emulator:$PATH"
           adb shell pm grant ${{ env.APP_ID }} android.permission.POST_NOTIFICATIONS || true
           adb shell pm grant ${{ env.APP_ID }} android.permission.RECORD_AUDIO || true
           adb shell settings put global window_animation_scale 0 || true
@@ -318,7 +320,7 @@ jobs:
           exit $status
 
       - name: Surface E2E failure details
-        if: always()
+        if: failure()
         shell: bash
         run: |
           LOG="e2e-${{ matrix.api-level }}.log"
@@ -337,6 +339,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          export PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/platform-tools:$PATH"
           {
             echo "api_level=${{ matrix.api-level }}"
             adb shell getprop ro.build.version.release 2>/dev/null | sed 's/^/android_version=/'

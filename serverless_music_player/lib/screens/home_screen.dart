@@ -475,7 +475,21 @@ class _SongCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            CoverArt(song: song, size: 132, radius: 16),
+            // Keep the art square but let it shrink when the labels need more
+            // room (larger system font) instead of overflowing the shelf.
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  const max = 132.0;
+                  final side =
+                      constraints.maxHeight < max ? constraints.maxHeight : max;
+                  return Align(
+                    alignment: Alignment.topLeft,
+                    child: CoverArt(song: song, size: side, radius: 16),
+                  );
+                },
+              ),
+            ),
             const SizedBox(height: 7),
             Text(
               song.title,
@@ -514,18 +528,22 @@ class _AlbumCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: SizedBox.square(
-                dimension: 128,
-                child: album.imageUrl == null
-                    ? Container(color: palette.surfaceRaised)
-                    : Image.network(
-                        album.imageUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            Container(color: palette.surfaceRaised),
-                      ),
+            // The art takes whatever the shelf leaves after the two labels, so
+            // a larger system font shrinks the artwork instead of overflowing
+            // the fixed-height shelf.
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: SizedBox.expand(
+                  child: album.imageUrl == null
+                      ? Container(color: palette.surfaceRaised)
+                      : Image.network(
+                          album.imageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              Container(color: palette.surfaceRaised),
+                        ),
+                ),
               ),
             ),
             const SizedBox(height: 7),
