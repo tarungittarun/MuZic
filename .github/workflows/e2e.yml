@@ -183,21 +183,35 @@ jobs:
       - name: Install emulator and system image
         shell: bash
         run: |
-          set -e
-          echo "$ANDROID_HOME"
+          set +e
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "::notice title=env::sdk-root=${SDK_ROOT}"
+          CMDLINE_BIN=$(ls -d "$SDK_ROOT"/cmdline-tools/*/bin 2>/dev/null | head -1)
+          export PATH="${CMDLINE_BIN}:${SDK_ROOT}/platform-tools:${SDK_ROOT}/emulator:${SDK_ROOT}/tools/bin:$PATH"
+          echo "::notice title=env::sdkmanager=$(command -v sdkmanager || echo missing)"
+          echo "::notice title=env::avdmanager=$(command -v avdmanager || echo missing)"
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager --install "platform-tools" "emulator" \
-            "system-images;android-${{ matrix.api-level }};google_apis;x86_64" 2>&1 | tail -5
+            "system-images;android-${{ matrix.api-level }};google_apis;x86_64" 2>&1 | tail -3
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "::error title=install::sdkmanager failed ($status) path=$(command -v sdkmanager)"
+            exit $status
+          fi
           echo no | avdmanager create avd -n muzic-${{ matrix.api-level }} \
             -k "system-images;android-${{ matrix.api-level }};google_apis;x86_64" \
-            -d pixel_5 --force
+            -d pixel_5 --force 2>&1 | tail -3
+          echo "::notice title=avd::created=$(avdmanager list avd | grep -c muzic)"
 
       - name: Boot emulator
         id: boot
         shell: bash
         run: |
           set +e
-          nohup "$ANDROID_HOME/emulator/emulator" -avd muzic-${{ matrix.api-level }} \
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          export PATH="${SDK_ROOT}/platform-tools:${SDK_ROOT}/emulator:$PATH"
+          echo "::notice title=boot::emulator=$(command -v emulator || echo missing)"
+          nohup "${SDK_ROOT}/emulator/emulator" -avd muzic-${{ matrix.api-level }} \
             -no-window -no-audio -no-boot-anim -no-snapshot -camera-back none \
             -camera-front none -gpu swiftshader_indirect -accel on \
             > emulator-${{ matrix.api-level }}.log 2>&1 &
