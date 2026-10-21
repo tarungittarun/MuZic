@@ -91,13 +91,26 @@ jobs:
       - name: Verify APK signature
         shell: bash
         run: |
+          # Discover the single APK this job produced instead of assuming
+          # the exact split-per-abi file name.
+          set +e
           BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | tail -1)
-          apk="build/app/outputs/flutter-apk/${{ matrix.apk }}"
-          "$BT/apksigner" verify --print-certs "$apk" 2>&1 | grep -E "Signer #1 certificate (DN|SHA-256)" | tee -a "$GITHUB_STEP_SUMMARY"
-          "$BT/apksigner" verify --print-certs "$apk" 2>&1 \
-            | grep "SHA-256" | head -1 | while IFS= read -r line; do
+          apk=$(find build/app/outputs/flutter-apk -name '*-release.apk' | head -1)
+          if [ -z "$apk" ]; then
+            ls -la build/app/outputs/flutter-apk/ >&2
+            echo "::error title=signature::no release APK found for ${{ matrix.label }}"
+            exit 1
+          fi
+          out=$("$BT/apksigner" verify --print-certs "$apk" 2>&1)
+          status=$?
+          echo "$out" >> "$GITHUB_STEP_SUMMARY"
+          echo "$out" | grep -m1 "SHA-256" | while IFS= read -r line; do
             echo "::notice title=APK signing certificate::${line}"
           done
+          if [ $status -ne 0 ]; then
+            echo "::error title=signature::apksigner failed for $apk: $out"
+            exit 1
+          fi
 
       - name: Verify versionName / versionCode
         shell: bash
@@ -106,11 +119,12 @@ jobs:
           # version: the device only ever sees what is inside the manifest.
           set +e
           BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | tail -1)
+          apk=$(find build/app/outputs/flutter-apk -name '*-release.apk' | head -1)
           PUBSPEC_VERSION=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}')
           BASE_NAME=${PUBSPEC_VERSION%%+*}
           BASE_CODE=${PUBSPEC_VERSION##*+}
           BADGING=$("$BT/aapt2" dump badging \
-            "build/app/outputs/flutter-apk/${{ matrix.apk }}" 2>/dev/null \
+            "$apk" 2>/dev/null \
             | grep -m1 "^package:")
           echo "pubspec=$PUBSPEC_VERSION" >> "$GITHUB_STEP_SUMMARY"
           echo "badging=$BADGING" >> "$GITHUB_STEP_SUMMARY"
@@ -134,7 +148,7 @@ jobs:
         uses: actions/upload-artifact@v7.0.2
         with:
           name: muzic-apk-${{ matrix.label }}
-          path: serverless_music_player/build/app/outputs/flutter-apk/${{ matrix.apk }}
+          path: serverless_music_player/build/app/outputs/flutter-apk/*-release.apk
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -167,11 +181,13 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           VERSION=$(grep -m1 '^version:' serverless_music_player/pubspec.yaml | awk '{print $2}')
-          ARM64=$(find dist -name 'app-arm64-v8a-release.apk' | head -1)
-          ARMV7=$(find dist -name 'app-armeabi-v7a-release.apk' | head -1)
+          # Copy to the stable asset names users download, whatever the
+          # per-ABI build named its output.
+          cp "$(find dist/muzic-apk-arm64 -name '*.apk' | head -1)" app-arm64-v8a-release.apk
+          cp "$(find dist/muzic-apk-armv7 -name '*.apk' | head -1)" app-armeabi-v7a-release.apk
           gh release create "apk-build-${RUN_NUMBER}" \
-            "$ARM64" \
-            "$ARMV7" \
+            app-arm64-v8a-release.apk \
+            app-armeabi-v7a-release.apk \
             --repo "${GH_REPOSITORY}" \
             --title "MuZic ${VERSION} (APK build ${RUN_NUMBER})" \
             --notes "MuZic version ${VERSION}.
