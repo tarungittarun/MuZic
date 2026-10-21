@@ -370,7 +370,11 @@ class PlaybackService : Service() {
      * just like the main card.
      */
     private fun buildShadeCard(): Notification {
-        return if (shadeStyle == "rich") buildRichShadeCard() else buildSimpleShadeCard()
+        return if (shadeStyle == "rich" && !shadeRichBroken) {
+            buildRichShadeCard()
+        } else {
+            buildSimpleShadeCard()
+        }
     }
 
     private fun shadeBaseBuilder(): NotificationCompat.Builder {
@@ -577,6 +581,12 @@ class PlaybackService : Service() {
     /** Last shade-card gate outcome, so changes are reported once. */
     private var lastShadeGate: String? = null
 
+    /** Set once the rich layout proves unpostable on this device. */
+    private var shadeRichBroken = false
+
+    /** True while a post-verification is queued. */
+    private var shadeVerifyPending = false
+
     private fun postShadeCard() {
         val manager = getSystemService(NotificationManager::class.java) ?: return
         val gate = when {
@@ -594,25 +604,74 @@ class PlaybackService : Service() {
             runCatching { manager.cancel(SHADE_NOTIFICATION_ID) }
             return
         }
-        // Never let the shade card vanish silently: if the chosen style
-        // fails to build or post (a custom RemoteViews layout can be
-        // rejected on some OEM skins), fall back to the plain system-style
-        // card, and report what happened so it shows up in diagnostics.
+        // Device diagnostics proved a nasty failure mode: playback runs,
+        // notify() returns without any Exception, yet the shade card never
+        // lands in the active notifications. So: catch Throwable (not just
+        // Exception), verify the record actually stuck shortly after
+        // posting, and if the rich layout is the problem, stick to the
+        // plain system-style card for the rest of the session. Every step
+        // reports through errorSink so the outcome is in the diagnostics.
+        val rich = shadeStyle == "rich" && !shadeRichBroken
         try {
             manager.notify(SHADE_NOTIFICATION_ID, buildShadeCard())
-        } catch (error: Exception) {
+            if (rich) verifyShadeCardPosted(manager)
+        } catch (error: Throwable) {
             errorSink?.invoke(
-                "shade card ($shadeStyle) failed: ${error.javaClass.simpleName}: " +
-                    "${error.message}; falling back to simple style",
+                "shade card (${if (rich) "rich" else "simple"}) post threw " +
+                    "${error.javaClass.simpleName}: ${error.message}" +
+                    if (rich) "; falling back to simple style" else "",
             )
-            try {
-                manager.notify(SHADE_NOTIFICATION_ID, buildSimpleShadeCard())
-            } catch (fallbackError: Exception) {
-                errorSink?.invoke(
-                    "shade card fallback also failed: " +
-                        "${fallbackError.javaClass.simpleName}: ${fallbackError.message}",
-                )
+            if (rich) {
+                shadeRichBroken = true
+                postSimpleShadeCard(manager, "exception fallback")
             }
+        }
+    }
+
+    private fun postSimpleShadeCard(manager: NotificationManager, reason: String) {
+        try {
+            manager.notify(SHADE_NOTIFICATION_ID, buildSimpleShadeCard())
+        } catch (error: Throwable) {
+            errorSink?.invoke(
+                "shade card simple post ($reason) threw " +
+                    "${error.javaClass.simpleName}: ${error.message}",
+            )
+        }
+    }
+
+    private fun verifyShadeCardPosted(manager: NotificationManager) {
+        if (shadeVerifyPending) return
+        shadeVerifyPending = true
+        try {
+            artworkLoader.execute {
+                try {
+                    Thread.sleep(400)
+                    val present = manager.activeNotifications.any {
+                        it.id == SHADE_NOTIFICATION_ID
+                    }
+                    if (!present) {
+                        shadeRichBroken = true
+                        errorSink?.invoke(
+                            "shade card (rich) posted but is not in active " +
+                                "notifications afterwards; using simple style",
+                        )
+                        postSimpleShadeCard(manager, "missing-after-post")
+                    }
+                } catch (error: Throwable) {
+                    errorSink?.invoke(
+                        "shade card verify failed: " +
+                            "${error.javaClass.simpleName}: ${error.message}",
+                    )
+                } finally {
+                    shadeVerifyPending = false
+                }
+            }
+        } catch (error: Throwable) {
+            shadeVerifyPending = false
+            errorSink?.invoke(
+                "shade card verify could not start: " +
+                    "${error.javaClass.simpleName}: ${error.message}",
+            )
         }
     }
 
