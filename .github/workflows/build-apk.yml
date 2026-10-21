@@ -131,9 +131,9 @@ jobs:
           echo "::notice title=APK version::pubspec=${PUBSPEC_VERSION} ${BADGING}"
           code=$(echo "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
           name=$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
-          # --split-per-abi offsets the version code per ABI (arm64-v8a is
-          # 2000 + base, armeabi-v7a is 1000 + base), so compare the base
-          # inside the offset.
+          # The Gradle file pins every split APK to 3000 + the pubspec
+          # build number (install-over guarantee), so compare the base
+          # inside that offset.
           if [ -z "$code" ] || [ -z "$name" ]; then
             echo "::error title=version-missing::the manifest carries no versionName/versionCode"
             exit 1

@@ -44,6 +44,18 @@ android {
         }
     }
 
+    // Install-over guarantee: Flutter/AGP auto-offsets the versionCode per
+    // ABI, and the offset varied with how the build was invoked (a build
+    // once shipped arm64=2011, the next arm64=1012, which Android rejects
+    // as a downgrade). Pin every split output to 3000 + the pubspec build
+    // number instead: always higher than any earlier release (max 2011)
+    // and strictly increasing with every version bump, for both ABIs.
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            output.versionCodeOverride = 3000 + flutter.versionCode
+        }
+    }
+
     signingConfigs {
         release {
             if (keystorePropertiesFile.exists()) {
