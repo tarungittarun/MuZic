@@ -35,6 +35,47 @@ class NotificationService {
     }
   }
 
+  /// Cached snapshot of what Android is currently showing for MuZic; included
+  /// in exported diagnostics reports.
+  static String lastStatus = 'not checked';
+
+  /// Asks the platform which notifications are currently visible. A media
+  /// card that never appears shows up here as a missing notification.
+  static Future<String> refreshStatus() async {
+    try {
+      final raw = await const MethodChannel('music_player/system')
+          .invokeMethod<List<dynamic>>('activeNotifications');
+      if (raw == null) {
+        lastStatus = 'unavailable';
+        return lastStatus;
+      }
+      if (raw.isEmpty) {
+        lastStatus = '0 active notifications';
+        return lastStatus;
+      }
+      final parts = <String>[];
+      for (final entry in raw) {
+        if (entry is! Map) continue;
+        final map = Map<String, dynamic>.from(entry);
+        parts.add(
+          '#${map['id']} ch=${map['channelId']} ongoing=${map['ongoing']} '
+          'title=${map['title']}',
+        );
+      }
+      lastStatus = '${raw.length} active: ${parts.join(' | ')}';
+      logInfo('notification', 'active notifications', <String, Object?>{
+        'status': lastStatus,
+      });
+      return lastStatus;
+    } on MissingPluginException {
+      lastStatus = 'unavailable on this platform';
+      return lastStatus;
+    } on PlatformException catch (error) {
+      lastStatus = 'error: $error';
+      return lastStatus;
+    }
+  }
+
   /// Posts a plain test notification so the user can confirm MuZic is able to
   /// display notifications at all (separate from the media card).
   static Future<bool> sendTest() async {

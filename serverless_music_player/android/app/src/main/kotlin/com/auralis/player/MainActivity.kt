@@ -123,6 +123,7 @@ class MainActivity : AudioServiceActivity() {
                     manager?.cancel(call.argument<Int>("id") ?: 1001)
                     result.success(true)
                 }
+                "activeNotifications" -> result.success(activeNotifications())
                 "saveText" -> result.success(
                     saveTextToDownloads(
                         call.argument<String>("fileName") ?: "muzic_report.txt",
@@ -242,6 +243,32 @@ class MainActivity : AudioServiceActivity() {
         visualizerHandler = null
     }
 
+    /**
+     * Diagnostics: what Android currently shows for MuZic. If playback is
+     * running but this is empty, the media notification was rejected (usually
+     * an invalid small icon or a blocked channel).
+     */
+    private fun activeNotifications(): List<Map<String, Any?>> {
+        val manager = getSystemService(NotificationManager::class.java)
+            ?: return emptyList()
+        return try {
+            manager.activeNotifications.map { status ->
+                mapOf(
+                    "id" to status.id,
+                    "channelId" to status.notification.channelId,
+                    "ongoing" to status.notification.flags.let { flags ->
+                        (flags and Notification.FLAG_ONGOING_EVENT) != 0
+                    },
+                    "title" to status.notification.extras.getCharSequence(
+                        Notification.EXTRA_TITLE,
+                    )?.toString(),
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     private fun postSimpleNotification(
         id: Int,
         title: String,
@@ -277,7 +304,7 @@ class MainActivity : AudioServiceActivity() {
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_stat_muzic)
             .setContentIntent(pending)
             .setAutoCancel(true)
         manager.notify(id, builder.build())

@@ -58,7 +58,7 @@ Future<void> main() async {
       androidNotificationOngoing: true,
       androidStopForegroundOnPause: !settings.keepNotificationOnPause,
       androidNotificationClickStartsActivity: true,
-      androidNotificationIcon: 'mipmap/ic_launcher',
+      androidNotificationIcon: 'drawable/ic_stat_muzic',
     ),
   );
 

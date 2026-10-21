@@ -12,9 +12,14 @@ import '../services/sleep_timer_service.dart';
 import '../theme/app_theme.dart';
 import 'diagnostics_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsService>();
@@ -246,6 +251,25 @@ class SettingsScreen extends StatelessWidget {
                         settings.setKeepNotificationOnPause(value),
                   ),
                 ],
+                Divider(height: 1, color: palette.outline),
+                FutureBuilder<String>(
+                  future: NotificationService.refreshStatus(),
+                  builder: (context, snapshot) => ListTile(
+                    leading: Icon(Icons.visibility_outlined,
+                        color: palette.textSecondary),
+                    title: const Text('Show active notifications'),
+                    subtitle: Text(
+                      snapshot.data ?? 'Checking…',
+                      style: TextStyle(
+                        color: palette.textMuted,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                    trailing: const Icon(Icons.refresh_rounded, size: 18),
+                    onTap: () => setState(() {}),
+                  ),
+                ),
                 Divider(height: 1, color: palette.outline),
                 ListTile(
                   leading: Icon(Icons.notifications_none_rounded,

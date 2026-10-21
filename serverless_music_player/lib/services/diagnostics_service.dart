@@ -12,6 +12,7 @@ import 'app_log.dart';
 import 'app_settings_service.dart';
 import 'library_service.dart';
 import 'music_api_service.dart';
+import 'notification_service.dart';
 import 'usage_service.dart';
 
 /// A single completed step of the simulated diagnostics run.
@@ -185,6 +186,7 @@ class DiagnosticsService extends ChangeNotifier {
     buffer.writeln(
         'Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
     buffer.writeln('Processors: ${Platform.numberOfProcessors}');
+    buffer.writeln('Notifications: ${NotificationService.lastStatus}');
     buffer.writeln('Capture enabled: ${settings.diagnosticsEnabled}');
     buffer.writeln('Log entries: ${AppLog.entries.length}');
     buffer.writeln();
