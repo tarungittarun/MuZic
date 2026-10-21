@@ -650,6 +650,15 @@ class PlayerController extends ChangeNotifier {
           unawaited(seek(Duration(milliseconds: value.round())));
         }
         break;
+      case 'seekFraction':
+        // Waveform tap on the shade card: jump to that fraction of the
+        // song (RemoteViews has no drag/scrub, so the card seeks by tap).
+        if (value != null && _duration > Duration.zero) {
+          final targetMs =
+              (_duration.inMilliseconds * value.clamp(0.0, 1.0)).round();
+          unawaited(seek(Duration(milliseconds: targetMs)));
+        }
+        break;
       case 'seekBack':
         {
           final target = _position - const Duration(seconds: 10);

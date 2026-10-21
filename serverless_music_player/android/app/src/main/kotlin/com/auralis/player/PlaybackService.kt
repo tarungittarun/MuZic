@@ -93,6 +93,9 @@ class PlaybackService : Service() {
         const val EXTRA_HAS_PREVIOUS = "hasPrevious"
         const val EXTRA_SHUFFLE = "shuffle"
         const val EXTRA_REPEAT_MODE = "repeatMode"
+
+        /** Tap position on the waveform seekbar, as a 0.0-1.0 fraction. */
+        const val EXTRA_FRACTION = "fraction"
         const val EXTRA_SHADE_ENABLED = "shadeEnabled"
         const val EXTRA_SHADE_STYLE = "shadeStyle"
         const val EXTRA_SHADE_THEME = "shadeTheme"
@@ -107,7 +110,7 @@ class PlaybackService : Service() {
         private const val KEY_SHADE_LAYOUT_REV = "shade_layout_rev"
 
         /** Bump when the shade-card layouts change: re-trials level 2. */
-        private const val SHADE_LAYOUT_REV = 8
+        private const val SHADE_LAYOUT_REV = 9
 
         /** Set by MainActivity: receives transport commands from the card. */
         var commandSink: ((String, Double?) -> Unit)? = null
@@ -561,13 +564,18 @@ class PlaybackService : Service() {
     }
 
 
-    private fun transportIntent(action: String): PendingIntent {
+    private fun transportIntent(
+        action: String,
+        requestCode: Int = action.hashCode(),
+        fraction: Double? = null,
+    ): PendingIntent {
         val intent = Intent(this, TransportReceiver::class.java).apply {
             this.action = action
+            if (fraction != null) putExtra(EXTRA_FRACTION, fraction)
         }
         return PendingIntent.getBroadcast(
             this,
-            action.hashCode(),
+            requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -808,9 +816,41 @@ class PlaybackService : Service() {
                 val position = currentPositionMs()
                 if (variant == 2) {
                     // Waveform seekbar (system-player look): generated
-                    // bitmap, refreshed by the 1s ticker while playing.
+                    // bitmap in ten slices, refreshed by the 1s ticker
+                    // while playing. Each slice is its own tap target -
+                    // RemoteViews has no drag/scrub events, so tapping
+                    // the waveform jumps to that part of the song.
                     runCatching {
-                        views.setImageViewBitmap(R.id.shade_wave, waveformBitmap())
+                        val wave = waveformBitmap()
+                        val segments = shadeSegmentIds.size
+                        val sliceWidth = wave.width / segments
+                        for (i in 0 until segments) {
+                            val width = if (i == segments - 1) {
+                                wave.width - sliceWidth * i
+                            } else {
+                                sliceWidth
+                            }
+                            views.setImageViewBitmap(
+                                shadeSegmentIds[i],
+                                Bitmap.createBitmap(
+                                    wave,
+                                    sliceWidth * i,
+                                    0,
+                                    width,
+                                    wave.height,
+                                ),
+                            )
+                        }
+                    }
+                    for (i in shadeSegmentIds.indices) {
+                        views.setOnClickPendingIntent(
+                            shadeSegmentIds[i],
+                            transportIntent(
+                                "seekFraction",
+                                requestCode = 1000 + i,
+                                fraction = (i + 0.5) / shadeSegmentIds.size,
+                            ),
+                        )
                     }
                     views.setTextViewText(R.id.shade_elapsed, formatTime(position))
                     views.setTextViewText(
@@ -931,6 +971,20 @@ class PlaybackService : Service() {
     /** Notification slot the currently posted shade card lives on. */
     @Volatile
     private var shadePendingId = SHADE_NOTIFICATION_ID
+
+    /** Waveform tap-to-seek segments in the banner card, left to right. */
+    private val shadeSegmentIds = intArrayOf(
+        R.id.shade_seg_0,
+        R.id.shade_seg_1,
+        R.id.shade_seg_2,
+        R.id.shade_seg_3,
+        R.id.shade_seg_4,
+        R.id.shade_seg_5,
+        R.id.shade_seg_6,
+        R.id.shade_seg_7,
+        R.id.shade_seg_8,
+        R.id.shade_seg_9,
+    )
 
     /**
      * Some devices drop a freshly posted notification when the app was
@@ -1132,11 +1186,18 @@ class TransportReceiver : BroadcastReceiver() {
             "pause" -> "pause"
             "seekBack" -> "seekBack"
             "seekForward" -> "seekForward"
+            "seekFraction" -> "seekFraction"
             "shuffle" -> "shuffle"
             "repeat" -> "repeat"
             else -> return
         } ?: return
-        PlaybackService.commandSink?.invoke(command, null)
+        val value = if (command == "seekFraction") {
+            intent?.getDoubleExtra(PlaybackService.EXTRA_FRACTION, -1.0)
+                ?.takeIf { it in 0.0..1.0 }
+        } else {
+            null
+        }
+        PlaybackService.commandSink?.invoke(command, value)
     }
 
     private fun mediaKeyCommand(intent: Intent): String? {

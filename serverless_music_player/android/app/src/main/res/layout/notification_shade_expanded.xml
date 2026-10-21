@@ -4,14 +4,16 @@
      button, the waveform seekbar, and the shuffle / previous / -10s /
      +10s / next / repeat row on a dark card.
 
-     Deliberately built ONLY from constructs proven to render on the
-     reference device (Motorola Edge 60 Neo, Android 16): plain
-     LinearLayouts, fixed heights, standard margins - no negative
-     margins, no layout_weight/minHeight artwork, no text shadows, no
-     overlay containers. Richer variants using those were silently
-     dropped by this SystemUI, and one (as a foreground notification)
-     crashed the app, so this card stays inside the proven envelope:
-     ~179dp tall in total. -->
+     The waveform is drawn as ten bitmap slices, each its own tap
+     target: RemoteViews delivers no drag/scrub events, so tapping the
+     waveform jumps playback to that part of the song.
+
+     Construct discipline (learned the hard way on the reference
+     device, a Motorola Edge 60 Neo on Android 16): plain LinearLayouts
+     and core RemoteViews actions only - reflection actions such as
+     setColorFilter made SystemUI silently drop the whole card. If
+     this card is ever dropped anyway, the ladder falls back to the
+     proven conservative card; it can never crash the app. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/shade_root"
     android:layout_width="match_parent"
@@ -22,7 +24,7 @@
     <ImageView
         android:id="@+id/shade_art"
         android:layout_width="match_parent"
-        android:layout_height="52dp"
+        android:layout_height="96dp"
         android:contentDescription="Album artwork"
         android:scaleType="centerCrop"
         android:src="@drawable/shade_banner_placeholder" />
@@ -65,12 +67,12 @@
 
         <ImageView
             android:id="@+id/shade_play"
-            android:layout_width="46dp"
-            android:layout_height="46dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:layout_marginStart="12dp"
             android:background="@drawable/shade_play_bg_light"
             android:contentDescription="Play or pause"
-            android:padding="12dp"
+            android:padding="14dp"
             android:src="@drawable/ic_play_dark" />
     </LinearLayout>
 
@@ -78,17 +80,96 @@
         android:id="@+id/shade_progress_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="6dp"
         android:orientation="vertical"
         android:paddingStart="16dp"
         android:paddingEnd="16dp">
 
-        <ImageView
-            android:id="@+id/shade_wave"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="16dp"
-            android:contentDescription="Seek waveform"
-            android:scaleType="fitXY" />
+            android:layout_height="30dp"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/shade_seg_0"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:contentDescription="Seek to 5 percent"
+                android:scaleType="fitXY" />
+
+            <ImageView
+                android:id="@+id/shade_seg_1"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:contentDescription="Seek to 15 percent"
+                android:scaleType="fitXY" />
+
+            <ImageView
+                android:id="@+id/shade_seg_2"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:contentDescription="Seek to 25 percent"
+                android:scaleType="fitXY" />
+
+            <ImageView
+                android:id="@+id/shade_seg_3"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:contentDescription="Seek to 35 percent"
+                android:scaleType="fitXY" />
+
+            <ImageView
+                android:id="@+id/shade_seg_4"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:contentDescription="Seek to 45 percent"
+                android:scaleType="fitXY" />
+
+            <ImageView
+                android:id="@+id/shade_seg_5"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:contentDescription="Seek to 55 percent"
+                android:scaleType="fitXY" />
+
+            <ImageView
+                android:id="@+id/shade_seg_6"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:contentDescription="Seek to 65 percent"
+                android:scaleType="fitXY" />
+
+            <ImageView
+                android:id="@+id/shade_seg_7"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:contentDescription="Seek to 75 percent"
+                android:scaleType="fitXY" />
+
+            <ImageView
+                android:id="@+id/shade_seg_8"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:contentDescription="Seek to 85 percent"
+                android:scaleType="fitXY" />
+
+            <ImageView
+                android:id="@+id/shade_seg_9"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:contentDescription="Seek to 95 percent"
+                android:scaleType="fitXY" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
