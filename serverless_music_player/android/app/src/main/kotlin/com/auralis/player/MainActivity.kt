@@ -45,10 +45,52 @@ class MainActivity : AudioServiceActivity() {
     private var visualizerHandler: Handler? = null
     private var systemChannel: MethodChannel? = null
     private var videoExportChannel: MethodChannel? = null
+    private val videoExportCancel = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var videoExportRunning = false
     private var videoProgressSink: EventChannel.EventSink? = null
 
     private companion object {
         const val PICK_AUDIO_REQUEST_CODE = 4213
+
+        /**
+         * Channel the media card is posted on.
+         *
+         * Android notification channels are immutable once created, so a
+         * channel that was ever created with the wrong importance stays wrong
+         * on every later install - a classic "the media card never appears"
+         * cause. audio_service posts on whatever id it is given, so we own the
+         * id, version it, and create the channel ourselves before it posts.
+         */
+        const val PLAYBACK_CHANNEL_ID = "com.music.player.playback.v2"
+        const val PLAYBACK_CHANNEL_NAME = "MuZic playback"
+    }
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        ensurePlaybackChannel()
+    }
+
+    /**
+     * Creates the playback channel before audio_service posts to it, with an
+     * importance that guarantees the card is visible in the shade instead of
+     * being dropped on OEM skins that hide low-importance channels.
+     */
+    private fun ensurePlaybackChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (manager.getNotificationChannel(PLAYBACK_CHANNEL_ID) != null) return
+        val channel = NotificationChannel(
+            PLAYBACK_CHANNEL_ID,
+            PLAYBACK_CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Playback controls for MuZic"
+            setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            enableVibration(false)
+            setSound(null, null)
+        }
+        manager.createNotificationChannel(channel)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -143,6 +185,11 @@ class MainActivity : AudioServiceActivity() {
         videoExportChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "export" -> exportVideo(call, result)
+                "cancelExport" -> {
+                    videoExportCancel.set(true)
+                    result.success(true)
+                }
+                "exportRunning" -> result.success(videoExportRunning)
                 else -> result.notImplemented()
             }
         }
@@ -255,7 +302,7 @@ class MainActivity : AudioServiceActivity() {
     private fun mediaNotificationDiagnostics(): Map<String, Any?> {
         val manager = getSystemService(NotificationManager::class.java)
         val notificationsEnabled = manager?.areNotificationsEnabled() ?: false
-        val playbackChannelId = "com.music.player.audio"
+        val playbackChannelId = PLAYBACK_CHANNEL_ID
         val channel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager?.getNotificationChannel(playbackChannelId)
         } else {
@@ -421,6 +468,11 @@ class MainActivity : AudioServiceActivity() {
     }
 
     private fun exportVideo(call: MethodCall, result: MethodChannel.Result) {
+        if (videoExportRunning) {
+            result.error("busy", "A video export is already running.", null)
+            return
+        }
+        videoExportCancel.set(false)
         val audioPath = call.argument<String>("audioPath")
         val artworkPath = call.argument<String>("artworkPath")
         val title = call.argument<String>("title") ?: "MuZic"
@@ -432,7 +484,11 @@ class MainActivity : AudioServiceActivity() {
             result.error("missing_audio", "The audio file is not available.", null)
             return
         }
-        Thread {
+        // The render is CPU bound for tens of seconds: keep it off the UI thread
+        // and off the platform thread so the app stays fully usable (and the
+        // sheet can be closed) while it runs.
+        Thread({
+            videoExportRunning = true
             try {
                 val path = VideoExporter(this).export(
                     audioPath = audioPath,
@@ -442,16 +498,21 @@ class MainActivity : AudioServiceActivity() {
                     lyrics = lyrics,
                     durationMsHint = durationMs,
                     outputName = outputName,
+                    isCancelled = { videoExportCancel.get() },
                 ) { progress ->
                     runOnUiThread { videoProgressSink?.success(progress) }
                 }
                 runOnUiThread { result.success(path) }
+            } catch (e: VideoExporter.Cancelled) {
+                runOnUiThread { result.error("cancelled", "Export stopped.", null) }
             } catch (e: Exception) {
                 runOnUiThread {
                     result.error("export_failed", e.message ?: "Video export failed.", null)
                 }
+            } finally {
+                videoExportRunning = false
             }
-        }.start()
+        }, "muzic-video-export").start()
     }
 
     private fun shareText(subject: String, text: String, result: MethodChannel.Result) {

@@ -316,8 +316,6 @@ jobs:
           set +e
           # Each step is a fresh shell: the SDK tools are not on PATH by default.
           export PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/platform-tools:${ANDROID_SDK_ROOT:-$ANDROID_HOME}/emulator:$PATH"
-          adb shell pm grant ${{ env.APP_ID }} android.permission.POST_NOTIFICATIONS || true
-          adb shell pm grant ${{ env.APP_ID }} android.permission.RECORD_AUDIO || true
           adb shell settings put global window_animation_scale 0 || true
           adb shell settings put global transition_animation_scale 0 || true
           adb shell settings put global animator_duration_scale 0 || true
@@ -326,6 +324,13 @@ jobs:
           # package facts while it is actually on the device.
           APK="${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-debug.apk"
           install_out=$(adb install -r "$APK" 2>&1 | tail -1 | tr -d '\r')
+          # Grant AFTER installing: a reinstall preserves runtime permissions and
+          # flutter test then reinstalls over this. Granting before the first
+          # install is a no-op on Android 13+, which is why the media
+          # notification probe reported no permission on API 34.
+          adb shell pm grant ${{ env.APP_ID }} android.permission.POST_NOTIFICATIONS || true
+          adb shell pm grant ${{ env.APP_ID }} android.permission.RECORD_AUDIO || true
+          POST_NOTIF=$(adb shell dumpsys package ${{ env.APP_ID }} | grep -c 'POST_NOTIFICATIONS: granted' || true)
           {
             echo "api_level=${{ matrix.api-level }}"
             echo "android_version=$(adb shell getprop ro.build.version.release | tr -d '\r')"
@@ -334,6 +339,7 @@ jobs:
             echo "version_code=$(adb shell dumpsys package ${{ env.APP_ID }} | grep -m1 versionCode | tr -d '\r' | sed 's/.*versionCode=\([0-9]*\).*/\1/')"
             echo "apk_bytes=$(stat -c%s "$APK" 2>/dev/null || echo 0)"
             echo "install_result=${install_out:-unknown}"
+            echo "post_notifications_granted=${POST_NOTIF:-0}"
           } > "device-${{ matrix.api-level }}.txt" || true
 
           echo '--- adb devices ---'
@@ -513,7 +519,7 @@ jobs:
                       continue
                   name, status, ms, detail = match.groups()
                   icon = {'PASS': '✅', 'FAIL': '❌', 'WARN': '⚠️'}.get(status, '•')
-                  detail = (detail or '').replace('|', '/')[:110]
+                  detail = (detail or '').replace('|', '/')[:300]
                   lines.append(f'| {api} | `{name}` | {icon} {status} | '
                                f'{int(ms) / 1000:.2f}s | {detail} |')
                   counts = api_counts.setdefault(api, {'pass': 0, 'bad': 0})
@@ -525,6 +531,32 @@ jobs:
           if step_rows == 0:
               lines.append('| – | no journey output | ❌ | – | emulator job failed '
                            'before emitting steps |')
+          lines.append('')
+
+          # ---- media notification truth ----
+          notif = {}
+          for log in sorted(glob.glob('artefacts/e2e-api-*/e2e-*.log')):
+              api = re.search(r'api-(\d+)', log).group(1)
+              for line in read(log).splitlines():
+                  marker = '[E2E] notification-report '
+                  if marker in line:
+                      payload = line.split(marker, 1)[1]
+                      notif[api] = dict(
+                          part.split('=', 1) for part in payload.split(' ') if '=' in part
+                      )
+          lines.append('### Media notification, as Android sees it')
+          lines.append('')
+          if notif:
+              keys = ['notificationsEnabled', 'postPermission', 'playbackChannelExists',
+                      'playbackChannelImportance', 'audioServiceDeclared',
+                      'smallIconResolves', 'postedCount', 'posted']
+              lines.append('| Probe | ' + ' | '.join(f'API {a}' for a in sorted(notif)) + ' |')
+              lines.append('| --- | ' + ' | '.join('---' for _ in notif) + ' |')
+              for key in keys:
+                  cells = [notif[a].get(key, '—') for a in sorted(notif)]
+                  lines.append(f'| `{key}` | ' + ' | '.join(cells) + ' |')
+          else:
+              lines.append('No notification report was produced.')
           lines.append('')
 
           green_apis = {api for api, c in api_counts.items()

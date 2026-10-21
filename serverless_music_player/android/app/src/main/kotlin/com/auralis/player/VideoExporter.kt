@@ -40,8 +40,14 @@ class VideoExporter(private val context: Context) {
 
     private val width = 720
     private val height = 720
-    private val fps = 30
-    private val videoBitrate = 3_500_000
+
+    // 24 fps is visually identical for a lyrics video and cuts a fifth of the
+    // frames to draw and encode. 2.2 Mbps still looks clean at this size.
+    private val fps = 24
+    private val videoBitrate = 2_200_000
+
+    /** Thrown when the user stops the export from the UI. */
+    class Cancelled : RuntimeException("Export cancelled")
 
     fun export(
         audioPath: String,
@@ -51,6 +57,7 @@ class VideoExporter(private val context: Context) {
         lyrics: List<LyricLine>,
         durationMsHint: Long,
         outputName: String,
+        isCancelled: () -> Boolean = { false },
         onProgress: (Double) -> Unit,
     ): String {
         val extractor = MediaExtractor()
@@ -88,6 +95,11 @@ class VideoExporter(private val context: Context) {
         decoder.configure(inputFormat, null, null, 0)
         decoder.start()
 
+        // If the source is already AAC we copy the compressed samples straight
+        // into the MP4. Decoding and re-encoding audio was one of the two big
+        // costs of an export and buys nothing for the most common sources.
+        val audioPassthrough = mime == MediaFormat.MIMETYPE_AUDIO_AAC
+
         val aacFormat = MediaFormat.createAudioFormat(
             MediaFormat.MIMETYPE_AUDIO_AAC,
             sampleRate,
@@ -100,15 +112,19 @@ class VideoExporter(private val context: Context) {
             setInteger(MediaFormat.KEY_BIT_RATE, 128_000)
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 32_768)
         }
-        val audioEncoder =
-            MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
-        audioEncoder.configure(
-            aacFormat,
-            null,
-            null,
-            MediaCodec.CONFIGURE_FLAG_ENCODE,
-        )
-        audioEncoder.start()
+        val audioEncoder = if (audioPassthrough) {
+            null
+        } else {
+            MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC).apply {
+                configure(
+                    aacFormat,
+                    null,
+                    null,
+                    MediaCodec.CONFIGURE_FLAG_ENCODE,
+                )
+                start()
+            }
+        }
 
         val videoFormat = MediaFormat.createVideoFormat(
             MediaFormat.MIMETYPE_VIDEO_AVC,
@@ -134,6 +150,7 @@ class VideoExporter(private val context: Context) {
         videoEncoder.start()
 
         val outputFile = createOutputFile(outputName)
+        var completed = false
         val muxer = MediaMuxer(
             outputFile.absolutePath,
             MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
@@ -183,117 +200,167 @@ class VideoExporter(private val context: Context) {
             }
         }
 
+        // Passthrough reads compressed AAC samples straight from the source.
+        val passthroughBuffer = java.nio.ByteBuffer.allocateDirect(256 * 1024)
+        if (audioPassthrough) {
+            muxerAudioTrack = muxer.addTrack(inputFormat)
+        }
+
         try {
             while (!audioOutputDone || !videoOutputDone) {
-                // ---- Audio: decode → re-encode AAC ----
-                if (!audioInputDone) {
-                    val inIndex = decoder.dequeueInputBuffer(2_000)
-                    if (inIndex >= 0) {
-                        val buffer = decoder.getInputBuffer(inIndex)!!
-                        val size = extractor.readSampleData(buffer, 0)
+                if (isCancelled()) throw Cancelled()
+
+                // ---- Audio: copy through, or decode → re-encode AAC ----
+                if (audioPassthrough) {
+                    if (!audioInputDone) {
+                        passthroughBuffer.clear()
+                        val size = extractor.readSampleData(passthroughBuffer, 0)
                         if (size < 0) {
-                            decoder.queueInputBuffer(
-                                inIndex,
-                                0,
-                                0,
-                                0,
-                                MediaCodec.BUFFER_FLAG_END_OF_STREAM,
-                            )
                             audioInputDone = true
-                            extractor.release()
+                            audioOutputDone = true
+                            runCatching { extractor.release() }
                         } else {
-                            decoder.queueInputBuffer(
-                                inIndex,
-                                0,
-                                size,
-                                extractor.sampleTime,
-                                0,
-                            )
+                            val bytes = ByteArray(size)
+                            passthroughBuffer.position(0)
+                            passthroughBuffer.limit(size)
+                            passthroughBuffer.get(bytes)
+                            val flags =
+                                if (extractor.sampleFlags and
+                                    MediaExtractor.SAMPLE_FLAG_SYNC != 0
+                                ) {
+                                    MediaCodec.BUFFER_FLAG_KEY_FRAME
+                                } else {
+                                    0
+                                }
+                            val sampleInfo = MediaCodec.BufferInfo().apply {
+                                set(0, size, extractor.sampleTime, flags)
+                            }
+                            if (muxerStarted) {
+                                muxer.writeSampleData(
+                                    muxerAudioTrack,
+                                    java.nio.ByteBuffer.wrap(bytes),
+                                    sampleInfo,
+                                )
+                            } else {
+                                pendingAudio.add(bytes to sampleInfo)
+                            }
                             extractor.advance()
                         }
                     }
-                }
-                if (!audioOutputDone) {
-                    var decoderIndex = decoder.dequeueOutputBuffer(info, 2_000)
-                    while (decoderIndex >= 0) {
-                        val pcm = decoder.getOutputBuffer(decoderIndex)
-                        val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
-                        if (pcm != null && info.size > 0) {
-                            pcm.position(info.offset)
-                            pcm.limit(info.offset + info.size)
-                            lastRms = rmsOf(pcm) * 3.2
-                            var offset = info.offset
-                            while (offset < info.offset + info.size) {
-                                val encIndex = audioEncoder.dequeueInputBuffer(5_000)
-                                if (encIndex < 0) break
-                                val encBuffer = audioEncoder.getInputBuffer(encIndex)!!
-                                encBuffer.clear()
-                                val chunk = min(encBuffer.capacity(), info.offset + info.size - offset)
-                                pcm.position(offset)
-                                pcm.limit(offset + chunk)
-                                encBuffer.put(pcm)
-                                val pts = info.presentationTimeUs +
-                                    (offset - info.offset) * 1_000_000L /
-                                    (sampleRate.toLong() * channelCount * 2L)
-                                audioEncoder.queueInputBuffer(encIndex, 0, chunk, pts, 0)
-                                offset += chunk
-                            }
-                        }
-                        decoder.releaseOutputBuffer(decoderIndex, false)
-                        if (eos) {
-                            val encIndex = audioEncoder.dequeueInputBuffer(5_000)
-                            if (encIndex >= 0) {
-                                audioEncoder.queueInputBuffer(
-                                    encIndex,
+                } else {
+                    if (!audioInputDone) {
+                        val inIndex = decoder.dequeueInputBuffer(2_000)
+                        if (inIndex >= 0) {
+                            val buffer = decoder.getInputBuffer(inIndex)!!
+                            val size = extractor.readSampleData(buffer, 0)
+                            if (size < 0) {
+                                decoder.queueInputBuffer(
+                                    inIndex,
                                     0,
                                     0,
                                     0,
                                     MediaCodec.BUFFER_FLAG_END_OF_STREAM,
                                 )
+                                audioInputDone = true
+                                runCatching { extractor.release() }
+                            } else {
+                                decoder.queueInputBuffer(
+                                    inIndex,
+                                    0,
+                                    size,
+                                    extractor.sampleTime,
+                                    0,
+                                )
+                                extractor.advance()
                             }
-                            break
-                        }
-                        decoderIndex = decoder.dequeueOutputBuffer(info, 0)
-                    }
-                }
-                var audioIndex = audioEncoder.dequeueOutputBuffer(info, 0)
-                while (audioIndex >= 0) {
-                    val outBuffer = audioEncoder.getOutputBuffer(audioIndex)
-                    if (outBuffer != null && info.size > 0 &&
-                        info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0
-                    ) {
-                        outBuffer.position(info.offset)
-                        outBuffer.limit(info.offset + info.size)
-                        val bytes = ByteArray(info.size)
-                        outBuffer.get(bytes)
-                        val sampleInfo = MediaCodec.BufferInfo().apply {
-                            set(
-                                0,
-                                bytes.size,
-                                info.presentationTimeUs,
-                                info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME,
-                            )
-                        }
-                        if (muxerStarted) {
-                            muxer.writeSampleData(
-                                muxerAudioTrack,
-                                java.nio.ByteBuffer.wrap(bytes),
-                                sampleInfo,
-                            )
-                        } else {
-                            pendingAudio.add(bytes to sampleInfo)
                         }
                     }
-                    audioEncoder.releaseOutputBuffer(audioIndex, false)
-                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                        audioOutputDone = true
-                        break
+                    if (!audioOutputDone) {
+                        var decoderIndex = decoder.dequeueOutputBuffer(info, 2_000)
+                        while (decoderIndex >= 0) {
+                            val pcm = decoder.getOutputBuffer(decoderIndex)
+                            val eos =
+                                info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+                            if (pcm != null && info.size > 0) {
+                                pcm.position(info.offset)
+                                pcm.limit(info.offset + info.size)
+                                lastRms = rmsOf(pcm) * 3.2
+                                var offset = info.offset
+                                while (offset < info.offset + info.size) {
+                                    val encIndex = audioEncoder!!.dequeueInputBuffer(5_000)
+                                    if (encIndex < 0) break
+                                    val encBuffer = audioEncoder.getInputBuffer(encIndex)!!
+                                    encBuffer.clear()
+                                    val chunk =
+                                        min(encBuffer.capacity(), info.offset + info.size - offset)
+                                    pcm.position(offset)
+                                    pcm.limit(offset + chunk)
+                                    encBuffer.put(pcm)
+                                    val pts = info.presentationTimeUs +
+                                        (offset - info.offset) * 1_000_000L /
+                                        (sampleRate.toLong() * channelCount * 2L)
+                                    audioEncoder.queueInputBuffer(encIndex, 0, chunk, pts, 0)
+                                    offset += chunk
+                                }
+                            }
+                            decoder.releaseOutputBuffer(decoderIndex, false)
+                            if (eos) {
+                                val encIndex = audioEncoder!!.dequeueInputBuffer(5_000)
+                                if (encIndex >= 0) {
+                                    audioEncoder.queueInputBuffer(
+                                        encIndex,
+                                        0,
+                                        0,
+                                        0,
+                                        MediaCodec.BUFFER_FLAG_END_OF_STREAM,
+                                    )
+                                }
+                                break
+                            }
+                            decoderIndex = decoder.dequeueOutputBuffer(info, 0)
+                        }
                     }
-                    audioIndex = audioEncoder.dequeueOutputBuffer(info, 0)
-                }
-                if (audioIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    muxerAudioTrack = muxer.addTrack(audioEncoder.outputFormat)
-                    startMuxerIfReady()
+                    if (!audioOutputDone) {
+                        var audioIndex = audioEncoder!!.dequeueOutputBuffer(info, 0)
+                        while (audioIndex >= 0) {
+                            val outBuffer = audioEncoder.getOutputBuffer(audioIndex)
+                            if (outBuffer != null && info.size > 0 &&
+                                info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0
+                            ) {
+                                outBuffer.position(info.offset)
+                                outBuffer.limit(info.offset + info.size)
+                                val bytes = ByteArray(info.size)
+                                outBuffer.get(bytes)
+                                val sampleInfo = MediaCodec.BufferInfo().apply {
+                                    set(
+                                        0,
+                                        bytes.size,
+                                        info.presentationTimeUs,
+                                        info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME,
+                                    )
+                                }
+                                if (muxerStarted) {
+                                    muxer.writeSampleData(
+                                        muxerAudioTrack,
+                                        java.nio.ByteBuffer.wrap(bytes),
+                                        sampleInfo,
+                                    )
+                                } else {
+                                    pendingAudio.add(bytes to sampleInfo)
+                                }
+                            }
+                            audioEncoder.releaseOutputBuffer(audioIndex, false)
+                            if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                                audioOutputDone = true
+                                break
+                            }
+                            audioIndex = audioEncoder.dequeueOutputBuffer(info, 0)
+                        }
+                        if (audioIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                            muxerAudioTrack = muxer.addTrack(audioEncoder.outputFormat)
+                            startMuxerIfReady()
+                        }
+                    }
                 }
 
                 // ---- Video: draw one frame ----
@@ -379,14 +446,19 @@ class VideoExporter(private val context: Context) {
         } finally {
             runCatching { decoder.stop() }
             runCatching { decoder.release() }
-            runCatching { audioEncoder.stop() }
-            runCatching { audioEncoder.release() }
+            runCatching { audioEncoder?.stop() }
+            runCatching { audioEncoder?.release() }
             runCatching { videoEncoder.stop() }
             runCatching { videoEncoder.release() }
             runCatching { if (muxerStarted) muxer.stop() }
             runCatching { muxer.release() }
             artwork?.recycle()
+            renderer.release()
+            // A cancelled or failed render must not leave a half-written MP4
+            // behind, otherwise the gallery shows a broken video.
+            if (!completed) runCatching { if (outputFile.exists()) outputFile.delete() }
         }
+        completed = true
         return publishToGallery(outputFile).also {
             if (outputFile.exists()) outputFile.delete()
         }
@@ -411,42 +483,87 @@ class VideoExporter(private val context: Context) {
         return sqrt(sum / count) / 32768.0
     }
 
+    // Scratch buffers reused for every frame: allocation per frame dominates
+    // otherwise, and writing single bytes through ByteBuffer.put(index, …) is
+    // ~10x slower than a row-wise array copy.
+    private var argb = IntArray(width * height)
+    private var yRowBytes = ByteArray(width)
+    private var uRowBytes = ByteArray(width / 2)
+    private var vRowBytes = ByteArray(width / 2)
+
     private fun fillYuv(image: Image, bitmap: Bitmap) {
         val w = bitmap.width
         val h = bitmap.height
-        val argb = IntArray(w * h)
+        if (argb.size != w * h) argb = IntArray(w * h)
         bitmap.getPixels(argb, 0, w, 0, 0, w, h)
+        if (yRowBytes.size != w) {
+            yRowBytes = ByteArray(w)
+            uRowBytes = ByteArray(w / 2)
+            vRowBytes = ByteArray(w / 2)
+        }
+
         val yPlane = image.planes[0]
         val uPlane = image.planes[1]
         val vPlane = image.planes[2]
         val yBuffer = yPlane.buffer
         val uBuffer = uPlane.buffer
         val vBuffer = vPlane.buffer
-        val yRow = yPlane.rowStride
+        val yRowStride = yPlane.rowStride
         val yPix = yPlane.pixelStride
-        val uRow = uPlane.rowStride
+        val uRowStride = uPlane.rowStride
         val uPix = uPlane.pixelStride
-        val vRow = vPlane.rowStride
+        val vRowStride = vPlane.rowStride
         val vPix = vPlane.pixelStride
+
+        var offset = 0
         for (row in 0 until h) {
             for (col in 0 until w) {
-                val color = argb[row * w + col]
+                val color = argb[offset + col]
                 val r = (color shr 16) and 0xFF
                 val g = (color shr 8) and 0xFF
                 val b = color and 0xFF
                 val y = (((66 * r + 129 * g + 25 * b + 128) shr 8) + 16)
-                yBuffer.put(row * yRow + col * yPix, y.coerceIn(0, 255).toByte())
-                if (row % 2 == 0 && col % 2 == 0) {
-                    val u = (((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128)
-                    val v = (((112 * r - 94 * g - 18 * b + 128) shr 8) + 128)
-                    uBuffer.put(
-                        (row / 2) * uRow + (col / 2) * uPix,
-                        u.coerceIn(0, 255).toByte(),
-                    )
-                    vBuffer.put(
-                        (row / 2) * vRow + (col / 2) * vPix,
-                        v.coerceIn(0, 255).toByte(),
-                    )
+                yRowBytes[col] = if (y > 255) 255.toByte() else if (y < 0) 0 else y.toByte()
+            }
+            offset += w
+            val base = row * yRowStride
+            if (yPix == 1) {
+                yBuffer.position(base)
+                yBuffer.put(yRowBytes, 0, w)
+            } else {
+                for (col in 0 until w) yBuffer.put(base + col * yPix, yRowBytes[col])
+            }
+
+            if (row % 2 == 0) {
+                val halfW = w / 2
+                for (col in 0 until halfW) {
+                    val c0 = argb[row * w + col * 2]
+                    val c1 = if (col * 2 + 1 < w) argb[row * w + col * 2 + 1] else c0
+                    val r = ((c0 shr 16) and 0xFF) + ((c1 shr 16) and 0xFF)
+                    val g = ((c0 shr 8) and 0xFF) + ((c1 shr 8) and 0xFF)
+                    val b = (c0 and 0xFF) + (c1 and 0xFF)
+                    val u = (((-38 * r - 74 * g + 112 * b + 256) shr 9) + 128)
+                    val v = (((112 * r - 94 * g - 18 * b + 256) shr 9) + 128)
+                    uRowBytes[col] = if (u > 255) 255.toByte() else if (u < 0) 0 else u.toByte()
+                    vRowBytes[col] = if (v > 255) 255.toByte() else if (v < 0) 0 else v.toByte()
+                }
+                val uBase = (row / 2) * uRowStride
+                if (uPix == 1) {
+                    uBuffer.position(uBase)
+                    uBuffer.put(uRowBytes, 0, halfW)
+                } else {
+                    for (col in 0 until halfW) {
+                        uBuffer.put(uBase + col * uPix, uRowBytes[col])
+                    }
+                }
+                val vBase = (row / 2) * vRowStride
+                if (vPix == 1) {
+                    vBuffer.position(vBase)
+                    vBuffer.put(vRowBytes, 0, halfW)
+                } else {
+                    for (col in 0 until halfW) {
+                        vBuffer.put(vBase + col * vPix, vRowBytes[col])
+                    }
                 }
             }
         }
@@ -550,21 +667,52 @@ class VideoExporter(private val context: Context) {
             )
         }
 
-        fun draw(positionMs: Long, rms: Double) {
-            canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), backgroundPaint)
+        // Everything that never changes (gradient, cover art, title, artist) is
+        // painted once into this layer and blitted per frame. Redrawing the
+        // gradient and scaling the artwork 24 times a second was the single
+        // most expensive part of an export.
+        private val staticLayer: Bitmap =
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { layer ->
+                val layerCanvas = Canvas(layer)
+                layerCanvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), backgroundPaint)
+                val clip = Path().apply {
+                    addRoundRect(artRect, 34f, 34f, Path.Direction.CW)
+                }
+                layerCanvas.save()
+                layerCanvas.clipPath(clip)
+                if (artwork != null) {
+                    val src = RectF(0f, 0f, artwork.width.toFloat(), artwork.height.toFloat())
+                    layerCanvas.drawBitmap(
+                        artwork,
+                        src.toIntRect(),
+                        artRect,
+                        Paint(Paint.FILTER_BITMAP_FLAG),
+                    )
+                } else {
+                    layerCanvas.drawRect(artRect, barPaint)
+                }
+                layerCanvas.restore()
+                val ellipsis = TextUtils.TruncateAt.END
+                layerCanvas.drawText(
+                    TextUtils.ellipsize(title, titlePaint, (w - 120).toFloat(), ellipsis).toString(),
+                    60f,
+                    artRect.bottom + 48f,
+                    titlePaint,
+                )
+                layerCanvas.drawText(
+                    TextUtils.ellipsize(artist, artistPaint, (w - 120).toFloat(), ellipsis).toString(),
+                    60f,
+                    artRect.bottom + 84f,
+                    artistPaint,
+                )
+            }
 
-            val clip = Path().apply {
-                addRoundRect(artRect, 34f, 34f, Path.Direction.CW)
-            }
-            canvas.save()
-            canvas.clipPath(clip)
-            if (artwork != null) {
-                val src = RectF(0f, 0f, artwork.width.toFloat(), artwork.height.toFloat())
-                canvas.drawBitmap(artwork, src.toIntRect(), artRect, Paint(Paint.FILTER_BITMAP_FLAG))
-            } else {
-                canvas.drawRect(artRect, barPaint)
-            }
-            canvas.restore()
+        fun release() {
+            if (!staticLayer.isRecycled) staticLayer.recycle()
+        }
+
+        fun draw(positionMs: Long, rms: Double) {
+            canvas.drawBitmap(staticLayer, 0f, 0f, null)
 
             var activeIndex = 0
             for (index in lines.indices) {
@@ -574,18 +722,6 @@ class VideoExporter(private val context: Context) {
             val nextText = lines.getOrNull(activeIndex + 1)?.text ?: ""
 
             val ellipsis = TextUtils.TruncateAt.END
-            canvas.drawText(
-                TextUtils.ellipsize(title, titlePaint, (w - 120).toFloat(), ellipsis).toString(),
-                60f,
-                artRect.bottom + 48f,
-                titlePaint,
-            )
-            canvas.drawText(
-                TextUtils.ellipsize(artist, artistPaint, (w - 120).toFloat(), ellipsis).toString(),
-                60f,
-                artRect.bottom + 84f,
-                artistPaint,
-            )
 
             // Live waveform driven by the decoded audio's RMS level.
             val bars = 24

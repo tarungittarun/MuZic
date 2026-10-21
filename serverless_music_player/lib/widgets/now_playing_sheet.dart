@@ -14,7 +14,9 @@ import '../services/app_settings_service.dart';
 import '../services/app_log.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
+import '../services/video_export_manager.dart';
 import '../services/video_export_service.dart';
+import '../services/video_library_service.dart';
 import '../services/lyrics_language.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
@@ -33,7 +35,7 @@ class NowPlayingSheet extends StatefulWidget {
 class _NowPlayingSheetState extends State<NowPlayingSheet> {
   bool _showLyrics = false;
   bool _showVisualizer = false;
-  bool _exporting = false;
+
   final VisualizerService _visualizer = VisualizerService();
 
   @override
@@ -66,16 +68,23 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
     setState(() => _showVisualizer = true);
   }
 
-  /// Renders the current track into a shareable MP4 (cover art + waveform +
-  /// synced lyrics). Downloads the audio first when it is not saved offline.
+  /// Starts (or stops) the lyric-video render.
+  ///
+  /// The render itself belongs to [VideoExportManager], so it keeps running
+  /// when this sheet is closed and the percentage stays on the export button.
   Future<void> _exportVideo(SongModel song) async {
+    final manager = context.read<VideoExportManager>();
+    if (manager.isBusy) {
+      await _confirmStopExport(manager);
+      return;
+    }
     final messenger = ScaffoldMessenger.of(context);
     final player = context.read<PlayerController>();
     final downloads = context.read<DownloadService>();
     final api = context.read<MusicApiService>();
     final settings = context.read<AppSettingsService>();
-    setState(() => _exporting = true);
-    VoidCallback? closeDialog;
+    final videoLibrary = context.read<VideoLibraryService>();
+
     try {
       if (!player.isDownloaded(song)) {
         messenger.showSnackBar(
@@ -106,61 +115,110 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
         });
       }
       if (!mounted) return;
-      final progress = ValueNotifier<double>(0);
-      var dialogOpen = true;
-      unawaited(showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => PopScope(
-          canPop: false,
-          child: AlertDialog(
-          title: const Text('Rendering video'),
-          content: ValueListenableBuilder<double>(
-            valueListenable: progress,
-            builder: (context, value, _) => Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                LinearProgressIndicator(value: value == 0 ? null : value),
-                const SizedBox(height: 12),
-                Text('${(value * 100).round()}% · '
-                    'cover art, waveform and lyrics are being encoded.'),
-              ],
-            ),
-          ),
-        ),
-        ),
-      ));
-      closeDialog = () {
-        if (!dialogOpen) return;
-        dialogOpen = false;
-        if (mounted) Navigator.of(context, rootNavigator: true).pop();
-      };
 
-      final result = await VideoExportService().export(
-        song: song,
-        audioPath: audioPath,
-        lyrics: lyrics,
-        onProgress: (value) => progress.value = value,
-      );
-      closeDialog();
-      progress.dispose();
-      closeDialog = null;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Video saved: ${result.path}'),
-          duration: const Duration(seconds: 8),
-        ),
-      );
+      // No modal dialog: the job is owned by the manager and its percentage is
+      // shown on the export button, so the app stays usable while it renders.
+      unawaited(manager.start(song: song, audioPath: audioPath, lyrics: lyrics)
+          .then((result) async {
+        if (result == null) {
+          if (manager.state == VideoExportState.idle && manager.error == null) {
+            messenger.showSnackBar(
+              const SnackBar(content: Text('Export stopped.')),
+            );
+          } else if (manager.error != null) {
+            messenger.showSnackBar(
+              SnackBar(content: Text('Could not export the video: ${manager.error}')),
+            );
+          }
+          return;
+        }
+        // Remember it so Downloads can show lyric videos separately from
+        // ordinary offline audio.
+        await videoLibrary.add(
+          songId: song.id,
+          title: song.title,
+          artist: song.artist,
+          path: result.path,
+          artworkPath: song.localArtworkPath,
+          durationMs: song.duration?.inMilliseconds,
+        );
+        final location = result.path.startsWith('content://')
+            ? 'Movies/MuZic'
+            : result.path;
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Lyric video saved to $location'),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }));
     } catch (error) {
-      closeDialog?.call();
       final message = error is StateError ? error.message : '$error';
       messenger.showSnackBar(
         SnackBar(content: Text('Could not export the video: $message')),
       );
-    } finally {
-      if (mounted) setState(() => _exporting = false);
     }
+  }
+
+  /// Tapping the percentage asks whether to stop the render.
+  Future<void> _confirmStopExport(VideoExportManager manager) async {
+    final stop = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: Text(
+                'Rendering lyric video',
+                style: Theme.of(sheetContext).textTheme.titleMedium,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: AnimatedBuilder(
+                animation: manager,
+                builder: (context, _) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    LinearProgressIndicator(value: manager.progress),
+                    const SizedBox(height: 10),
+                    Text(
+                      '${manager.percent}% · ${manager.songTitle ?? ''}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'It keeps running in the background while you use the app.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.palette.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.stop_circle_outlined),
+              title: const Text('Stop exporting'),
+              subtitle: const Text('The partial file is discarded.'),
+              onTap: () => Navigator.of(sheetContext).pop(true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.play_arrow_rounded),
+              title: const Text('Keep rendering'),
+              onTap: () => Navigator.of(sheetContext).pop(false),
+            ),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    );
+    if (stop == true) await manager.cancel();
   }
 
   Future<bool> _ensureMicrophonePermission() async {
@@ -229,16 +287,49 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Export lyric video',
-                    onPressed: _exporting ? null : () => _exportVideo(song),
-                    icon: _exporting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.movie_creation_outlined),
+                  Consumer<VideoExportManager>(
+                    builder: (context, export, _) {
+                      if (!export.isBusy) {
+                        return IconButton(
+                          tooltip: 'Export lyric video',
+                          onPressed: () => _exportVideo(song),
+                          icon: const Icon(Icons.movie_creation_outlined),
+                        );
+                      }
+                      final percent = export.percent;
+                      return Tooltip(
+                        message: 'Rendering ${percent}% — tap to stop',
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: () => _confirmStopExport(export),
+                          child: SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: <Widget>[
+                                SizedBox(
+                                  width: 34,
+                                  height: 34,
+                                  child: CircularProgressIndicator(
+                                    value: percent == 0 ? null : export.progress,
+                                    strokeWidth: 2.5,
+                                  ),
+                                ),
+                                Text(
+                                  '$percent%',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                    color: Theme.of(context).colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   IconButton(
                     tooltip: _showVisualizer

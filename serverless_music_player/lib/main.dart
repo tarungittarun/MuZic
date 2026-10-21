@@ -16,6 +16,8 @@ import 'services/music_api_service.dart';
 import 'services/notification_service.dart';
 import 'services/sleep_timer_service.dart';
 import 'services/usage_service.dart';
+import 'services/video_export_manager.dart';
+import 'services/video_library_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,7 +55,10 @@ Future<void> main() async {
   await AudioService.init(
     builder: () => MuzicAudioHandler(audio.player, settings),
     config: AudioServiceConfig(
-      androidNotificationChannelId: 'com.music.player.audio',
+      // Must match PLAYBACK_CHANNEL_ID in MainActivity: we create that channel
+      // ourselves (own id, visible importance) before audio_service posts, so a
+      // stale or broken channel from an older build cannot hide the card.
+      androidNotificationChannelId: 'com.music.player.playback.v2',
       androidNotificationChannelName: 'MuZic playback',
       // audio_service asserts that an "ongoing" (non-dismissible) card is only
       // valid when the service leaves the foreground on pause - which would
@@ -67,6 +72,9 @@ Future<void> main() async {
   );
 
   final downloads = DownloadService(library: library);
+  final videoLibrary = VideoLibraryService();
+  await videoLibrary.init();
+  final videoExports = VideoExportManager();
   final player = PlayerController(
     audio: audio,
     musicApi: musicApi,
@@ -100,6 +108,8 @@ Future<void> main() async {
     diagnostics: diagnostics,
     effects: effects,
     sleepTimer: sleepTimer,
+    videoExports: videoExports,
+    videoLibrary: videoLibrary,
   ));
 
   // Ask for notification access once the UI is up: Android only shows the

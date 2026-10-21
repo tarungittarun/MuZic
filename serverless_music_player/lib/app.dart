@@ -12,6 +12,8 @@ import 'services/download_service.dart';
 import 'services/library_service.dart';
 import 'services/music_api_service.dart';
 import 'services/usage_service.dart';
+import 'services/video_export_manager.dart';
+import 'services/video_library_service.dart';
 import 'theme/app_theme.dart';
 import 'screens/main_shell.dart';
 
@@ -27,6 +29,8 @@ class MusicApp extends StatelessWidget {
     required this.diagnostics,
     required this.effects,
     required this.sleepTimer,
+    required this.videoExports,
+    required this.videoLibrary,
     super.key,
   });
 
@@ -40,6 +44,8 @@ class MusicApp extends StatelessWidget {
   final DiagnosticsService diagnostics;
   final AudioEffectsService effects;
   final SleepTimerService sleepTimer;
+  final VideoExportManager videoExports;
+  final VideoLibraryService videoLibrary;
 
   @override
   Widget build(BuildContext context) {
@@ -55,6 +61,8 @@ class MusicApp extends StatelessWidget {
         ChangeNotifierProvider<DiagnosticsService>.value(value: diagnostics),
         Provider<AudioEffectsService>.value(value: effects),
         ChangeNotifierProvider<SleepTimerService>.value(value: sleepTimer),
+        ChangeNotifierProvider<VideoExportManager>.value(value: videoExports),
+        ChangeNotifierProvider<VideoLibraryService>.value(value: videoLibrary),
       ],
       child: Consumer<AppSettingsService>(
         builder: (context, appSettings, _) => MaterialApp(

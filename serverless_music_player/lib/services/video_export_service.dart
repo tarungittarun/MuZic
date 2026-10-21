@@ -86,6 +86,10 @@ class VideoExportService {
     }
   }
 
+  /// Stops an in-flight render. The native side aborts at the next frame and
+  /// deletes the partial file, so a cancelled export never lands in the gallery.
+  Future<void> cancel() => _channel.invokeMethod<void>('cancelExport');
+
   String _outputName(SongModel song) {
     final stamp = DateTime.now().millisecondsSinceEpoch % 100000;
     final base = '${song.title} - ${song.artist}'
