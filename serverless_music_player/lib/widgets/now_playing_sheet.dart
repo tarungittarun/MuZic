@@ -789,8 +789,8 @@ class _LyricsPanelState extends State<_LyricsPanel> {
       for (final variant in usable)
         variant.isRomanized ? 'romanized' : variant.language.toLowerCase(),
     };
-    final current = settings.lyricsLanguageOverrideFor(widget.song.id) ??
-        settings.lyricsLanguage;
+    final override = settings.lyricsLanguageOverrideFor(widget.song.id);
+    final current = override.isEmpty ? settings.lyricsLanguage : override;
     const languageCodes = <String>[
       'english',
       'hindi',
