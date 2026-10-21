@@ -91,14 +91,22 @@ jobs:
       - name: Verify APK signature
         shell: bash
         run: |
-          # Discover the single APK this job produced instead of assuming
-          # the exact split-per-abi file name.
+          # Select this ABI's APK by its exact name. A `find | head -1`
+          # here once picked a native-lib-less split stub (~1.2MB) at
+          # random, which passed signature checks but cannot install.
           set +e
           BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | tail -1)
-          apk=$(find build/app/outputs/flutter-apk -name '*-release.apk' | head -1)
-          if [ -z "$apk" ]; then
+          apk="build/app/outputs/flutter-apk/${{ matrix.apk }}"
+          if [ ! -f "$apk" ]; then
             ls -la build/app/outputs/flutter-apk/ >&2
-            echo "::error title=signature::no release APK found for ${{ matrix.label }}"
+            echo "::error title=signature::expected APK $apk not found for ${{ matrix.label }}"
+            exit 1
+          fi
+          size=$(stat -c%s "$apk")
+          echo "::notice title=APK size::${{ matrix.apk }} is ${size} bytes"
+          if [ "$size" -lt 5242880 ]; then
+            ls -la build/app/outputs/flutter-apk/ >&2
+            echo "::error title=apk-too-small::${{ matrix.apk }} is only ${size} bytes - a split stub without native libraries"
             exit 1
           fi
           out=$("$BT/apksigner" verify --print-certs "$apk" 2>&1)
@@ -119,7 +127,7 @@ jobs:
           # version: the device only ever sees what is inside the manifest.
           set +e
           BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | tail -1)
-          apk=$(find build/app/outputs/flutter-apk -name '*-release.apk' | head -1)
+          apk="build/app/outputs/flutter-apk/${{ matrix.apk }}"
           PUBSPEC_VERSION=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}')
           BASE_NAME=${PUBSPEC_VERSION%%+*}
           BASE_CODE=${PUBSPEC_VERSION##*+}
@@ -148,7 +156,7 @@ jobs:
         uses: actions/upload-artifact@v7.0.2
         with:
           name: muzic-apk-${{ matrix.label }}
-          path: serverless_music_player/build/app/outputs/flutter-apk/*-release.apk
+          path: serverless_music_player/build/app/outputs/flutter-apk/${{ matrix.apk }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -181,10 +189,19 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           VERSION=$(grep -m1 '^version:' serverless_music_player/pubspec.yaml | awk '{print $2}')
-          # Copy to the stable asset names users download, whatever the
-          # per-ABI build named its output.
-          cp "$(find dist/muzic-apk-arm64 -name '*.apk' | head -1)" app-arm64-v8a-release.apk
-          cp "$(find dist/muzic-apk-armv7 -name '*.apk' | head -1)" app-armeabi-v7a-release.apk
+          # Copy the exact per-ABI files the build jobs verified - never
+          # a `find | head -1` pick, which once published a 1.2MB split
+          # stub as the arm64 APK (it cannot install: no native libs).
+          cp "dist/muzic-apk-arm64/app-arm64-v8a-release.apk" app-arm64-v8a-release.apk
+          cp "dist/muzic-apk-armv7/app-armeabi-v7a-release.apk" app-armeabi-v7a-release.apk
+          for f in app-arm64-v8a-release.apk app-armeabi-v7a-release.apk; do
+            size=$(stat -c%s "$f")
+            echo "::notice title=release APK::${f} is ${size} bytes"
+            if [ "$size" -lt 5242880 ]; then
+              echo "::error title=apk-too-small::refusing to publish ${f} (${size} bytes)"
+              exit 1
+            fi
+          done
           gh release create "apk-build-${RUN_NUMBER}" \
             app-arm64-v8a-release.apk \
             app-armeabi-v7a-release.apk \
