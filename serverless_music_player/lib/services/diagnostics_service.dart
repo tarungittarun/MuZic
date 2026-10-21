@@ -199,12 +199,8 @@ class DiagnosticsService extends ChangeNotifier {
         '(${settings.bassBoostStrength}%)');
     buffer.writeln('equalizer: ${settings.equalizerEnabled} '
         '(preset ${settings.equalizerPreset})');
-    buffer.writeln('shadeCard: enabled=${settings.notificationEnabled} '
-        'style=${settings.shadeCardStyle} theme=${settings.shadeCardTheme} '
-        'artwork=${settings.shadeCardArtwork} '
-        'prev=${settings.notificationPrevious} next=${settings.notificationNext} '
-        'progress=${settings.notificationSeekBar} '
-        'keepOnPause=${settings.keepNotificationOnPause}');
+    buffer.writeln('mediaController: system (audio_service / '
+        'just_audio_background)');
     buffer.writeln();
     buffer.writeln('--- Library ---');
     buffer.writeln('favorites: ${library.favoriteSongs.length}');

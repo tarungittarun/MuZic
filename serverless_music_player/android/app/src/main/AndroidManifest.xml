@@ -34,18 +34,24 @@
             </intent-filter>
         </activity>
 
-        <!-- MuZic's own playback card: a real MediaSession + MediaStyle
-             foreground notification, instead of a plugin's notification that
-             some devices refused to render as a media player. -->
+        <!-- The system media player (notification shade, lock screen,
+             Quick Settings) is provided by audio_service, as on the main
+             branch. MainActivity extends its AudioServiceActivity. -->
         <service
-            android:name=".PlaybackService"
+            android:name="com.ryanheise.audioservice.AudioService"
             android:foregroundServiceType="mediaPlayback"
-            android:exported="false"
-            android:stopWithTask="false" />
+            android:exported="true"
+            android:stopWithTask="false"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
 
         <receiver
-            android:name=".TransportReceiver"
-            android:exported="true">
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true"
+            tools:ignore="Instantiatable">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>

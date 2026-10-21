@@ -7,11 +7,9 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../models/song_model.dart';
 import '../services/app_log.dart';
-import '../services/app_settings_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/library_service.dart';
-import '../services/media_session_service.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
 
@@ -22,11 +20,7 @@ class PlayerController extends ChangeNotifier {
     required DownloadService downloads,
     required LibraryService library,
     required UsageService usage,
-    MediaSessionService? mediaSession,
-    AppSettingsService? settings,
-  })  : _mediaSession = mediaSession,
-        _settings = settings,
-        _audio = audio,
+  })  : _audio = audio,
         _musicApi = musicApi,
         _downloads = downloads,
         _library = library,
@@ -38,7 +32,6 @@ class PlayerController extends ChangeNotifier {
         _flushListeningTime();
       }
       notifyListeners();
-      _publishMediaSession();
     }));
     _subscriptions.add(_audio.player.positionStream.listen((value) {
       final delta = value - _position;
@@ -51,16 +44,11 @@ class PlayerController extends ChangeNotifier {
       }
       _position = value;
       notifyListeners();
-      _publishMediaSession();
     }));
     _subscriptions.add(_audio.player.durationStream.listen((value) {
       _duration = value ?? Duration.zero;
       notifyListeners();
-      _publishMediaSession();
     }));
-    _mediaSession?.onCommand = _handleMediaCommand;
-    // Shade-card customisation applies the moment it changes in Settings.
-    _settings?.addListener(_publishMediaSession);
     _subscriptions.add(_audio.player.currentIndexStream.listen((value) {
       if (value == null || value < 0 || value >= _queue.length) return;
       _currentIndex = value;
@@ -77,18 +65,14 @@ class PlayerController extends ChangeNotifier {
     _subscriptions.add(_audio.player.loopModeStream.listen((value) {
       _loopMode = value;
       notifyListeners();
-      _publishMediaSession();
     }));
     _subscriptions.add(_audio.player.shuffleModeEnabledStream.listen((value) {
       _shuffleEnabled = value;
       notifyListeners();
-      _publishMediaSession();
     }));
     _subscriptions.add(_audio.player.errorStream.listen(_onPlayerError));
   }
 
-  final MediaSessionService? _mediaSession;
-  final AppSettingsService? _settings;
   final AudioPlayerService _audio;
   final MusicApiService _musicApi;
   final DownloadService _downloads;
@@ -597,7 +581,6 @@ class PlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _settings?.removeListener(_publishMediaSession);
     _playGeneration++;
     _flushListeningTime();
     for (final subscription in _subscriptions) {
@@ -606,96 +589,6 @@ class PlayerController extends ChangeNotifier {
     _musicApi.dispose();
     unawaited(_audio.dispose());
     super.dispose();
-  }
-
-  /// Mirrors the current track into MuZic's playback card.
-  void _publishMediaSession() {
-    final session = _mediaSession;
-    final song = _currentSong;
-    if (session == null) return;
-    if (song == null) {
-      unawaited(session.hide());
-      return;
-    }
-    unawaited(session.update(MediaSessionState(
-      title: song.title,
-      artist: song.artist,
-      album: song.album,
-      artworkUrl: song.artworkUrl,
-      artworkPath: song.localArtworkPath,
-      playing: _audio.player.playing,
-      positionMs: _position.inMilliseconds,
-      durationMs: _duration.inMilliseconds,
-      speed: _audio.player.speed,
-      hasNext: _currentIndex != null && _currentIndex! < _queue.length - 1,
-      hasPrevious: (_currentIndex ?? 0) > 0 || _position.inSeconds > 3,
-      shuffle: _shuffleEnabled,
-      repeatMode: _loopMode.index,
-      shadeEnabled: _settings?.notificationEnabled ?? true,
-      shadeStyle: _settings?.shadeCardStyle ?? 'rich',
-      shadeTheme: _settings?.shadeCardTheme ?? 'system',
-      shadeArtwork: _settings?.shadeCardArtwork ?? true,
-      shadePrevious: _settings?.notificationPrevious ?? true,
-      shadeNext: _settings?.notificationNext ?? true,
-      shadeProgress: _settings?.notificationSeekBar ?? true,
-      shadeKeepOnPause: _settings?.keepNotificationOnPause ?? true,
-    )));
-  }
-
-  /// Transport buttons on the playback card.
-  void _handleMediaCommand(String command, double? value) {
-    switch (command) {
-      case 'play':
-        if (!_audio.player.playing && _queue.isNotEmpty) _startPlayback();
-        break;
-      case 'pause':
-        unawaited(pause());
-        break;
-      case 'toggle':
-        unawaited(togglePlayback());
-        break;
-      case 'next':
-        unawaited(next());
-        break;
-      case 'previous':
-        unawaited(previous());
-        break;
-      case 'seek':
-        if (value != null) {
-          unawaited(seek(Duration(milliseconds: value.round())));
-        }
-        break;
-      case 'seekBack':
-        {
-          final target = _position - const Duration(seconds: 10);
-          unawaited(seek(target < Duration.zero ? Duration.zero : target));
-        }
-        break;
-      case 'seekForward':
-        {
-          final target = _position + const Duration(seconds: 10);
-          final clamped = _duration > Duration.zero && target > _duration
-              ? _duration
-              : target;
-          unawaited(seek(clamped));
-        }
-        break;
-      case 'shuffle':
-        // State fields flip synchronously inside toggleShuffle, so the
-        // card can be re-published immediately with the new icon state.
-        unawaited(toggleShuffle());
-        _publishMediaSession();
-        break;
-      case 'repeat':
-        unawaited(cycleRepeatMode());
-        _publishMediaSession();
-        break;
-      case 'stop':
-        unawaited(pause());
-        unawaited(_mediaSession?.hide() ?? Future<void>.value());
-      default:
-        break;
-    }
   }
 
 }

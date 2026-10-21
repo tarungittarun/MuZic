@@ -115,31 +115,25 @@ Open the now-playing sheet and tap the **lyrics** icon.
 
 ![Playback notification settings](img/notifications.svg)
 
-MuZic publishes a media session so Android can show a media card (title,
-artwork, previous / play-pause / next, seek bar) in the shade, on the lock
-screen, on Bluetooth displays and in Android Auto.
-
-The expanded shade card is styled after the system media player:
-full-width artwork fills the card, with the title, a big play/pause
-button, a **waveform seekbar** (the played part lights up and the
-playhead advances with the music), and a control row — **shuffle,
-previous, −10s, +10s, next, repeat** — overlaid on the artwork.
-Shuffle and repeat show their state (accent colour when on, a "1" on
-the repeat symbol for repeat-one) and work from the card exactly as
-they do in the app. While a song plays, the card re-syncs its
-progress with the music every second.
+MuZic uses Android's **system media player** — the same controller the
+phone itself renders in the notification shade, on the lock screen and
+in Quick Settings (full-width artwork, seek bar, shuffle / previous /
+play-pause / next / repeat). It is provided by the standard
+`audio_service` + `just_audio_background` stack: every song carries a
+media tag, and Android turns the player's state into the controller
+automatically, including Bluetooth and Android Auto. The controller
+appears while a song plays and stays when you pause; swipe it away
+when paused to dismiss it.
 
 *Settings → Playback*
 
 | Row | What it does |
 | --- | --- |
-| **Notification access** | Shows Allowed/Blocked. **Allow** asks for the permission; if it is still blocked it opens the system settings page for MuZic. |
-| **Send a test notification** | Posts a plain notification. If this appears but the media card does not, the problem is the card, not the permission. |
-| **Show active notifications** | Lists what Android is currently showing for MuZic (including whether the ongoing media card exists). Empty = Android rejected the card. |
-| **Show playback notification** | Master toggle for the media card. |
-| **Previous button / Next button / Seek bar** | Customise the card; changes apply live. |
-| **Keep notification when paused** | On by default — the card stays after pausing, like other players. |
-| **Allow background playback** | Battery-optimisation exemption. Required on MIUI, ColorOS, FuntouchOS, MagicOS — otherwise the card gets killed a few minutes after you leave the app. |
+| **Notification access** | Shows Allowed/Blocked. **Allow** asks for the permission; if it is still blocked it opens the system settings page for MuZic. The media player cannot appear without it. |
+| **Send a test notification** | Posts a plain notification. If this appears but the media player does not, the problem is playback, not the permission. |
+| **Show active notifications** | Lists what Android is currently showing for MuZic (including whether the media player exists). |
+| **Media notification health** | Step-by-step check of everything the media player needs (permission, channel, audio service, session). |
+| **Allow background playback** | Battery-optimisation exemption. Required on MIUI, ColorOS, FuntouchOS, MagicOS — otherwise the player gets killed a few minutes after you leave the app. |
 
 **If the card does not appear**
 

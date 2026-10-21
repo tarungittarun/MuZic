@@ -28,35 +28,35 @@ void main() {
     }
   });
 
-  test('shade card preferences default rich/system and persist', () async {
+  test('diagnostics stays off by default and sleep timer persists',
+      () async {
     final directory =
-        await Directory.systemTemp.createTemp('music-shade-test-');
+        await Directory.systemTemp.createTemp('music-prefs-test-');
     Hive.init(directory.path);
 
     try {
       final first = AppSettingsService();
       await first.init();
-      expect(first.shadeCardStyle, 'rich');
-      expect(first.shadeCardTheme, 'system');
-      expect(first.shadeCardArtwork, isTrue);
-      expect(first.notificationEnabled, isTrue);
-      expect(first.keepNotificationOnPause, isTrue);
+      // Diagnostics capture is opt-in and must default to off.
+      expect(first.diagnosticsEnabled, isFalse);
+      expect(first.sleepTimerEnabled, isFalse);
+      expect(first.sleepTimerMinutes, 60);
+      expect(first.region, 'IN');
+      expect(first.languages, containsAll(<String>['hindi', 'english']));
 
-      await first.setShadeCardStyle('simple');
-      await first.setShadeCardTheme('dark');
-      await first.setShadeCardArtwork(false);
-      // Unknown values normalise to the safe defaults.
-      await first.setShadeCardStyle('neon');
-      expect(first.shadeCardStyle, 'rich');
-      await first.setShadeCardTheme('neon');
-      expect(first.shadeCardTheme, 'system');
+      await first.setDiagnosticsEnabled(true);
+      await first.setSleepTimer(enabled: true, minutes: 45);
+      await first.setRegion('US');
+      await first.setLanguages(<String>['english']);
       await Hive.box<dynamic>('app_settings').close();
 
       final restored = AppSettingsService();
       await restored.init();
-      expect(restored.shadeCardStyle, 'rich');
-      expect(restored.shadeCardTheme, 'system');
-      expect(restored.shadeCardArtwork, isFalse);
+      expect(restored.diagnosticsEnabled, isTrue);
+      expect(restored.sleepTimerEnabled, isTrue);
+      expect(restored.sleepTimerMinutes, 45);
+      expect(restored.region, 'US');
+      expect(restored.languages, <String>['english']);
     } finally {
       await Hive.close();
       await directory.delete(recursive: true);

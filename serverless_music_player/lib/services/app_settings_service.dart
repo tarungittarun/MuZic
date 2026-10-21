@@ -13,14 +13,6 @@ class AppSettingsService extends ChangeNotifier {
   static const String _eqEnabledKey = 'equalizer_enabled';
   static const String _eqPresetKey = 'equalizer_preset';
   static const String _diagnosticsKey = 'diagnostics_capture';
-  static const String _notificationEnabledKey = 'notification_enabled';
-  static const String _notificationPrevKey = 'notification_prev';
-  static const String _notificationNextKey = 'notification_next';
-  static const String _notificationSeekKey = 'notification_seek';
-  static const String _notificationPauseKey = 'notification_keep_on_pause';
-  static const String _shadeStyleKey = 'shade_card_style';
-  static const String _shadeThemeKey = 'shade_card_theme';
-  static const String _shadeArtworkKey = 'shade_card_artwork';
   static const String _regionKey = 'discover_region';
   static const String _languagesKey = 'discover_languages';
   static const String _sleepEnabledKey = 'sleep_timer_enabled';
@@ -36,14 +28,6 @@ class AppSettingsService extends ChangeNotifier {
   bool _equalizerEnabled = false;
   int _equalizerPreset = 0;
   bool _diagnosticsEnabled = false;
-  bool _notificationEnabled = true;
-  bool _notificationPrevious = true;
-  bool _notificationNext = true;
-  bool _notificationSeekBar = true;
-  bool _keepNotificationOnPause = true;
-  String _shadeCardStyle = 'rich';
-  String _shadeCardTheme = 'system';
-  bool _shadeCardArtwork = true;
   String _region = 'IN';
   List<String> _languages = const <String>['hindi', 'english'];
   bool _sleepTimerEnabled = false;
@@ -65,22 +49,6 @@ class AppSettingsService extends ChangeNotifier {
   /// Whether the user opted in to diagnostic capture. Off by default: nothing
   /// is recorded or exported unless they explicitly turn it on.
   bool get diagnosticsEnabled => _diagnosticsEnabled;
-
-  bool get notificationEnabled => _notificationEnabled;
-  bool get notificationPrevious => _notificationPrevious;
-  bool get notificationNext => _notificationNext;
-  bool get notificationSeekBar => _notificationSeekBar;
-  bool get keepNotificationOnPause => _keepNotificationOnPause;
-
-  /// Notification-panel (shade) card appearance: 'rich' (custom layout that
-  /// mirrors the lock-screen player) or 'simple' (system notification).
-  String get shadeCardStyle => _shadeCardStyle;
-
-  /// Rich shade card colours: 'system', 'dark' or 'light'.
-  String get shadeCardTheme => _shadeCardTheme;
-
-  /// Whether the shade card shows album artwork.
-  bool get shadeCardArtwork => _shadeCardArtwork;
 
   /// Region used for Discover recommendations (ISO country code).
   String get region => _region;
@@ -109,19 +77,6 @@ class AppSettingsService extends ChangeNotifier {
     _equalizerEnabled = _settings.get(_eqEnabledKey) == true;
     _equalizerPreset = _readInt(_eqPresetKey, 0);
     _diagnosticsEnabled = _settings.get(_diagnosticsKey) == true;
-    _notificationEnabled = _settings.get(_notificationEnabledKey) != false;
-    _notificationPrevious = _settings.get(_notificationPrevKey) != false;
-    _notificationNext = _settings.get(_notificationNextKey) != false;
-    _notificationSeekBar = _settings.get(_notificationSeekKey) != false;
-    _keepNotificationOnPause =
-        _settings.get(_notificationPauseKey) != false;
-    final savedShadeStyle = _settings.get(_shadeStyleKey)?.toString();
-    _shadeCardStyle = savedShadeStyle == 'simple' ? 'simple' : 'rich';
-    final savedShadeTheme = _settings.get(_shadeThemeKey)?.toString();
-    _shadeCardTheme = (savedShadeTheme == 'dark' || savedShadeTheme == 'light')
-        ? savedShadeTheme!
-        : 'system';
-    _shadeCardArtwork = _settings.get(_shadeArtworkKey) != false;
     final savedRegion = _settings.get(_regionKey)?.toString().trim() ?? '';
     _region = savedRegion.isEmpty ? 'IN' : savedRegion;
     final savedLanguages = _settings.get(_languagesKey)?.toString() ?? '';
@@ -146,61 +101,6 @@ class AppSettingsService extends ChangeNotifier {
       _sleepTimerMinutes = minutes.clamp(5, 480).toInt();
       await _settings.put(_sleepMinutesKey, _sleepTimerMinutes);
     }
-    notifyListeners();
-  }
-
-  Future<void> setNotificationEnabled(bool value) async {
-    _notificationEnabled = value;
-    await _settings.put(_notificationEnabledKey, value);
-    notifyListeners();
-  }
-
-  Future<void> setNotificationLayout({
-    bool? previous,
-    bool? next,
-    bool? seekBar,
-  }) async {
-    if (previous != null) {
-      _notificationPrevious = previous;
-      await _settings.put(_notificationPrevKey, previous);
-    }
-    if (next != null) {
-      _notificationNext = next;
-      await _settings.put(_notificationNextKey, next);
-    }
-    if (seekBar != null) {
-      _notificationSeekBar = seekBar;
-      await _settings.put(_notificationSeekKey, seekBar);
-    }
-    notifyListeners();
-  }
-
-  Future<void> setKeepNotificationOnPause(bool value) async {
-    _keepNotificationOnPause = value;
-    await _settings.put(_notificationPauseKey, value);
-    notifyListeners();
-  }
-
-  Future<void> setShadeCardStyle(String value) async {
-    final clean = value == 'simple' ? 'simple' : 'rich';
-    if (clean == _shadeCardStyle) return;
-    _shadeCardStyle = clean;
-    await _settings.put(_shadeStyleKey, clean);
-    notifyListeners();
-  }
-
-  Future<void> setShadeCardTheme(String value) async {
-    final clean =
-        (value == 'dark' || value == 'light') ? value : 'system';
-    if (clean == _shadeCardTheme) return;
-    _shadeCardTheme = clean;
-    await _settings.put(_shadeThemeKey, clean);
-    notifyListeners();
-  }
-
-  Future<void> setShadeCardArtwork(bool value) async {
-    _shadeCardArtwork = value;
-    await _settings.put(_shadeArtworkKey, value);
     notifyListeners();
   }
 

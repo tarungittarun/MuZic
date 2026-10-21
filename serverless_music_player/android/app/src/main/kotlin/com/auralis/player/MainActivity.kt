@@ -18,7 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.provider.OpenableColumns
-import io.flutter.embedding.android.FlutterActivity
+import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -31,8 +31,11 @@ import kotlin.math.max
 /**
  * Hosts the audio-effects channel. Attaches Android's Equalizer, BassBoost and
  * Virtualizer (virtual surround) to the playback audio session.
+ *
+ * Extends [AudioServiceActivity] so audio_service can own the system media
+ * session (notification shade / lock screen / Quick Settings player).
  */
-class MainActivity : FlutterActivity() {
+class MainActivity : AudioServiceActivity() {
     private var channel: MethodChannel? = null
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
@@ -44,7 +47,6 @@ class MainActivity : FlutterActivity() {
     private var visualizerSink: EventChannel.EventSink? = null
     private var visualizerHandler: Handler? = null
     private var systemChannel: MethodChannel? = null
-    private var mediaSessionChannel: MethodChannel? = null
     private var videoExportChannel: MethodChannel? = null
     private val videoExportCancel = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var videoExportRunning = false
@@ -54,43 +56,12 @@ class MainActivity : FlutterActivity() {
         const val PICK_AUDIO_REQUEST_CODE = 4213
 
         /**
-         * Channel the media card is posted on.
-         *
-         * Android notification channels are immutable once created, so a
-         * channel that was ever created with the wrong importance stays wrong
-         * on every later install - a classic "the media card never appears"
-         * cause. PlaybackService creates it before posting its card.
+         * Channel the system media player posts on. Created by
+         * just_audio_background with the same id passed to
+         * JustAudioBackground.init in main.dart; diagnostics only reads it.
          */
-        const val PLAYBACK_CHANNEL_ID = "com.music.player.playback.v2"
-        const val PLAYBACK_CHANNEL_NAME = "MuZic playback"
-    }
-
-    override fun onCreate(savedInstanceState: android.os.Bundle?) {
-        super.onCreate(savedInstanceState)
-        ensurePlaybackChannel()
-    }
-
-    /**
-     * Creates the playback channel before the card is posted, with an
-     * importance that guarantees the card is visible in the shade instead of
-     * being dropped on OEM skins that hide low-importance channels.
-     */
-    private fun ensurePlaybackChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(PLAYBACK_CHANNEL_ID) != null) return
-        val channel = NotificationChannel(
-            PLAYBACK_CHANNEL_ID,
-            PLAYBACK_CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_DEFAULT,
-        ).apply {
-            description = "Playback controls for MuZic"
-            setShowBadge(false)
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            enableVibration(false)
-            setSound(null, null)
-        }
-        manager.createNotificationChannel(channel)
+        const val AUDIO_CHANNEL_ID = "com.auralis.player.muzic.audio"
+        const val AUDIO_SERVICE_CLASS = "com.ryanheise.audioservice.AudioService"
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -140,67 +111,6 @@ class MainActivity : FlutterActivity() {
                     call.argument<String>("text") ?: "",
                     result,
                 )
-                else -> result.notImplemented()
-            }
-        }
-
-        mediaSessionChannel = MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            "music_player/media_session",
-        )
-        PlaybackService.commandSink = { command, value ->
-            runOnUiThread {
-                mediaSessionChannel?.invokeMethod(
-                    "onCommand",
-                    mapOf("command" to command, "value" to value),
-                )
-            }
-        }
-        PlaybackService.errorSink = { message ->
-            runOnUiThread {
-                mediaSessionChannel?.invokeMethod(
-                    "onLog",
-                    mapOf("message" to message),
-                )
-            }
-        }
-        mediaSessionChannel?.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "update" -> {
-                    val intent = Intent(this, PlaybackService::class.java).apply {
-                        putExtra("title", call.argument<String>("title") ?: "MuZic")
-                        putExtra("artist", call.argument<String>("artist") ?: "")
-                        putExtra("album", call.argument<String>("album") ?: "")
-                        putExtra("artworkUrl", call.argument<String>("artworkUrl"))
-                        putExtra("artworkPath", call.argument<String>("artworkPath"))
-                        putExtra("playing", call.argument<Boolean>("playing") ?: false)
-                        putExtra("positionMs", call.argument<Int>("positionMs")?.toLong() ?: 0L)
-                        putExtra("durationMs", call.argument<Int>("durationMs")?.toLong() ?: 0L)
-                        putExtra("speed", call.argument<Double>("speed")?.toFloat() ?: 1f)
-                        putExtra("hasNext", call.argument<Boolean>("hasNext") ?: true)
-                        putExtra("hasPrevious", call.argument<Boolean>("hasPrevious") ?: true)
-                        putExtra("shuffle", call.argument<Boolean>("shuffle") ?: false)
-                        putExtra("repeatMode", call.argument<Int>("repeatMode") ?: 0)
-                        putExtra("shadeEnabled", call.argument<Boolean>("shadeEnabled") ?: true)
-                        putExtra("shadeStyle", call.argument<String>("shadeStyle") ?: "rich")
-                        putExtra("shadeTheme", call.argument<String>("shadeTheme") ?: "system")
-                        putExtra("shadeArtwork", call.argument<Boolean>("shadeArtwork") ?: true)
-                        putExtra("shadePrevious", call.argument<Boolean>("shadePrevious") ?: true)
-                        putExtra("shadeNext", call.argument<Boolean>("shadeNext") ?: true)
-                        putExtra("shadeProgress", call.argument<Boolean>("shadeProgress") ?: true)
-                        putExtra("shadeKeepOnPause", call.argument<Boolean>("shadeKeepOnPause") ?: true)
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
-                    result.success(true)
-                }
-                "hide" -> {
-                    stopService(Intent(this, PlaybackService::class.java))
-                    result.success(true)
-                }
                 else -> result.notImplemented()
             }
         }
@@ -363,7 +273,7 @@ class MainActivity : FlutterActivity() {
     private fun mediaNotificationDiagnostics(): Map<String, Any?> {
         val manager = getSystemService(NotificationManager::class.java)
         val notificationsEnabled = manager?.areNotificationsEnabled() ?: false
-        val playbackChannelId = PLAYBACK_CHANNEL_ID
+        val playbackChannelId = AUDIO_CHANNEL_ID
         val channel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager?.getNotificationChannel(playbackChannelId)
         } else {
@@ -380,9 +290,9 @@ class MainActivity : FlutterActivity() {
             -1
         }
 
-        val serviceRunning = try {
+        val serviceDeclared = try {
             val info = packageManager.getServiceInfo(
-                android.content.ComponentName(packageName, PlaybackService::class.java.name),
+                android.content.ComponentName(packageName, AUDIO_SERVICE_CLASS),
                 0,
             )
             info.enabled
@@ -410,22 +320,24 @@ class MainActivity : FlutterActivity() {
             "playbackChannelExists" to (channel != null),
             "playbackChannelImportance" to channelImportance,
             "appChannelCount" to appChannelCount,
-            "audioServiceDeclared" to serviceRunning,
+            "audioServiceDeclared" to serviceDeclared,
             "smallIconResolves" to smallIconValid,
-            "mediaSessionActive" to PlaybackService.isSessionActive(),
-            "playbackServiceRunning" to isServiceRunning(PlaybackService::class.java),
+            "mediaSessionActive" to (
+                isServiceRunning(AUDIO_SERVICE_CLASS) ||
+                    posted.any { it.startsWith(AUDIO_CHANNEL_ID) }
+                ),
             "posted" to posted,
             "postedCount" to posted.size,
         )
     }
 
-    /** True when a service of this class is currently started. */
-    private fun isServiceRunning(clazz: Class<*>): Boolean {
+    /** True when a service with this class name is currently started. */
+    private fun isServiceRunning(className: String): Boolean {
         return try {
             val manager = getSystemService(android.app.ActivityManager::class.java)
                 ?: return false
             val services = manager.getRunningServices(Int.MAX_VALUE)
-            services.any { it.service.className == clazz.name }
+            services.any { it.service.className == className }
         } catch (e: Exception) {
             false
         }
