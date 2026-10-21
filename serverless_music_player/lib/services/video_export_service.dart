@@ -99,7 +99,7 @@ class VideoExportService {
     final local = song.localArtworkPath;
     if (local != null && File(local).existsSync()) return local;
     final url = song.artworkUrl;
-    if (url == null || url.isEmpty) return null;
+    if (url.isEmpty) return null;
     try {
       final directory = Directory(
         p.join((await getTemporaryDirectory()).path, 'video_artwork'),
