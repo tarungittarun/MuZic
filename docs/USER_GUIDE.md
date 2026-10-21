@@ -129,13 +129,14 @@ Some phones (including several Motorola builds) keep that system
 player **out of the notification shade** even while it shows on the
 lock screen. For those, MuZic also posts its own **shade player card**
 into the notification panel, styled after the lock-screen player:
-a full-width artwork band, title/artist with the big play/pause
-button, a live waveform seek bar and the full transport row
-(shuffle, previous, −10s, +10s, next, repeat), kept in sync with
-playback. Tap the waveform to jump to that part of the song (the
-notification system offers no drag-scrubbing to apps, so the card
-seeks by tap). Tap the card's expand arrow to open the full card;
-the collapsed strip is kept slim by Android itself. The two surfaces never fight: the lock screen and Quick
+the track artwork fills the whole card, with the title, artist,
+big play/pause button and waveform overlaid on it over a dark
+gradient, and the full transport row (shuffle, previous, −10s,
++10s, next, repeat) below, kept in sync with playback. Tap the
+waveform to jump to that part of the song (the notification system
+offers no drag-scrubbing to apps, so the card seeks by tap). Tap
+the card's expand arrow to open the full card; the collapsed strip
+is kept slim by Android itself. The two surfaces never fight: the lock screen and Quick
 Settings keep the exact system player, the shade shows the MuZic card.
 The card posts on its own notification slot, verifies that Android
 actually kept it, and steps down to a simpler big-artwork layout
