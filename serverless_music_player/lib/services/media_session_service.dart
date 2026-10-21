@@ -151,6 +151,14 @@ class MediaSessionService {
   }
 
   Future<Object?> _handleCall(MethodCall call) async {
+    if (call.method == 'onLog') {
+      // Native-side playback card failure; surface it in diagnostics
+      // instead of letting it disappear without a trace.
+      final args = call.arguments;
+      final message = args is Map ? args['message']?.toString() : null;
+      logWarn('notification', message ?? 'native card error');
+      return null;
+    }
     if (call.method != 'onCommand') return null;
     final args = call.arguments;
     if (args is! Map) return null;

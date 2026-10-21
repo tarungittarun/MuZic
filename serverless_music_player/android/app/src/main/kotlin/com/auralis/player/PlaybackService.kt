@@ -80,6 +80,12 @@ class PlaybackService : Service() {
         /** Set by MainActivity: receives transport commands from the card. */
         var commandSink: ((String, Double?) -> Unit)? = null
 
+        /**
+         * Set by MainActivity: receives native-side failures so they end up
+         * in the app's diagnostics log instead of being silently swallowed.
+         */
+        var errorSink: ((String) -> Unit)? = null
+
         @Volatile private var session: MediaSessionCompat? = null
 
         /** Exposed so the diagnostics probe can report "is a session active". */
@@ -88,6 +94,14 @@ class PlaybackService : Service() {
 
     private val artworkLoader = Executors.newSingleThreadExecutor()
     private var artworkBitmap: Bitmap? = null
+
+    /**
+     * Small copy of the artwork for the shade card's RemoteViews. RemoteViews
+     * parcel their bitmaps into the notification; parcelling the full
+     * 512x512 artwork twice (collapsed + expanded views) risks blowing the
+     * binder transaction limit, which makes notify() fail outright.
+     */
+    private var shadeArtworkBitmap: Bitmap? = null
     private var artworkKey: String? = null
     private var latestArtworkUrl: String? = null
     private var latestArtworkPath: String? = null
@@ -226,6 +240,7 @@ class PlaybackService : Service() {
             val bitmap = decodeArtwork(key)
             if (bitmap == null) return@execute
             artworkBitmap = bitmap
+            shadeArtworkBitmap = Bitmap.createScaledBitmap(bitmap, 192, 192, true)
             publishSessionState()
             val manager = getSystemService(NotificationManager::class.java)
             manager?.notify(NOTIFICATION_ID, buildNotification())
@@ -428,7 +443,7 @@ class PlaybackService : Service() {
         views.setTextViewText(R.id.shade_title, latestTitle)
         views.setTextViewText(R.id.shade_artist, latestArtist)
 
-        val art = artworkBitmap
+        val art = shadeArtworkBitmap ?: artworkBitmap
         val showArt = shadeArtwork && art != null
         if (showArt) {
             views.setViewVisibility(R.id.shade_art, View.VISIBLE)
@@ -523,7 +538,11 @@ class PlaybackService : Service() {
     private fun applyShadeTheme(views: RemoteViews, expanded: Boolean) {
         // Over artwork the expanded card always uses the lock-screen look
         // (white text on the gradient scrim) regardless of theme.
-        if (expanded && shadeArtwork && artworkBitmap != null) return
+        if (expanded && shadeArtwork &&
+            (shadeArtworkBitmap ?: artworkBitmap) != null
+        ) {
+            return
+        }
         val dark = when (shadeTheme) {
             "dark" -> true
             "light" -> false
@@ -555,13 +574,46 @@ class PlaybackService : Service() {
         return "%d:%02d".format(minutes, seconds)
     }
 
+    /** Last shade-card gate outcome, so changes are reported once. */
+    private var lastShadeGate: String? = null
+
     private fun postShadeCard() {
         val manager = getSystemService(NotificationManager::class.java) ?: return
-        if (!shadeEnabled || (!playing && !shadeKeepOnPause)) {
+        val gate = when {
+            !shadeEnabled -> "disabled in Settings"
+            !playing && !shadeKeepOnPause -> "paused and keep-on-pause is off"
+            else -> "post"
+        }
+        if (gate != lastShadeGate) {
+            lastShadeGate = gate
+            if (gate != "post") {
+                errorSink?.invoke("shade card not posted: $gate")
+            }
+        }
+        if (gate != "post") {
             runCatching { manager.cancel(SHADE_NOTIFICATION_ID) }
             return
         }
-        runCatching { manager.notify(SHADE_NOTIFICATION_ID, buildShadeCard()) }
+        // Never let the shade card vanish silently: if the chosen style
+        // fails to build or post (a custom RemoteViews layout can be
+        // rejected on some OEM skins), fall back to the plain system-style
+        // card, and report what happened so it shows up in diagnostics.
+        try {
+            manager.notify(SHADE_NOTIFICATION_ID, buildShadeCard())
+        } catch (error: Exception) {
+            errorSink?.invoke(
+                "shade card ($shadeStyle) failed: ${error.javaClass.simpleName}: " +
+                    "${error.message}; falling back to simple style",
+            )
+            try {
+                manager.notify(SHADE_NOTIFICATION_ID, buildSimpleShadeCard())
+            } catch (fallbackError: Exception) {
+                errorSink?.invoke(
+                    "shade card fallback also failed: " +
+                        "${fallbackError.javaClass.simpleName}: ${fallbackError.message}",
+                )
+            }
+        }
     }
 
     private fun createChannel() {

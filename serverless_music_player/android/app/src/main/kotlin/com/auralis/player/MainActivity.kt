@@ -156,6 +156,14 @@ class MainActivity : FlutterActivity() {
                 )
             }
         }
+        PlaybackService.errorSink = { message ->
+            runOnUiThread {
+                mediaSessionChannel?.invokeMethod(
+                    "onLog",
+                    mapOf("message" to message),
+                )
+            }
+        }
         mediaSessionChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "update" -> {
