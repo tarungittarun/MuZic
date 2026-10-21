@@ -18,7 +18,10 @@ import android.graphics.Paint
 import android.graphics.Shader
 import android.media.AudioManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -73,6 +76,8 @@ class PlaybackService : Service() {
         const val EXTRA_SPEED = "speed"
         const val EXTRA_HAS_NEXT = "hasNext"
         const val EXTRA_HAS_PREVIOUS = "hasPrevious"
+        const val EXTRA_SHUFFLE = "shuffle"
+        const val EXTRA_REPEAT_MODE = "repeatMode"
         const val EXTRA_SHADE_ENABLED = "shadeEnabled"
         const val EXTRA_SHADE_STYLE = "shadeStyle"
         const val EXTRA_SHADE_THEME = "shadeTheme"
@@ -87,7 +92,7 @@ class PlaybackService : Service() {
         private const val KEY_SHADE_LAYOUT_REV = "shade_layout_rev"
 
         /** Bump when the shade-card layouts change: re-trials level 2. */
-        private const val SHADE_LAYOUT_REV = 3
+        private const val SHADE_LAYOUT_REV = 4
 
         /** Set by MainActivity: receives transport commands from the card. */
         var commandSink: ((String, Double?) -> Unit)? = null
@@ -133,6 +138,32 @@ class PlaybackService : Service() {
     private var speed = 1f
     private var hasNext = true
     private var hasPrevious = true
+    private var shuffleOn = false
+
+    /** 0 = off, 1 = repeat all, 2 = repeat one (mirrors just_audio). */
+    private var repeatMode = 0
+
+    // Position extrapolation: Dart reports the position on state changes;
+    // between reports the ticker advances it locally so the shade card's
+    // progress/waveform stays in sync with the music instead of freezing.
+    private var positionBaseMs = 0L
+    private var positionBaseElapsed = 0L
+    private val progressHandler = Handler(Looper.getMainLooper())
+    private var tickerRunning = false
+    private val progressTicker = object : Runnable {
+        override fun run() {
+            if (!playing) {
+                tickerRunning = false
+                return
+            }
+            postShadeCard()
+            progressHandler.postDelayed(this, 1000)
+        }
+    }
+
+    // Waveform bars for the current track (generated bitmap seekbar).
+    private var waveformBars: FloatArray? = null
+    private var waveformKey: String? = null
 
     // Shade-card customisation (user settings, forwarded from Dart).
     private var shadeEnabled = true
@@ -219,6 +250,8 @@ class PlaybackService : Service() {
         speed = intent.getFloatExtra(EXTRA_SPEED, speed)
         hasNext = intent.getBooleanExtra(EXTRA_HAS_NEXT, hasNext)
         hasPrevious = intent.getBooleanExtra(EXTRA_HAS_PREVIOUS, hasPrevious)
+        shuffleOn = intent.getBooleanExtra(EXTRA_SHUFFLE, shuffleOn)
+        repeatMode = intent.getIntExtra(EXTRA_REPEAT_MODE, repeatMode)
         shadeEnabled = intent.getBooleanExtra(EXTRA_SHADE_ENABLED, shadeEnabled)
         intent.getStringExtra(EXTRA_SHADE_STYLE)?.let { newStyle ->
             if (newStyle != shadeStyle) {
@@ -235,6 +268,12 @@ class PlaybackService : Service() {
         shadeProgress = intent.getBooleanExtra(EXTRA_SHADE_PROGRESS, shadeProgress)
         shadeKeepOnPause =
             intent.getBooleanExtra(EXTRA_SHADE_KEEP_ON_PAUSE, shadeKeepOnPause)
+
+        // Anchor the local position clock at the freshly reported
+        // position; the 1s ticker extrapolates from here while playing.
+        positionBaseMs = positionMs
+        positionBaseElapsed = SystemClock.elapsedRealtime()
+        if (playing) startProgressTicker() else stopProgressTicker()
 
         publishSessionState()
         loadArtworkIfNeeded()
@@ -274,6 +313,97 @@ class PlaybackService : Service() {
                 )
                 .build(),
         )
+    }
+
+    private fun startProgressTicker() {
+        if (tickerRunning) return
+        tickerRunning = true
+        progressHandler.postDelayed(progressTicker, 1000)
+    }
+
+    private fun stopProgressTicker() {
+        tickerRunning = false
+        progressHandler.removeCallbacks(progressTicker)
+    }
+
+    /** Best current position: Dart's last report, extrapolated while playing. */
+    private fun currentPositionMs(): Long {
+        if (!playing) return positionMs
+        val advanced =
+            ((SystemClock.elapsedRealtime() - positionBaseElapsed) * speed).toLong()
+        val position = positionBaseMs + advanced
+        return if (durationMs > 0) {
+            position.coerceIn(0L, durationMs)
+        } else {
+            position.coerceAtLeast(0L)
+        }
+    }
+
+    /**
+     * The expanded card's seekbar is a generated waveform bitmap (bars +
+     * playhead dot), styled after the system media player. Bars are
+     * pseudo-random but seeded by the track, so the shape is stable for a
+     * song and only the played portion lights up as playback advances.
+     */
+    private fun waveformBitmap(): Bitmap {
+        val key = "$latestTitle|$latestArtist"
+        var bars = waveformBars
+        if (bars == null || waveformKey != key) {
+            val random = java.util.Random(key.hashCode().toLong())
+            val raw = FloatArray(72) { 0.25f + random.nextFloat() * 0.75f }
+            bars = FloatArray(raw.size) { i ->
+                val prev = raw[(i - 1 + raw.size) % raw.size]
+                val next = raw[(i + 1) % raw.size]
+                (prev + raw[i] * 2f + next) / 4f
+            }
+            waveformBars = bars
+            waveformKey = key
+        }
+        val width = 768
+        val height = 84
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val fraction = if (durationMs > 0) {
+            (currentPositionMs().toFloat() / durationMs).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val centerY = height / 2f
+        val baseline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x40FFFFFF
+            strokeWidth = 3f
+        }
+        canvas.drawLine(0f, centerY, width.toFloat(), centerY, baseline)
+        val barPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val slot = width.toFloat() / bars.size
+        val barWidth = slot * 0.52f
+        val playedX = fraction * width
+        for (i in bars.indices) {
+            val x = i * slot + slot / 2f
+            val barHeight = (bars[i] * (height - 16f)).coerceAtLeast(6f)
+            barPaint.color =
+                if (x <= playedX) 0xFF6C5CE7.toInt() else 0x73FFFFFF
+            canvas.drawRoundRect(
+                x - barWidth / 2f,
+                centerY - barHeight / 2f,
+                x + barWidth / 2f,
+                centerY + barHeight / 2f,
+                barWidth / 2f,
+                barWidth / 2f,
+                barPaint,
+            )
+        }
+        if (durationMs > 0) {
+            val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFF6C5CE7.toInt()
+            }
+            val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFFFFFFFF.toInt()
+            }
+            canvas.drawCircle(playedX, centerY, 13f, ring)
+            canvas.drawCircle(playedX, centerY, 8f, dot)
+        }
+        return bitmap
     }
 
     private fun loadArtworkIfNeeded() {
@@ -636,14 +766,26 @@ class PlaybackService : Service() {
                 if (shadeProgress) View.VISIBLE else View.GONE,
             )
             if (shadeProgress) {
-                if (durationMs > 0) {
+                val position = currentPositionMs()
+                if (variant == 2) {
+                    // Waveform seekbar (system-player look): generated
+                    // bitmap, refreshed by the 1s ticker while playing.
+                    runCatching {
+                        views.setImageViewBitmap(R.id.shade_wave, waveformBitmap())
+                    }
+                    views.setTextViewText(R.id.shade_elapsed, formatTime(position))
+                    views.setTextViewText(
+                        R.id.shade_duration,
+                        if (durationMs > 0) formatTime(durationMs) else "--:--",
+                    )
+                } else if (durationMs > 0) {
                     views.setProgressBar(
                         R.id.shade_progress,
                         durationMs.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
-                        positionMs.coerceIn(0L, durationMs).toInt(),
+                        position.coerceIn(0L, durationMs).toInt(),
                         false,
                     )
-                    views.setTextViewText(R.id.shade_elapsed, formatTime(positionMs))
+                    views.setTextViewText(R.id.shade_elapsed, formatTime(position))
                     views.setTextViewText(R.id.shade_duration, formatTime(durationMs))
                 } else {
                     views.setProgressBar(R.id.shade_progress, 0, 0, true)
@@ -657,6 +799,37 @@ class PlaybackService : Service() {
                 views.setOnClickPendingIntent(
                     R.id.shade_seek_forward,
                     transportIntent("seekForward"),
+                )
+            }
+            if (variant == 2) {
+                // Shuffle/repeat, mirroring the system player's control
+                // row: accent tint when active, dim white when off; the
+                // repeat glyph gains a "1" in repeat-one mode.
+                views.setInt(
+                    R.id.shade_shuffle,
+                    "setColorFilter",
+                    if (shuffleOn) 0xFF6C5CE7.toInt() else 0xB3FFFFFF.toInt(),
+                )
+                views.setOnClickPendingIntent(
+                    R.id.shade_shuffle,
+                    transportIntent("shuffle"),
+                )
+                views.setImageViewResource(
+                    R.id.shade_repeat,
+                    if (repeatMode == 2) {
+                        R.drawable.ic_repeat_one
+                    } else {
+                        R.drawable.ic_repeat
+                    },
+                )
+                views.setInt(
+                    R.id.shade_repeat,
+                    "setColorFilter",
+                    if (repeatMode == 0) 0xB3FFFFFF.toInt() else 0xFF6C5CE7.toInt(),
+                )
+                views.setOnClickPendingIntent(
+                    R.id.shade_repeat,
+                    transportIntent("repeat"),
                 )
             }
         }
@@ -837,6 +1010,7 @@ class PlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        stopProgressTicker()
         // Remove both cards: the media card is the foreground notification,
         // the shade card needs an explicit cancel.
         runCatching { stopForeground(true) }
@@ -871,6 +1045,8 @@ class TransportReceiver : BroadcastReceiver() {
             "pause" -> "pause"
             "seekBack" -> "seekBack"
             "seekForward" -> "seekForward"
+            "shuffle" -> "shuffle"
+            "repeat" -> "repeat"
             else -> return
         } ?: return
         PlaybackService.commandSink?.invoke(command, null)

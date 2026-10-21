@@ -20,6 +20,8 @@ class MediaSessionState {
     this.speed = 1,
     this.hasNext = false,
     this.hasPrevious = false,
+    this.shuffle = false,
+    this.repeatMode = 0,
     this.shadeEnabled = true,
     this.shadeStyle = 'rich',
     this.shadeTheme = 'system',
@@ -42,6 +44,11 @@ class MediaSessionState {
   final bool hasNext;
   final bool hasPrevious;
 
+  /// Shuffle state and repeat mode (0 = off, 1 = all, 2 = one), shown by
+  /// the expanded shade card's control row.
+  final bool shuffle;
+  final int repeatMode;
+
   /// User customisation for the notification-panel (shade) card. Mirrors the
   /// notification settings; applied by the native PlaybackService.
   final bool shadeEnabled;
@@ -57,10 +64,12 @@ class MediaSessionState {
   String get trackKey => '$title|$artist|${artworkPath ?? artworkUrl ?? ''}';
 
   /// Identity of the shade-card options, so a settings change re-posts the
-  /// card even when the track and position have not moved.
+  /// card even when the track and position have not moved. Shuffle/repeat
+  /// ride along here so toggling them (in-app or from the card) refreshes
+  /// the card's control row immediately.
   String get configKey => '$shadeEnabled|$shadeStyle|$shadeTheme|'
       '$shadeArtwork|$shadePrevious|$shadeNext|$shadeProgress|'
-      '$shadeKeepOnPause';
+      '$shadeKeepOnPause|$shuffle|$repeatMode';
 
   Map<String, Object?> toMap() => <String, Object?>{
         'title': title,
@@ -74,6 +83,8 @@ class MediaSessionState {
         'speed': speed,
         'hasNext': hasNext,
         'hasPrevious': hasPrevious,
+        'shuffle': shuffle,
+        'repeatMode': repeatMode,
         'shadeEnabled': shadeEnabled,
         'shadeStyle': shadeStyle,
         'shadeTheme': shadeTheme,
@@ -100,8 +111,8 @@ class MediaSessionService {
 
   final MethodChannel _channel;
 
-  /// Called with `play`, `pause`, `toggle`, `next`, `previous`, `stop` and
-  /// `seek` (with a position in milliseconds).
+  /// Called with `play`, `pause`, `toggle`, `next`, `previous`, `stop`,
+  /// `shuffle`, `repeat` and `seek` (with a position in milliseconds).
   void Function(String command, double? value)? onCommand;
 
   String? _lastTrackKey;

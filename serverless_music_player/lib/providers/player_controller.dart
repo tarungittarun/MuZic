@@ -77,10 +77,12 @@ class PlayerController extends ChangeNotifier {
     _subscriptions.add(_audio.player.loopModeStream.listen((value) {
       _loopMode = value;
       notifyListeners();
+      _publishMediaSession();
     }));
     _subscriptions.add(_audio.player.shuffleModeEnabledStream.listen((value) {
       _shuffleEnabled = value;
       notifyListeners();
+      _publishMediaSession();
     }));
     _subscriptions.add(_audio.player.errorStream.listen(_onPlayerError));
   }
@@ -627,6 +629,8 @@ class PlayerController extends ChangeNotifier {
       speed: _audio.player.speed,
       hasNext: _currentIndex != null && _currentIndex! < _queue.length - 1,
       hasPrevious: (_currentIndex ?? 0) > 0 || _position.inSeconds > 3,
+      shuffle: _shuffleEnabled,
+      repeatMode: _loopMode.index,
       shadeEnabled: _settings?.notificationEnabled ?? true,
       shadeStyle: _settings?.shadeCardStyle ?? 'rich',
       shadeTheme: _settings?.shadeCardTheme ?? 'system',
@@ -675,6 +679,16 @@ class PlayerController extends ChangeNotifier {
               : target;
           unawaited(seek(clamped));
         }
+        break;
+      case 'shuffle':
+        // State fields flip synchronously inside toggleShuffle, so the
+        // card can be re-published immediately with the new icon state.
+        unawaited(toggleShuffle());
+        _publishMediaSession();
+        break;
+      case 'repeat':
+        unawaited(cycleRepeatMode());
+        _publishMediaSession();
         break;
       case 'stop':
         unawaited(pause());

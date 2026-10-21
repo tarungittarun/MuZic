@@ -179,6 +179,8 @@ class MainActivity : FlutterActivity() {
                         putExtra("speed", call.argument<Double>("speed")?.toFloat() ?: 1f)
                         putExtra("hasNext", call.argument<Boolean>("hasNext") ?: true)
                         putExtra("hasPrevious", call.argument<Boolean>("hasPrevious") ?: true)
+                        putExtra("shuffle", call.argument<Boolean>("shuffle") ?: false)
+                        putExtra("repeatMode", call.argument<Int>("repeatMode") ?: 0)
                         putExtra("shadeEnabled", call.argument<Boolean>("shadeEnabled") ?: true)
                         putExtra("shadeStyle", call.argument<String>("shadeStyle") ?: "rich")
                         putExtra("shadeTheme", call.argument<String>("shadeTheme") ?: "system")
