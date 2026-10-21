@@ -200,12 +200,18 @@ void main() {
         expect(report['notificationsEnabled'], isTrue,
             reason: 'app notifications are disabled at OS level');
         expect(report['playbackChannelExists'], isTrue,
-            reason: 'audio_service never created its playback channel, so it '
-                'never reached the notification step');
+            reason: 'the playback channel was never created, so the card was '
+                'never posted');
         expect(report['smallIconResolves'], isTrue,
             reason: 'drawable/ic_stat_muzic is not in the build');
         expect(report['postedCount'], greaterThan(0),
             reason: 'playback is running but Android has no MuZic notification');
+        expect(report['mediaSessionActive'], isTrue,
+            reason: 'no active MediaSession: Android will not treat the card '
+                'as a media player');
+        expect(report['playbackServiceRunning'], isTrue,
+            reason: 'the playback service is not running, so the card is not a '
+                'foreground media notification');
       }, soft: true);
 
       await step('now_playing_and_lyrics', () async {

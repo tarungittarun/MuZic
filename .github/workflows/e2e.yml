@@ -565,6 +565,7 @@ jobs:
           if notif:
               keys = ['notificationsEnabled', 'postPermission', 'playbackChannelExists',
                       'playbackChannelImportance', 'audioServiceDeclared',
+                      'mediaSessionActive', 'playbackServiceRunning',
                       'smallIconResolves', 'postedCount', 'posted']
               lines.append('| Probe | ' + ' | '.join(f'API {a}' for a in sorted(notif)) + ' |')
               lines.append('| --- | ' + ' | '.join('---' for _ in notif) + ' |')

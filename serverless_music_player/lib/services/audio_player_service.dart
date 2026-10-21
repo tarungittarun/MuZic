@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../models/song_model.dart';
@@ -15,15 +14,17 @@ class AudioPlayerService {
     String? remoteUrl,
     String? localPath,
   }) {
+    // The playback card is built natively (PlaybackService), so the tag only
+    // carries display data for the app's own queue views.
     final artUri = _artUri(song);
-    final tag = MediaItem(
-      id: song.id,
-      title: song.title,
-      artist: song.artist,
-      album: song.album,
-      artUri: artUri,
-      extras: <String, dynamic>{'source': song.source.name},
-    );
+    final tag = <String, Object?>{
+      'id': song.id,
+      'title': song.title,
+      'artist': song.artist,
+      'album': song.album,
+      'artUri': artUri?.toString(),
+      'source': song.source.name,
+    };
     if (localPath != null) {
       return AudioSource.file(localPath, tag: tag);
     }

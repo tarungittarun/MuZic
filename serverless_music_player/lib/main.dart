@@ -1,12 +1,10 @@
 import 'package:flutter/foundation.dart' as foundation;
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 
 import 'app.dart';
 import 'providers/player_controller.dart';
 import 'services/app_log.dart';
 import 'services/app_settings_service.dart';
-import 'services/audio_handler.dart';
 import 'services/audio_effects_service.dart';
 import 'services/audio_player_service.dart';
 import 'services/diagnostics_service.dart';
@@ -15,6 +13,7 @@ import 'services/library_service.dart';
 import 'services/music_api_service.dart';
 import 'services/notification_service.dart';
 import 'services/sleep_timer_service.dart';
+import 'services/media_session_service.dart';
 import 'services/usage_service.dart';
 import 'services/video_export_manager.dart';
 import 'services/video_library_service.dart';
@@ -50,26 +49,11 @@ Future<void> main() async {
   final musicApi = MusicApiService();
   final audio = AudioPlayerService();
 
-  // Registers the media session that backs the playback notification, lock
-  // screen and Bluetooth/headset controls.
-  await AudioService.init(
-    builder: () => MuzicAudioHandler(audio.player, settings),
-    config: AudioServiceConfig(
-      // Must match PLAYBACK_CHANNEL_ID in MainActivity: we create that channel
-      // ourselves (own id, visible importance) before audio_service posts, so a
-      // stale or broken channel from an older build cannot hide the card.
-      androidNotificationChannelId: 'com.music.player.playback.v2',
-      androidNotificationChannelName: 'MuZic playback',
-      // audio_service asserts that an "ongoing" (non-dismissible) card is only
-      // valid when the service leaves the foreground on pause - which would
-      // remove the card as soon as playback pauses. Keeping the card visible
-      // while paused is a product requirement, so the card stays dismissible.
-      androidNotificationOngoing: false,
-      androidStopForegroundOnPause: !settings.keepNotificationOnPause,
-      androidNotificationClickStartsActivity: true,
-      androidNotificationIcon: 'drawable/ic_stat_muzic',
-    ),
-  );
+  // MuZic owns its playback card: a native MediaSession + MediaStyle
+  // notification (PlaybackService) driven from here. The audio_service plugin
+  // was removed after its notification was posted on some devices but never
+  // rendered as a media player.
+  final mediaSession = MediaSessionService();
 
   final downloads = DownloadService(library: library);
   final videoLibrary = VideoLibraryService();
@@ -81,6 +65,7 @@ Future<void> main() async {
     downloads: downloads,
     library: library,
     usage: usage,
+    mediaSession: mediaSession,
   );
   final diagnostics = DiagnosticsService(
     settings: settings,

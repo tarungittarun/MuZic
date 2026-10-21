@@ -18,7 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.provider.OpenableColumns
-import com.ryanheise.audioservice.AudioServiceActivity
+import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -32,7 +32,7 @@ import kotlin.math.max
  * Hosts the audio-effects channel. Attaches Android's Equalizer, BassBoost and
  * Virtualizer (virtual surround) to the playback audio session.
  */
-class MainActivity : AudioServiceActivity() {
+class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
@@ -44,6 +44,7 @@ class MainActivity : AudioServiceActivity() {
     private var visualizerSink: EventChannel.EventSink? = null
     private var visualizerHandler: Handler? = null
     private var systemChannel: MethodChannel? = null
+    private var mediaSessionChannel: MethodChannel? = null
     private var videoExportChannel: MethodChannel? = null
     private val videoExportCancel = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var videoExportRunning = false
@@ -58,8 +59,7 @@ class MainActivity : AudioServiceActivity() {
          * Android notification channels are immutable once created, so a
          * channel that was ever created with the wrong importance stays wrong
          * on every later install - a classic "the media card never appears"
-         * cause. audio_service posts on whatever id it is given, so we own the
-         * id, version it, and create the channel ourselves before it posts.
+         * cause. PlaybackService creates it before posting its card.
          */
         const val PLAYBACK_CHANNEL_ID = "com.music.player.playback.v2"
         const val PLAYBACK_CHANNEL_NAME = "MuZic playback"
@@ -71,7 +71,7 @@ class MainActivity : AudioServiceActivity() {
     }
 
     /**
-     * Creates the playback channel before audio_service posts to it, with an
+     * Creates the playback channel before the card is posted, with an
      * importance that guarantees the card is visible in the shade instead of
      * being dropped on OEM skins that hide low-importance channels.
      */
@@ -140,6 +140,49 @@ class MainActivity : AudioServiceActivity() {
                     call.argument<String>("text") ?: "",
                     result,
                 )
+                else -> result.notImplemented()
+            }
+        }
+
+        mediaSessionChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "music_player/media_session",
+        )
+        PlaybackService.commandSink = { command, value ->
+            runOnUiThread {
+                mediaSessionChannel?.invokeMethod(
+                    "onCommand",
+                    mapOf("command" to command, "value" to value),
+                )
+            }
+        }
+        mediaSessionChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "update" -> {
+                    val intent = Intent(this, PlaybackService::class.java).apply {
+                        putExtra("title", call.argument<String>("title") ?: "MuZic")
+                        putExtra("artist", call.argument<String>("artist") ?: "")
+                        putExtra("album", call.argument<String>("album") ?: "")
+                        putExtra("artworkUrl", call.argument<String>("artworkUrl"))
+                        putExtra("artworkPath", call.argument<String>("artworkPath"))
+                        putExtra("playing", call.argument<Boolean>("playing") ?: false)
+                        putExtra("positionMs", call.argument<Int>("positionMs")?.toLong() ?: 0L)
+                        putExtra("durationMs", call.argument<Int>("durationMs")?.toLong() ?: 0L)
+                        putExtra("speed", call.argument<Double>("speed")?.toFloat() ?: 1f)
+                        putExtra("hasNext", call.argument<Boolean>("hasNext") ?: true)
+                        putExtra("hasPrevious", call.argument<Boolean>("hasPrevious") ?: true)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                    result.success(true)
+                }
+                "hide" -> {
+                    stopService(Intent(this, PlaybackService::class.java))
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -321,13 +364,10 @@ class MainActivity : AudioServiceActivity() {
 
         val serviceRunning = try {
             val info = packageManager.getServiceInfo(
-                android.content.ComponentName(
-                    packageName,
-                    "com.ryanheise.audioservice.AudioService",
-                ),
+                android.content.ComponentName(packageName, PlaybackService::class.java.name),
                 0,
             )
-            info.enabled && info.exported
+            info.enabled
         } catch (e: Exception) {
             false
         }
@@ -354,9 +394,23 @@ class MainActivity : AudioServiceActivity() {
             "appChannelCount" to appChannelCount,
             "audioServiceDeclared" to serviceRunning,
             "smallIconResolves" to smallIconValid,
+            "mediaSessionActive" to PlaybackService.isSessionActive(),
+            "playbackServiceRunning" to isServiceRunning(PlaybackService::class.java),
             "posted" to posted,
             "postedCount" to posted.size,
         )
+    }
+
+    /** True when a service of this class is currently started. */
+    private fun isServiceRunning(clazz: Class<*>): Boolean {
+        return try {
+            val manager = getSystemService(android.app.ActivityManager::class.java)
+                ?: return false
+            val services = manager.getRunningServices(Int.MAX_VALUE)
+            services.any { it.service.className == clazz.name }
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /**
