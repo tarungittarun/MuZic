@@ -17,6 +17,8 @@ import android.os.IBinder
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
+import android.view.View
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import java.io.File
 import java.net.HttpURLConnection
@@ -66,6 +68,14 @@ class PlaybackService : Service() {
         const val EXTRA_SPEED = "speed"
         const val EXTRA_HAS_NEXT = "hasNext"
         const val EXTRA_HAS_PREVIOUS = "hasPrevious"
+        const val EXTRA_SHADE_ENABLED = "shadeEnabled"
+        const val EXTRA_SHADE_STYLE = "shadeStyle"
+        const val EXTRA_SHADE_THEME = "shadeTheme"
+        const val EXTRA_SHADE_ARTWORK = "shadeArtwork"
+        const val EXTRA_SHADE_PREVIOUS = "shadePrevious"
+        const val EXTRA_SHADE_NEXT = "shadeNext"
+        const val EXTRA_SHADE_PROGRESS = "shadeProgress"
+        const val EXTRA_SHADE_KEEP_ON_PAUSE = "shadeKeepOnPause"
 
         /** Set by MainActivity: receives transport commands from the card. */
         var commandSink: ((String, Double?) -> Unit)? = null
@@ -90,6 +100,16 @@ class PlaybackService : Service() {
     private var speed = 1f
     private var hasNext = true
     private var hasPrevious = true
+
+    // Shade-card customisation (user settings, forwarded from Dart).
+    private var shadeEnabled = true
+    private var shadeStyle = "rich"
+    private var shadeTheme = "system"
+    private var shadeArtwork = true
+    private var shadePrevious = true
+    private var shadeNext = true
+    private var shadeProgress = true
+    private var shadeKeepOnPause = true
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -148,6 +168,15 @@ class PlaybackService : Service() {
         speed = intent.getFloatExtra(EXTRA_SPEED, speed)
         hasNext = intent.getBooleanExtra(EXTRA_HAS_NEXT, hasNext)
         hasPrevious = intent.getBooleanExtra(EXTRA_HAS_PREVIOUS, hasPrevious)
+        shadeEnabled = intent.getBooleanExtra(EXTRA_SHADE_ENABLED, shadeEnabled)
+        intent.getStringExtra(EXTRA_SHADE_STYLE)?.let { shadeStyle = it }
+        intent.getStringExtra(EXTRA_SHADE_THEME)?.let { shadeTheme = it }
+        shadeArtwork = intent.getBooleanExtra(EXTRA_SHADE_ARTWORK, shadeArtwork)
+        shadePrevious = intent.getBooleanExtra(EXTRA_SHADE_PREVIOUS, shadePrevious)
+        shadeNext = intent.getBooleanExtra(EXTRA_SHADE_NEXT, shadeNext)
+        shadeProgress = intent.getBooleanExtra(EXTRA_SHADE_PROGRESS, shadeProgress)
+        shadeKeepOnPause =
+            intent.getBooleanExtra(EXTRA_SHADE_KEEP_ON_PAUSE, shadeKeepOnPause)
 
         publishSessionState()
         loadArtworkIfNeeded()
@@ -318,18 +347,22 @@ class PlaybackService : Service() {
     }
 
     /**
-     * The plain notification-list card described at [SHADE_NOTIFICATION_ID].
-     * Same artwork and transport buttons as the media card, but deliberately
-     * NOT a media notification: no MediaStyle, no session token, no transport
+     * The notification-list card described at [SHADE_NOTIFICATION_ID], in the
+     * style the user picked: "rich" (custom layout mirroring the lock-screen
+     * player) or "simple" (stock notification look). Deliberately NOT a media
+     * notification either way: no MediaStyle, no session token, no transport
      * category — otherwise SystemUI would divert it out of the shade list
      * just like the main card.
      */
     private fun buildShadeCard(): Notification {
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        return if (shadeStyle == "rich") buildRichShadeCard() else buildSimpleShadeCard()
+    }
+
+    private fun shadeBaseBuilder(): NotificationCompat.Builder {
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_muzic)
             .setContentTitle(latestTitle)
             .setContentText(latestArtist)
-            .setSubText(latestAlbum)
             .setContentIntent(contentIntent())
             // Hidden on a secure lock screen (the media player already shows
             // there); visible in the unlocked notification shade.
@@ -341,10 +374,14 @@ class PlaybackService : Service() {
             // pinned in the shade; it is cancelled when playback stops.
             .setOngoing(true)
             .setAutoCancel(false)
+    }
 
-        artworkBitmap?.let { builder.setLargeIcon(it) }
-
-        if (hasPrevious) {
+    private fun buildSimpleShadeCard(): Notification {
+        val builder = shadeBaseBuilder().setSubText(latestAlbum)
+        if (shadeArtwork) {
+            artworkBitmap?.let { builder.setLargeIcon(it) }
+        }
+        if (hasPrevious && shadePrevious) {
             builder.addAction(
                 R.drawable.ic_skip_previous,
                 "Previous",
@@ -356,7 +393,7 @@ class PlaybackService : Service() {
             if (playing) "Pause" else "Play",
             transportIntent("toggle"),
         )
-        if (hasNext) {
+        if (hasNext && shadeNext) {
             builder.addAction(
                 R.drawable.ic_skip_next,
                 "Next",
@@ -366,8 +403,138 @@ class PlaybackService : Service() {
         return builder.build()
     }
 
+    /**
+     * Custom-layout shade card that mirrors the lock-screen media player:
+     * album artwork, title/artist/album, a round accent play/pause button,
+     * previous/next and a progress bar with elapsed/total times and 10-second
+     * seek buttons. A RemoteViews progress bar cannot be dragged, so seeking
+     * is offered as -10s/+10s taps instead of the lock screen's slider.
+     */
+    private fun buildRichShadeCard(): Notification {
+        val collapsed = RemoteViews(packageName, R.layout.notification_shade_collapsed)
+        val expanded = RemoteViews(packageName, R.layout.notification_shade_expanded)
+        populateShadeViews(collapsed, expanded = false)
+        populateShadeViews(expanded, expanded = true)
+        return shadeBaseBuilder()
+            .setCustomContentView(collapsed)
+            .setCustomBigContentView(expanded)
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .build()
+    }
+
+    private fun populateShadeViews(views: RemoteViews, expanded: Boolean) {
+        views.setTextViewText(R.id.shade_title, latestTitle)
+        views.setTextViewText(R.id.shade_artist, latestArtist)
+        if (expanded) {
+            views.setTextViewText(R.id.shade_album, latestAlbum)
+        }
+
+        val art = artworkBitmap
+        if (shadeArtwork && art != null) {
+            views.setViewVisibility(R.id.shade_art, View.VISIBLE)
+            views.setImageViewBitmap(R.id.shade_art, art)
+        } else {
+            views.setViewVisibility(R.id.shade_art, View.GONE)
+        }
+
+        views.setImageViewResource(
+            R.id.shade_play,
+            if (playing) R.drawable.ic_pause else R.drawable.ic_play,
+        )
+        views.setOnClickPendingIntent(R.id.shade_play, transportIntent("toggle"))
+
+        val showPrevious = hasPrevious && shadePrevious
+        views.setViewVisibility(
+            R.id.shade_prev,
+            if (showPrevious) View.VISIBLE else View.GONE,
+        )
+        if (showPrevious) {
+            views.setOnClickPendingIntent(
+                R.id.shade_prev,
+                transportIntent("previous"),
+            )
+        }
+        val showNext = hasNext && shadeNext
+        views.setViewVisibility(
+            R.id.shade_next,
+            if (showNext) View.VISIBLE else View.GONE,
+        )
+        if (showNext) {
+            views.setOnClickPendingIntent(R.id.shade_next, transportIntent("next"))
+        }
+
+        if (expanded) {
+            val showProgress = shadeProgress && durationMs > 0
+            views.setViewVisibility(
+                R.id.shade_progress_row,
+                if (showProgress) View.VISIBLE else View.GONE,
+            )
+            if (showProgress) {
+                views.setProgressBar(
+                    R.id.shade_progress,
+                    durationMs.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+                    positionMs.coerceIn(0L, durationMs).toInt(),
+                    false,
+                )
+                views.setTextViewText(R.id.shade_elapsed, formatTime(positionMs))
+                views.setTextViewText(R.id.shade_duration, formatTime(durationMs))
+                views.setOnClickPendingIntent(
+                    R.id.shade_seek_back,
+                    transportIntent("seekBack"),
+                )
+                views.setOnClickPendingIntent(
+                    R.id.shade_seek_forward,
+                    transportIntent("seekForward"),
+                )
+            }
+        }
+        applyShadeTheme(views, expanded)
+    }
+
+    /**
+     * "system" leaves colours to the layout resources (which follow the
+     * device's light/dark mode via values-night); an explicit user choice of
+     * dark/light re-skins the card at build time.
+     */
+    private fun applyShadeTheme(views: RemoteViews, expanded: Boolean) {
+        val dark = when (shadeTheme) {
+            "dark" -> true
+            "light" -> false
+            else -> return
+        }
+        views.setInt(
+            R.id.shade_root,
+            "setBackgroundResource",
+            if (dark) R.drawable.shade_card_bg_dark else R.drawable.shade_card_bg_light,
+        )
+        val titleColor = if (dark) 0xFFFFFFFF.toInt() else 0xFF17181C.toInt()
+        val subColor = if (dark) 0xFFA7AAB8.toInt() else 0xFF5F6370.toInt()
+        views.setTextColor(R.id.shade_title, titleColor)
+        views.setTextColor(R.id.shade_artist, subColor)
+        views.setInt(R.id.shade_prev, "setColorFilter", titleColor)
+        views.setInt(R.id.shade_next, "setColorFilter", titleColor)
+        if (expanded) {
+            views.setTextColor(R.id.shade_album, subColor)
+            views.setTextColor(R.id.shade_elapsed, subColor)
+            views.setTextColor(R.id.shade_duration, subColor)
+            views.setTextColor(R.id.shade_seek_back, subColor)
+            views.setTextColor(R.id.shade_seek_forward, subColor)
+        }
+    }
+
+    private fun formatTime(ms: Long): String {
+        val totalSeconds = (ms / 1000).coerceAtLeast(0)
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return "%d:%02d".format(minutes, seconds)
+    }
+
     private fun postShadeCard() {
         val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (!shadeEnabled || (!playing && !shadeKeepOnPause)) {
+            runCatching { manager.cancel(SHADE_NOTIFICATION_ID) }
+            return
+        }
         runCatching { manager.notify(SHADE_NOTIFICATION_ID, buildShadeCard()) }
     }
 
@@ -422,6 +589,8 @@ class TransportReceiver : BroadcastReceiver() {
             "previous" -> "previous"
             "play" -> "play"
             "pause" -> "pause"
+            "seekBack" -> "seekBack"
+            "seekForward" -> "seekForward"
             else -> return
         } ?: return
         PlaybackService.commandSink?.invoke(command, null)

@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="music_background">#090A10</color>
+
+    <!-- Shade (notification panel) card, system/light defaults. Dark-mode
+         values live in values-night/colors.xml. -->
+    <color name="shade_card_bg">#FFFFFF</color>
+    <color name="shade_title">#17181C</color>
+    <color name="shade_sub">#5F6370</color>
+    <color name="shade_icon">#3A3D47</color>
+    <color name="shade_accent">#6C5CE7</color>
+    <color name="shade_track">#E3E4EB</color>
 </resources>

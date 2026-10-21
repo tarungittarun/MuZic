@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../models/song_model.dart';
 import '../services/app_log.dart';
+import '../services/app_settings_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/library_service.dart';
@@ -22,7 +23,9 @@ class PlayerController extends ChangeNotifier {
     required LibraryService library,
     required UsageService usage,
     MediaSessionService? mediaSession,
+    AppSettingsService? settings,
   })  : _mediaSession = mediaSession,
+        _settings = settings,
         _audio = audio,
         _musicApi = musicApi,
         _downloads = downloads,
@@ -56,6 +59,8 @@ class PlayerController extends ChangeNotifier {
       _publishMediaSession();
     }));
     _mediaSession?.onCommand = _handleMediaCommand;
+    // Shade-card customisation applies the moment it changes in Settings.
+    _settings?.addListener(_publishMediaSession);
     _subscriptions.add(_audio.player.currentIndexStream.listen((value) {
       if (value == null || value < 0 || value >= _queue.length) return;
       _currentIndex = value;
@@ -81,6 +86,7 @@ class PlayerController extends ChangeNotifier {
   }
 
   final MediaSessionService? _mediaSession;
+  final AppSettingsService? _settings;
   final AudioPlayerService _audio;
   final MusicApiService _musicApi;
   final DownloadService _downloads;
@@ -589,6 +595,7 @@ class PlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _settings?.removeListener(_publishMediaSession);
     _playGeneration++;
     _flushListeningTime();
     for (final subscription in _subscriptions) {
@@ -620,6 +627,14 @@ class PlayerController extends ChangeNotifier {
       speed: _audio.player.speed,
       hasNext: _currentIndex != null && _currentIndex! < _queue.length - 1,
       hasPrevious: (_currentIndex ?? 0) > 0 || _position.inSeconds > 3,
+      shadeEnabled: _settings?.notificationEnabled ?? true,
+      shadeStyle: _settings?.shadeCardStyle ?? 'rich',
+      shadeTheme: _settings?.shadeCardTheme ?? 'system',
+      shadeArtwork: _settings?.shadeCardArtwork ?? true,
+      shadePrevious: _settings?.notificationPrevious ?? true,
+      shadeNext: _settings?.notificationNext ?? true,
+      shadeProgress: _settings?.notificationSeekBar ?? true,
+      shadeKeepOnPause: _settings?.keepNotificationOnPause ?? true,
     )));
   }
 
@@ -644,6 +659,21 @@ class PlayerController extends ChangeNotifier {
       case 'seek':
         if (value != null) {
           unawaited(seek(Duration(milliseconds: value.round())));
+        }
+        break;
+      case 'seekBack':
+        {
+          final target = _position - const Duration(seconds: 10);
+          unawaited(seek(target < Duration.zero ? Duration.zero : target));
+        }
+        break;
+      case 'seekForward':
+        {
+          final target = _position + const Duration(seconds: 10);
+          final clamped = _duration > Duration.zero && target > _duration
+              ? _duration
+              : target;
+          unawaited(seek(clamped));
         }
         break;
       case 'stop':

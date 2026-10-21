@@ -209,15 +209,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: settings.notificationEnabled
                           ? palette.accent
                           : palette.textSecondary),
-                  title: const Text('Show playback notification'),
+                  title: const Text('Show card in notification panel'),
                   subtitle: Text(
-                    'Media card with title, artwork and controls while playing.',
+                    'Playback controls when you pull the shade down. The '
+                    'lock-screen player always follows playback.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   onChanged: (value) =>
                       settings.setNotificationEnabled(value),
                 ),
                 if (settings.notificationEnabled) ...<Widget>[
+                  ListTile(
+                    leading: Icon(Icons.dashboard_customize_outlined,
+                        color: palette.textSecondary),
+                    title: const Text('Card style'),
+                    subtitle: Text(
+                      settings.shadeCardStyle == 'rich'
+                          ? 'Rich — mirrors the lock-screen player'
+                          : 'Simple — stock notification look',
+                      style: TextStyle(color: palette.accent, fontSize: 12),
+                    ),
+                    trailing: const Icon(Icons.expand_more_rounded),
+                    onTap: () => _pickShadeCardStyle(context, settings),
+                  ),
+                  ListTile(
+                    leading: Icon(Icons.contrast_rounded,
+                        color: palette.textSecondary),
+                    title: const Text('Card theme'),
+                    subtitle: Text(
+                      switch (settings.shadeCardTheme) {
+                        'dark' => 'Dark',
+                        'light' => 'Light',
+                        _ => 'Follow system',
+                      },
+                      style: TextStyle(color: palette.accent, fontSize: 12),
+                    ),
+                    trailing: const Icon(Icons.expand_more_rounded),
+                    onTap: () => _pickShadeCardTheme(context, settings),
+                  ),
+                  SwitchListTile(
+                    value: settings.shadeCardArtwork,
+                    title: const Text('Album artwork'),
+                    onChanged: (value) =>
+                        settings.setShadeCardArtwork(value),
+                  ),
                   SwitchListTile(
                     value: settings.notificationPrevious,
                     title: const Text('Previous button'),
@@ -232,9 +267,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   SwitchListTile(
                     value: settings.notificationSeekBar,
-                    title: const Text('Seek bar'),
+                    title: const Text('Progress bar'),
                     subtitle: Text(
-                      'Drag to scrub straight from the shade.',
+                      'Elapsed/total time with -10s/+10s seek on the '
+                      'expanded card.',
                       style: TextStyle(color: palette.textMuted, fontSize: 12),
                     ),
                     onChanged: (value) =>
@@ -242,9 +278,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   SwitchListTile(
                     value: settings.keepNotificationOnPause,
-                    title: const Text('Keep notification when paused'),
+                    title: const Text('Keep card when paused'),
                     subtitle: Text(
-                      'Takes effect after the app restarts.',
+                      'Off: the shade card leaves when you pause.',
                       style: TextStyle(color: palette.textMuted, fontSize: 12),
                     ),
                     onChanged: (value) =>
@@ -777,6 +813,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (selected != null) {
       await settings.setLyricsLanguage(selected);
+    }
+  }
+
+  Future<void> _pickShadeCardStyle(
+    BuildContext context,
+    AppSettingsService settings,
+  ) async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: context.palette.surface,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text(
+                'Notification panel card style',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+              ),
+            ),
+            for (final style in const <String>['rich', 'simple'])
+              ListTile(
+                title: Text(style == 'rich' ? 'Rich' : 'Simple'),
+                subtitle: Text(
+                  style == 'rich'
+                      ? 'Mirrors the lock-screen player: artwork, round '
+                          'play button and progress.'
+                      : 'Stock Android notification with text buttons.',
+                ),
+                trailing: settings.shadeCardStyle == style
+                    ? Icon(Icons.check_rounded,
+                        color: context.palette.accent)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, style),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) {
+      await settings.setShadeCardStyle(selected);
+    }
+  }
+
+  Future<void> _pickShadeCardTheme(
+    BuildContext context,
+    AppSettingsService settings,
+  ) async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: context.palette.surface,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text(
+                'Notification panel card theme',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+              ),
+            ),
+            for (final theme in const <String>['system', 'dark', 'light'])
+              ListTile(
+                title: Text(switch (theme) {
+                  'dark' => 'Dark',
+                  'light' => 'Light',
+                  _ => 'Follow system',
+                }),
+                trailing: settings.shadeCardTheme == theme
+                    ? Icon(Icons.check_rounded,
+                        color: context.palette.accent)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, theme),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) {
+      await settings.setShadeCardTheme(selected);
     }
   }
 

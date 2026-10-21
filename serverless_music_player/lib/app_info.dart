@@ -2,8 +2,8 @@
 abstract final class AppInfo {
   static const String displayName = 'MuZic';
   static const String tagline = 'Listen your way.';
-  static const String version = '1.5.3';
-  static const String buildNumber = '11';
+  static const String version = '1.5.4';
+  static const String buildNumber = '12';
   static const String userAgent =
       'MuZic/$version (https://github.com/tarungittarun/MuZic)';
 }

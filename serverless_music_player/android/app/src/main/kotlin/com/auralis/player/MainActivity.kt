@@ -171,6 +171,14 @@ class MainActivity : FlutterActivity() {
                         putExtra("speed", call.argument<Double>("speed")?.toFloat() ?: 1f)
                         putExtra("hasNext", call.argument<Boolean>("hasNext") ?: true)
                         putExtra("hasPrevious", call.argument<Boolean>("hasPrevious") ?: true)
+                        putExtra("shadeEnabled", call.argument<Boolean>("shadeEnabled") ?: true)
+                        putExtra("shadeStyle", call.argument<String>("shadeStyle") ?: "rich")
+                        putExtra("shadeTheme", call.argument<String>("shadeTheme") ?: "system")
+                        putExtra("shadeArtwork", call.argument<Boolean>("shadeArtwork") ?: true)
+                        putExtra("shadePrevious", call.argument<Boolean>("shadePrevious") ?: true)
+                        putExtra("shadeNext", call.argument<Boolean>("shadeNext") ?: true)
+                        putExtra("shadeProgress", call.argument<Boolean>("shadeProgress") ?: true)
+                        putExtra("shadeKeepOnPause", call.argument<Boolean>("shadeKeepOnPause") ?: true)
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(intent)

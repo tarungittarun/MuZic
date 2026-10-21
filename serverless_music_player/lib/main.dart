@@ -66,6 +66,7 @@ Future<void> main() async {
     library: library,
     usage: usage,
     mediaSession: mediaSession,
+    settings: settings,
   );
   final diagnostics = DiagnosticsService(
     settings: settings,

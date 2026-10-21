@@ -20,6 +20,14 @@ class MediaSessionState {
     this.speed = 1,
     this.hasNext = false,
     this.hasPrevious = false,
+    this.shadeEnabled = true,
+    this.shadeStyle = 'rich',
+    this.shadeTheme = 'system',
+    this.shadeArtwork = true,
+    this.shadePrevious = true,
+    this.shadeNext = true,
+    this.shadeProgress = true,
+    this.shadeKeepOnPause = true,
   });
 
   final String title;
@@ -34,8 +42,25 @@ class MediaSessionState {
   final bool hasNext;
   final bool hasPrevious;
 
+  /// User customisation for the notification-panel (shade) card. Mirrors the
+  /// notification settings; applied by the native PlaybackService.
+  final bool shadeEnabled;
+  final String shadeStyle;
+  final String shadeTheme;
+  final bool shadeArtwork;
+  final bool shadePrevious;
+  final bool shadeNext;
+  final bool shadeProgress;
+  final bool shadeKeepOnPause;
+
   /// Identity of the track, used to avoid pointless re-posts.
   String get trackKey => '$title|$artist|${artworkPath ?? artworkUrl ?? ''}';
+
+  /// Identity of the shade-card options, so a settings change re-posts the
+  /// card even when the track and position have not moved.
+  String get configKey => '$shadeEnabled|$shadeStyle|$shadeTheme|'
+      '$shadeArtwork|$shadePrevious|$shadeNext|$shadeProgress|'
+      '$shadeKeepOnPause';
 
   Map<String, Object?> toMap() => <String, Object?>{
         'title': title,
@@ -49,6 +74,14 @@ class MediaSessionState {
         'speed': speed,
         'hasNext': hasNext,
         'hasPrevious': hasPrevious,
+        'shadeEnabled': shadeEnabled,
+        'shadeStyle': shadeStyle,
+        'shadeTheme': shadeTheme,
+        'shadeArtwork': shadeArtwork,
+        'shadePrevious': shadePrevious,
+        'shadeNext': shadeNext,
+        'shadeProgress': shadeProgress,
+        'shadeKeepOnPause': shadeKeepOnPause,
       };
 }
 
@@ -72,6 +105,7 @@ class MediaSessionService {
   void Function(String command, double? value)? onCommand;
 
   String? _lastTrackKey;
+  String? _lastConfigKey;
   bool? _lastPlaying;
   int _lastPostedPosition = -10000;
 
@@ -79,11 +113,15 @@ class MediaSessionService {
   /// the notification is not re-posted on every tick.
   Future<void> update(MediaSessionState state) async {
     final trackChanged = state.trackKey != _lastTrackKey;
+    final configChanged = state.configKey != _lastConfigKey;
     final playChanged = state.playing != _lastPlaying;
     final positionJumped =
         (state.positionMs - _lastPostedPosition).abs() > 3000;
-    if (!trackChanged && !playChanged && !positionJumped) return;
+    if (!trackChanged && !configChanged && !playChanged && !positionJumped) {
+      return;
+    }
     _lastTrackKey = state.trackKey;
+    _lastConfigKey = state.configKey;
     _lastPlaying = state.playing;
     _lastPostedPosition = state.positionMs;
     try {
@@ -100,6 +138,7 @@ class MediaSessionService {
   /// Removes the card (playback finished or stopped by the user).
   Future<void> hide() async {
     _lastTrackKey = null;
+    _lastConfigKey = null;
     _lastPlaying = null;
     _lastPostedPosition = -10000;
     try {
