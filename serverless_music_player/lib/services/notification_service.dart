@@ -102,6 +102,44 @@ class NotificationService {
     }
   }
 
+  /// Full chain report for the media card, straight from Android.
+  ///
+  /// Returns human-readable lines so the Settings screen can show exactly
+  /// which link is broken when no playback card appears.
+  static Future<List<String>> healthReport() async {
+    try {
+      final raw = await const MethodChannel('music_player/system')
+          .invokeMethod<Map<dynamic, dynamic>>('mediaNotificationDiagnostics');
+      if (raw == null) return const <String>['Unavailable on this device.'];
+      final enabled = raw['notificationsEnabled'] == true;
+      final permission = raw['postPermission'] == true;
+      final channel = raw['playbackChannelExists'] == true;
+      final importance = raw['playbackChannelImportance'];
+      final service = raw['audioServiceDeclared'] == true;
+      final icon = raw['smallIconResolves'] == true;
+      final posted = raw['postedCount'] ?? 0;
+      final lines = <String>[
+        '${enabled ? '✅' : '❌'} Notifications allowed for MuZic',
+        '${permission ? '✅' : '❌'} Notification permission granted',
+        '${channel ? '✅' : '❌'} Playback channel created'
+            '${channel ? ' (importance $importance)' : ''}',
+        '${service ? '✅' : '❌'} Playback service declared',
+        '${icon ? '✅' : '❌'} Notification icon in build',
+        '${posted is int && posted > 0 ? '✅' : '⚠️'} '
+            '$posted MuZic notification(s) showing now',
+      ];
+      if (importance is int && importance == 0) {
+        lines.add('This channel is turned off in Android settings — open '
+            'notification settings and turn MuZic back on.');
+      }
+      return lines;
+    } on MissingPluginException {
+      return const <String>['Unavailable on this platform.'];
+    } on PlatformException catch (error) {
+      return <String>['Error: ${error.message ?? error.code}'];
+    }
+  }
+
   /// Current notification permission state, without prompting.
   static Future<bool> areEnabled() async {
     try {

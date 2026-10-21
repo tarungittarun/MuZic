@@ -272,6 +272,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 Divider(height: 1, color: palette.outline),
                 ListTile(
+                  leading: Icon(Icons.health_and_safety_outlined,
+                      color: palette.textSecondary),
+                  title: const Text('Media notification health'),
+                  subtitle: Text(
+                    'Checks every step between MuZic and the playback card in '
+                    'your notification shade.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded, size: 18),
+                  onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final lines = await NotificationService.healthReport();
+                    if (!mounted) return;
+                    final fix = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Media notification health'),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            for (final line in lines)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 7),
+                                child: Text(
+                                  line,
+                                  style: const TextStyle(
+                                      fontSize: 12.5, height: 1.35),
+                                ),
+                              ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Play a song, then check again. If the last line '
+                              'stays at zero, Android is blocking the card.',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: Theme.of(dialogContext)
+                                    .colorScheme
+                                    .outline,
+                              ),
+                            ),
+                          ],
+                        ),
+                        actions: <Widget>[
+                          TextButton(
+                            onPressed: () => Navigator.of(dialogContext)
+                                .pop(false),
+                            child: const Text('Close'),
+                          ),
+                          FilledButton(
+                            onPressed: () =>
+                                Navigator.of(dialogContext).pop(true),
+                            child: const Text('Open settings'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (fix == true) {
+                      await NotificationService.openSystemSettings();
+                    } else {
+                      messenger.hideCurrentSnackBar();
+                    }
+                  },
+                ),
+                Divider(height: 1, color: palette.outline),
+                ListTile(
                   leading: Icon(Icons.notifications_none_rounded,
                       color: palette.textSecondary),
                   title: const Text('Send a test notification'),
