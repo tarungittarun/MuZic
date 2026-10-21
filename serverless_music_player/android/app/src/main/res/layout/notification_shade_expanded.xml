@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Expanded shade card styled after the lock-screen media player:
-     full-width artwork with title/artist and the big pale play button
-     overlaid at its base, then the waveform seekbar and the shuffle /
-     previous / -10s / +10s / next / repeat row.
+     full-width artwork band, title/artist with the big pale play
+     button, the waveform seekbar, and the shuffle / previous / -10s /
+     +10s / next / repeat row on a dark card.
 
-     Height discipline is deliberate: on the reference device (Motorola
-     Edge 60 Neo, Android 16) every custom big view materially taller
-     than ~180dp is silently dropped by SystemUI, while ~180dp lands.
-     So this card uses fixed heights only (no layout_weight, no
-     minHeight) and totals ~177dp: 86dp artwork, the 52dp title row
-     pulled 40dp up over the artwork's base, ~33dp progress, 46dp
-     transport. The root stays a plain LinearLayout, the one container
-     family this SystemUI is proven to keep. -->
+     Deliberately built ONLY from constructs proven to render on the
+     reference device (Motorola Edge 60 Neo, Android 16): plain
+     LinearLayouts, fixed heights, standard margins - no negative
+     margins, no layout_weight/minHeight artwork, no text shadows, no
+     overlay containers. Richer variants using those were silently
+     dropped by this SystemUI, and one (as a foreground notification)
+     crashed the app, so this card stays inside the proven envelope:
+     ~179dp tall in total. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/shade_root"
     android:layout_width="match_parent"
@@ -22,16 +22,15 @@
     <ImageView
         android:id="@+id/shade_art"
         android:layout_width="match_parent"
-        android:layout_height="86dp"
+        android:layout_height="52dp"
         android:contentDescription="Album artwork"
         android:scaleType="centerCrop"
         android:src="@drawable/shade_banner_placeholder" />
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:layout_marginTop="-40dp"
-        android:background="@drawable/shade_scrim"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="16dp"
@@ -49,8 +48,6 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:shadowColor="#80000000"
-                android:shadowRadius="4"
                 android:textColor="#FFFFFF"
                 android:textSize="17sp"
                 android:textStyle="bold" />
@@ -62,20 +59,18 @@
                 android:layout_marginTop="2dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:shadowColor="#80000000"
-                android:shadowRadius="4"
                 android:textColor="#E8FFFFFF"
                 android:textSize="12.5sp" />
         </LinearLayout>
 
         <ImageView
             android:id="@+id/shade_play"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
             android:layout_marginStart="12dp"
             android:background="@drawable/shade_play_bg_light"
             android:contentDescription="Play or pause"
-            android:padding="13dp"
+            android:padding="12dp"
             android:src="@drawable/ic_play_dark" />
     </LinearLayout>
 
@@ -91,7 +86,7 @@
         <ImageView
             android:id="@+id/shade_wave"
             android:layout_width="match_parent"
-            android:layout_height="18dp"
+            android:layout_height="16dp"
             android:contentDescription="Seek waveform"
             android:scaleType="fitXY" />
 
@@ -125,20 +120,20 @@
         android:orientation="horizontal"
         android:paddingStart="10dp"
         android:paddingEnd="10dp"
-        android:paddingBottom="8dp">
+        android:paddingBottom="6dp">
 
         <ImageView
             android:id="@+id/shade_shuffle"
-            android:layout_width="36dp"
-            android:layout_height="38dp"
+            android:layout_width="34dp"
+            android:layout_height="36dp"
             android:contentDescription="Shuffle"
             android:padding="7dp"
             android:src="@drawable/ic_shuffle" />
 
         <ImageView
             android:id="@+id/shade_prev"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="2dp"
             android:contentDescription="Previous"
             android:padding="8dp"
@@ -148,7 +143,7 @@
         <TextView
             android:id="@+id/shade_seek_back"
             android:layout_width="wrap_content"
-            android:layout_height="38dp"
+            android:layout_height="36dp"
             android:gravity="center"
             android:minWidth="42dp"
             android:text="-10s"
@@ -164,7 +159,7 @@
         <TextView
             android:id="@+id/shade_seek_forward"
             android:layout_width="wrap_content"
-            android:layout_height="38dp"
+            android:layout_height="36dp"
             android:gravity="center"
             android:minWidth="42dp"
             android:text="+10s"
@@ -174,8 +169,8 @@
 
         <ImageView
             android:id="@+id/shade_next"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:contentDescription="Next"
             android:padding="8dp"
             android:src="@drawable/ic_skip_next"
@@ -183,8 +178,8 @@
 
         <ImageView
             android:id="@+id/shade_repeat"
-            android:layout_width="36dp"
-            android:layout_height="38dp"
+            android:layout_width="34dp"
+            android:layout_height="36dp"
             android:layout_marginStart="2dp"
             android:contentDescription="Repeat"
             android:padding="7dp"

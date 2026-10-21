@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Expanded shade card, conservative style: full-width artwork band,
      then title/play, the transport row and the progress bar in plain
-     flow (no overlaps, no negative margins). Used automatically when a
-     device drops the banner layout. Fixed heights totalling ~172dp -
-     on the reference device (Motorola Edge 60 Neo, Android 16) custom
-     big views materially taller than ~180dp are silently discarded,
-     while this size is proven to land. -->
+     flow. Used automatically when a device drops the banner layout.
+     Built only from constructs proven to render on the reference
+     device (Motorola Edge 60 Neo, Android 16), fixed heights,
+     ~166dp in total. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/shade_root"
     android:layout_width="match_parent"
@@ -16,7 +15,7 @@
     <ImageView
         android:id="@+id/shade_art"
         android:layout_width="match_parent"
-        android:layout_height="42dp"
+        android:layout_height="40dp"
         android:contentDescription="Album artwork"
         android:scaleType="centerCrop" />
 
@@ -58,8 +57,8 @@
 
         <ImageView
             android:id="@+id/shade_play"
-            android:layout_width="46dp"
-            android:layout_height="46dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/shade_play_bg"
             android:contentDescription="Play or pause"
@@ -78,16 +77,16 @@
 
         <ImageView
             android:id="@+id/shade_shuffle"
-            android:layout_width="36dp"
-            android:layout_height="38dp"
+            android:layout_width="34dp"
+            android:layout_height="36dp"
             android:contentDescription="Shuffle"
             android:padding="7dp"
             android:src="@drawable/ic_shuffle" />
 
         <ImageView
             android:id="@+id/shade_prev"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="2dp"
             android:contentDescription="Previous"
             android:padding="8dp"
@@ -97,7 +96,7 @@
         <TextView
             android:id="@+id/shade_seek_back"
             android:layout_width="wrap_content"
-            android:layout_height="38dp"
+            android:layout_height="36dp"
             android:gravity="center"
             android:minWidth="42dp"
             android:text="-10s"
@@ -113,7 +112,7 @@
         <TextView
             android:id="@+id/shade_seek_forward"
             android:layout_width="wrap_content"
-            android:layout_height="38dp"
+            android:layout_height="36dp"
             android:gravity="center"
             android:minWidth="42dp"
             android:text="+10s"
@@ -123,8 +122,8 @@
 
         <ImageView
             android:id="@+id/shade_next"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_marginStart="2dp"
             android:contentDescription="Next"
             android:padding="8dp"
@@ -133,8 +132,8 @@
 
         <ImageView
             android:id="@+id/shade_repeat"
-            android:layout_width="36dp"
-            android:layout_height="38dp"
+            android:layout_width="34dp"
+            android:layout_height="36dp"
             android:layout_marginStart="2dp"
             android:contentDescription="Repeat"
             android:padding="7dp"
