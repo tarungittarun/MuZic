@@ -87,7 +87,33 @@ whose 5 px of slack would have overflowed with a larger system font.
 
 **Fixed in:** commit `c822a8d`.
 
-### 2.3 Settings screen was unreachable by the test (test defect, worth knowing)
+### 2.3 Every APK shipped as version `1.0.0` (code `1`)
+
+The device matrix prints the version the phone actually sees. It reported
+`1.0.0+1` while `pubspec.yaml` said `1.4.1+6`:
+
+```groovy
+// android/app/build.gradle
+versionCode = 1          // beat the pubspec on every build
+versionName = "1.0.0"
+```
+
+The Flutter Gradle plugin's pubspec version is only a *default*, so the
+hard-coded values won. Every APK ever handed over installed as `1.0.0` with
+version code 1 — the "versionCode must increase every build" rule was never
+actually being met, even though the pubspec was being bumped every round.
+
+Both values now come from the Flutter extension
+(`flutter.versionCode` / `flutter.versionName`, which read
+`version: 1.4.2+7`), and the release workflow reads
+`aapt2 dump badging` and fails if the manifest disagrees with the pubspec.
+`--split-per-abi` offsets the code per ABI (arm64-v8a is `2000 + base`), so the
+guard compares the base code and the version name rather than the raw value.
+
+**Fixed in:** commits `0384728`, `2347486`, `a05bea8`; first correct build is
+`apk-build-45` (`1.4.2`, code 2007 on arm64 / 1007 on armv7).
+
+### 2.4 Settings screen was unreachable by the test (test defect, worth knowing)
 
 The first version of the journey tapped the *tune* icon to open Settings. That
 icon is also the audio-effects entry inside the now-playing sheet, so the test
@@ -115,6 +141,8 @@ emulator matrix produced no results at first.
 | `qemu-system-x86_64: error while loading shared libraries: libpulse.so.0` | emulator 37.x links libpulse **even in `-no-window` mode** | `apt-get install libpulse0 libxcomposite1 libxcursor1 libxi6 libxtst6 libnss3 libgbm1 libxdamage1 libxrandr2` |
 | `Unknown AVD name [muzic-34]` right after a successful create | `avdmanager` wrote the AVD outside `$HOME/.android/avd` | create **and** launch with an explicit `ANDROID_AVD_HOME` |
 | Device facts all blank / `package=not installed` | every CI step is a fresh shell — `PATH` exports do not persist | export the SDK paths inside each step that needs ADB; capture package facts *before* `flutter test` (it uninstalls the app afterwards) |
+| One matrix leg failed to compile while the other passed on the same commit | transient Gradle failure, and the step only printed its last 20 lines | retry once, annotate the compiler errors, keep `build-debug.log` as an artefact |
+| Emulator boots in 40–100 s but occasionally needs longer | cold boot with `-wipe-data` | 15-minute bounded poll with a 20 s per-`adb` timeout |
 
 KVM was never the problem: `/dev/kvm` is present and `kvm-ok` reports
 "KVM acceleration can be used" on the runner.
@@ -123,7 +151,7 @@ KVM was never the problem: `/dev/kvm` is present and `kvm-ok` reports
 
 ## 4. Current results
 
-From [`LATEST.md`](LATEST.md) (run 21, commit `c822a8d`):
+From [`LATEST.md`](LATEST.md) (run 26, commit `308bd6d`):
 
 | Area | Result |
 | --- | --- |
@@ -132,9 +160,10 @@ From [`LATEST.md`](LATEST.md) (run 21, commit `c822a8d`):
 | Line coverage | 55.0 % (686/1247 lines) |
 | E2E steps, API 30 (Android 11) | 14/14 PASS |
 | E2E steps, API 34 (Android 14) | 14/14 PASS |
-| Cold start (software-rendered emulator) | 3.45 s API 30 / 3.52 s API 34 — budget 8 s |
-| Search round trip | 2.89 s / 3.01 s — budget 12 s |
-| Playback start | 1.24 s / 1.06 s — budget 15 s |
+| Version seen on device | `1.4.2+7` on both emulators (was `1.0.0+1`) |
+| Cold start (software-rendered emulator) | 5.27 s worst case — budget 8 s |
+| Search round trip | 2.74 s — budget 12 s |
+| Playback start | 0.90 s — budget 15 s |
 
 Timings are worst-case: the emulator renders with `swiftshader` software GL and
 shares 4 vCPUs. Real hardware is materially faster.
