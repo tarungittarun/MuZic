@@ -40,6 +40,7 @@ class MainActivity : AudioServiceActivity() {
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
+    private var mediaSessionChannel: MethodChannel? = null
     private var localFilesChannel: MethodChannel? = null
     private var pendingLocalResult: MethodChannel.Result? = null
     private var visualizerChannel: EventChannel? = null
@@ -111,6 +112,72 @@ class MainActivity : AudioServiceActivity() {
                     call.argument<String>("text") ?: "",
                     result,
                 )
+                else -> result.notImplemented()
+            }
+        }
+
+        mediaSessionChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "music_player/media_session",
+        )
+        PlaybackService.commandSink = { command, value ->
+            runOnUiThread {
+                mediaSessionChannel?.invokeMethod(
+                    "onCommand",
+                    mapOf("command" to command, "value" to value),
+                )
+            }
+        }
+        PlaybackService.errorSink = { message ->
+            runOnUiThread {
+                mediaSessionChannel?.invokeMethod(
+                    "onLog",
+                    mapOf("message" to message),
+                )
+            }
+        }
+        mediaSessionChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "update" -> {
+                    val intent = Intent(this, PlaybackService::class.java).apply {
+                        putExtra("title", call.argument<String>("title") ?: "MuZic")
+                        putExtra("artist", call.argument<String>("artist") ?: "")
+                        putExtra("album", call.argument<String>("album") ?: "")
+                        putExtra("artworkUrl", call.argument<String>("artworkUrl"))
+                        putExtra("artworkPath", call.argument<String>("artworkPath"))
+                        putExtra("playing", call.argument<Boolean>("playing") ?: false)
+                        putExtra("positionMs", call.argument<Int>("positionMs")?.toLong() ?: 0L)
+                        putExtra("durationMs", call.argument<Int>("durationMs")?.toLong() ?: 0L)
+                        putExtra("speed", call.argument<Double>("speed")?.toFloat() ?: 1f)
+                        putExtra("hasNext", call.argument<Boolean>("hasNext") ?: true)
+                        putExtra("hasPrevious", call.argument<Boolean>("hasPrevious") ?: true)
+                        putExtra("shuffle", call.argument<Boolean>("shuffle") ?: false)
+                        putExtra("repeatMode", call.argument<Int>("repeatMode") ?: 0)
+                        // The shade card is always on with the full control
+                        // set; the user's phone diverts the system media
+                        // player out of the shade, so this card is the
+                        // shade presence (the lock screen keeps the exact
+                        // system player from audio_service).
+                        putExtra("shadeEnabled", true)
+                        putExtra("shadeStyle", "rich")
+                        putExtra("shadeTheme", "system")
+                        putExtra("shadeArtwork", true)
+                        putExtra("shadePrevious", true)
+                        putExtra("shadeNext", true)
+                        putExtra("shadeProgress", true)
+                        putExtra("shadeKeepOnPause", true)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                    result.success(true)
+                }
+                "hide" -> {
+                    stopService(Intent(this, PlaybackService::class.java))
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }

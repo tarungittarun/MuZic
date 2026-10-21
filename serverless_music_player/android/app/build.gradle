@@ -89,3 +89,11 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Shade-card service only: MediaSessionCompat/MediaStyle (androidx.media)
+    // and NotificationCompat (androidx.core). The system media player
+    // (audio_service) does not depend on these being declared here.
+    implementation "androidx.media:media:1.7.0"
+    implementation "androidx.core:core-ktx:1.13.1"
+}

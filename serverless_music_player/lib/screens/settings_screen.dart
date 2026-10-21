@@ -208,10 +208,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: palette.textSecondary),
                   title: const Text('System media player'),
                   subtitle: Text(
-                    'Playback controls in the notification shade, lock '
-                    'screen and Quick Settings are provided by Android '
-                    'while a song plays — artwork, seek, shuffle and '
-                    'repeat included.',
+                    'The lock-screen and Quick Settings player is provided '
+                    'by Android while a song plays — artwork, seek, '
+                    'shuffle and repeat included. On phones whose '
+                    'software keeps that player out of the notification '
+                    'shade, MuZic also posts its own shade card with the '
+                    'same controls, synced to playback.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                 ),

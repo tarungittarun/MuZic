@@ -116,14 +116,26 @@ Open the now-playing sheet and tap the **lyrics** icon.
 ![Playback notification settings](img/notifications.svg)
 
 MuZic uses Android's **system media player** — the same controller the
-phone itself renders in the notification shade, on the lock screen and
-in Quick Settings (full-width artwork, seek bar, shuffle / previous /
-play-pause / next / repeat). It is provided by the standard
-`audio_service` + `just_audio_background` stack: every song carries a
-media tag, and Android turns the player's state into the controller
-automatically, including Bluetooth and Android Auto. The controller
-appears while a song plays and stays when you pause; swipe it away
-when paused to dismiss it.
+phone itself renders on the lock screen and in Quick Settings
+(full-width artwork, seek bar, shuffle / previous / play-pause / next /
+repeat). It is provided by the standard `audio_service` +
+`just_audio_background` stack: every song carries a media tag, and
+Android turns the player's state into the controller automatically,
+including Bluetooth and Android Auto. The controller appears while a
+song plays and stays when you pause; swipe it away when paused to
+dismiss it.
+
+Some phones (including several Motorola builds) keep that system
+player **out of the notification shade** even while it shows on the
+lock screen. For those, MuZic also posts its own **shade player card**
+into the notification panel: full-width track artwork as the card
+background, title/artist, a live seek bar and the same transport
+controls (shuffle, previous, play/pause, next, repeat), kept in sync
+with playback. The two surfaces never fight: the lock screen and Quick
+Settings keep the exact system player, the shade shows the MuZic card.
+The card posts on its own notification slot, verifies that Android
+actually kept it, and steps down to a simpler layout automatically if
+a device refuses the rich one — so a working card always lands.
 
 *Settings → Playback*
 

@@ -137,6 +137,11 @@ class NotificationService {
               (entry) => entry.toString().contains('com.auralis.player.muzic.audio'));
       lines.add('${playerShowing ? '✅' : '⚠️'} System media player '
           '${playerShowing ? 'showing' : 'not showing — play a song, then pull down the shade'}');
+      final shadeShowing = postedEntries is List &&
+          postedEntries.any(
+              (entry) => entry.toString().startsWith('com.music.player.playback.v2#'));
+      lines.add('${shadeShowing ? '✅' : '⚠️'} Shade player card '
+          '${shadeShowing ? 'showing in notification panel' : 'not showing — play a song, then pull down the shade'}');
       if (importance is int && importance == 0) {
         lines.add('This channel is turned off in Android settings — open '
             'notification settings and turn MuZic back on.');

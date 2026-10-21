@@ -11,6 +11,7 @@ import 'services/audio_player_service.dart';
 import 'services/diagnostics_service.dart';
 import 'services/download_service.dart';
 import 'services/library_service.dart';
+import 'services/media_session_service.dart';
 import 'services/music_api_service.dart';
 import 'services/notification_service.dart';
 import 'services/sleep_timer_service.dart';
@@ -64,12 +65,18 @@ Future<void> main() async {
   final videoLibrary = VideoLibraryService();
   await videoLibrary.init();
   final videoExports = VideoExportManager();
+  // Shade-card bridge: on devices whose SystemUI keeps the system media
+  // player out of the notification shade (this user's phone renders it on
+  // the lock screen only), PlaybackService mirrors the same playback state
+  // into a shade-visible card. The system player above stays untouched.
+  final mediaSession = MediaSessionService();
   final player = PlayerController(
     audio: audio,
     musicApi: musicApi,
     downloads: downloads,
     library: library,
     usage: usage,
+    mediaSession: mediaSession,
   );
   final diagnostics = DiagnosticsService(
     settings: settings,
