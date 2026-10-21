@@ -121,7 +121,7 @@ class PlaybackService : Service() {
     private var shadeArtworkBitmap: Bitmap? = null
 
     /**
-     * Wide banner copy of the artwork (512x200, bottom gradient baked in)
+     * Wide banner copy of the artwork (768x576, bottom gradient baked in)
      * for the level-2 shade card, so the overlaid title stays readable
      * without needing an extra scrim view in the layout.
      */
