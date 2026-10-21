@@ -173,11 +173,27 @@ jobs:
       - name: Build debug APK
         id: build
         working-directory: ${{ env.APP_DIR }}
+        timeout-minutes: 20
         shell: bash
         run: |
+          set +e
           start=$(date +%s)
-          flutter build apk --debug 2>&1 | tail -20
+          for attempt in 1 2; do
+            flutter build apk --debug > build-debug.log 2>&1
+            status=$?
+            echo "::notice title=build::attempt=$attempt status=$status"
+            [ $status -eq 0 ] && break
+            sleep 15
+          done
+          tail -20 build-debug.log
           echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          if [ $status -ne 0 ]; then
+            grep -aE "^e: |FAILURE:|What went wrong|Caused by|error:|Exception|Execution failed|> Task .*FAILED" build-debug.log \
+              | head -20 | while IFS= read -r line; do
+              echo "::error title=build::$line"
+            done
+          fi
+          exit $status
 
       - name: Install emulator and system image
         shell: bash
@@ -368,6 +384,7 @@ jobs:
             e2e-${{ matrix.api-level }}.log
             emulator-${{ matrix.api-level }}.log
             device-${{ matrix.api-level }}.txt
+            ${{ env.APP_DIR }}/build-debug.log
           if-no-files-found: warn
           retention-days: 14
 

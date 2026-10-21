@@ -120,9 +120,14 @@ jobs:
           GH_REPOSITORY: ${{ github.repository }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
+          VERSION=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}')
           gh release create "apk-build-${RUN_NUMBER}" \
             build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
             build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
             --repo "${GH_REPOSITORY}" \
-            --title "MuZic Android APK build ${RUN_NUMBER}" \
-            --notes "Install app-arm64-v8a-release.apk on most current Android phones. Use app-armeabi-v7a-release.apk only on older 32-bit devices. This personal-use build is signed with the project's debug key."
+            --title "MuZic ${VERSION} (APK build ${RUN_NUMBER})" \
+            --notes "MuZic version ${VERSION}.
+
+          Install **app-arm64-v8a-release.apk** on nearly all current Android phones (arm64). Use **app-armeabi-v7a-release.apk** only on older 32-bit devices.
+
+          This build installs over previous MuZic builds: it is signed with the same release key as every earlier build, and the version code increases with each release."
