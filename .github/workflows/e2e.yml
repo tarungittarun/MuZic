@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - 'arena/**'
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -190,6 +189,13 @@ jobs:
           export PATH="${CMDLINE_BIN}:${SDK_ROOT}/platform-tools:${SDK_ROOT}/emulator:${SDK_ROOT}/tools/bin:$PATH"
           echo "::notice title=env::sdkmanager=$(command -v sdkmanager || echo missing)"
           echo "::notice title=env::avdmanager=$(command -v avdmanager || echo missing)"
+          # The bundled emulator links against libpulse and the X/GL shims even
+          # in headless mode; without them the binary dies at load time.
+          sudo apt-get -qq update >/dev/null 2>&1
+          sudo apt-get -qq install -y libpulse0 libxcomposite1 libxcursor1 \
+            libxi6 libxtst6 libnss3 libgbm1 libxdamage1 libxrandr2 >/dev/null 2>&1
+          echo "::notice title=install::libpulse=$(ldconfig -p | grep -c libpulse.so.0)"
+
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager --install "platform-tools" "emulator" \
             "system-images;android-${{ matrix.api-level }};google_apis;x86_64" 2>&1 | tail -3
@@ -198,10 +204,20 @@ jobs:
             echo "::error title=install::sdkmanager failed ($status) path=$(command -v sdkmanager)"
             exit $status
           fi
-          echo no | avdmanager create avd -n muzic-${{ matrix.api-level }} \
+          # avdmanager and the emulator must agree on where AVDs live, otherwise
+          # the emulator reports "Unknown AVD name" even after a successful create.
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "::notice title=avd::home=$ANDROID_AVD_HOME"
+          echo "::notice title=avd::sdk-home=${ANDROID_SDK_HOME:-unset} avd-home-var=${ANDROID_AVD_HOME:-unset}"
+
+          echo no | avdmanager create avd -n "muzic-${{ matrix.api-level }}" \
             -k "system-images;android-${{ matrix.api-level }};google_apis;x86_64" \
             -d pixel_5 --force 2>&1 | tail -3
-          echo "::notice title=avd::created=$(avdmanager list avd | grep -c muzic)"
+
+          echo "::notice title=avd::ini=$(ls "$ANDROID_AVD_HOME"/*.ini 2>/dev/null | wc -l)"
+          echo "::notice title=avd::dirs=$(ls -d "$ANDROID_AVD_HOME"/*.avd 2>/dev/null | wc -l)"
+          echo "::notice title=avd::visible=$("$SDK_ROOT/emulator/emulator" -list-avds 2>&1 | tr '\n' ',')"
 
       - name: Check emulator prerequisites
         shell: bash
@@ -227,7 +243,9 @@ jobs:
           SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           EMU="$SDK_ROOT/emulator/emulator"
           LOG="emulator-${{ matrix.api-level }}.log"
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
           export PATH="${SDK_ROOT}/platform-tools:${SDK_ROOT}/emulator:$PATH"
+          echo "::notice title=boot::adb=$(command -v adb || echo missing) avds=$("$EMU" -list-avds 2>&1 | tr '\n' ',')"
 
           setsid "$EMU" -avd "muzic-${{ matrix.api-level }}" \
             -no-window -no-audio -no-boot-anim \
