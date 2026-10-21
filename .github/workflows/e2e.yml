@@ -180,45 +180,73 @@ jobs:
           flutter build apk --debug 2>&1 | tail -20
           echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
 
+      - name: Install emulator and system image
+        shell: bash
+        run: |
+          set -e
+          echo "$ANDROID_HOME"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platform-tools" "emulator" \
+            "system-images;android-${{ matrix.api-level }};google_apis;x86_64" 2>&1 | tail -5
+          echo no | avdmanager create avd -n muzic-${{ matrix.api-level }} \
+            -k "system-images;android-${{ matrix.api-level }};google_apis;x86_64" \
+            -d pixel_5 --force
+
+      - name: Boot emulator
+        id: boot
+        shell: bash
+        run: |
+          set +e
+          nohup "$ANDROID_HOME/emulator/emulator" -avd muzic-${{ matrix.api-level }} \
+            -no-window -no-audio -no-boot-anim -no-snapshot -camera-back none \
+            -camera-front none -gpu swiftshader_indirect -accel on \
+            > emulator-${{ matrix.api-level }}.log 2>&1 &
+          adb start-server
+          adb wait-for-device
+          for i in $(seq 1 90); do
+            booted=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            if [ "$booted" = "1" ]; then
+              echo "::notice title=emulator::booted after $((i * 10))s"
+              adb shell input keyevent 82
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error title=emulator::did not boot within 900s"
+          tail -40 emulator-${{ matrix.api-level }}.log | while IFS= read -r l; do
+            echo "::error title=emulator-log::${l}"
+          done
+          exit 1
+
       - name: Run E2E journey on emulator
         id: e2e
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: ${{ matrix.api-level }}
-          target: ${{ matrix.target }}
-          arch: x86_64
-          disable-animations: true
-          emulator-boot-timeout: 900
-          emulator-options: >-
-            -no-window -no-audio -no-boot-anim -camera-back none
-            -camera-front none -no-snapshot -gpu swiftshader_indirect
-          script: |
-            set +e
-            adb shell pm grant ${{ env.APP_ID }} android.permission.POST_NOTIFICATIONS || true
-            adb shell pm grant ${{ env.APP_ID }} android.permission.RECORD_AUDIO || true
-            adb shell settings put global window_animation_scale 0 || true
-            adb shell settings put global transition_animation_scale 0 || true
-            adb shell settings put global animator_duration_scale 0 || true
-            adb shell svc power stayon true || true
-            echo '--- adb devices ---'
-            adb devices
-            echo '--- flutter devices ---'
-            flutter devices || true
-            adb shell dumpsys window | grep -E 'mCurrentFocus' | head -3 || true
-            start=$(date +%s)
-            cd ${{ env.APP_DIR }}
-            flutter test integration_test/app_flow_test.dart \
-              -d emulator-5554 \
-              --reporter expanded 2>&1 | tee e2e-${{ matrix.api-level }}.log
-            status=${PIPESTATUS[0]}
-            echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
-            exit $status
+        shell: bash
+        run: |
+          set +e
+          adb shell pm grant ${{ env.APP_ID }} android.permission.POST_NOTIFICATIONS || true
+          adb shell pm grant ${{ env.APP_ID }} android.permission.RECORD_AUDIO || true
+          adb shell settings put global window_animation_scale 0 || true
+          adb shell settings put global transition_animation_scale 0 || true
+          adb shell settings put global animator_duration_scale 0 || true
+          adb shell svc power stayon true || true
+          echo '--- adb devices ---'
+          adb devices
+          echo '--- flutter devices ---'
+          flutter devices || true
+          start=$(date +%s)
+          cd ${{ env.APP_DIR }}
+          flutter test integration_test/app_flow_test.dart -d emulator-5554 \
+            --reporter expanded 2>&1 | tee "../e2e-${{ matrix.api-level }}.log"
+          status=${PIPESTATUS[0]}
+          cd ..
+          echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          exit $status
 
       - name: Surface E2E failure details
         if: always()
         shell: bash
         run: |
-          LOG="${{ env.APP_DIR }}/e2e-${{ matrix.api-level }}.log"
+          LOG="e2e-${{ matrix.api-level }}.log"
           echo "### e2e log (${{ matrix.api-level }})"
           if [ -f "$LOG" ]; then
             tail -45 "$LOG" | while IFS= read -r line; do
@@ -249,7 +277,8 @@ jobs:
         with:
           name: e2e-api-${{ matrix.api-level }}
           path: |
-            ${{ env.APP_DIR }}/e2e-${{ matrix.api-level }}.log
+            e2e-${{ matrix.api-level }}.log
+            emulator-${{ matrix.api-level }}.log
             device-${{ matrix.api-level }}.txt
           if-no-files-found: warn
           retention-days: 14
