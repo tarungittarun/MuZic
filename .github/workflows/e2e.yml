@@ -122,8 +122,6 @@ jobs:
   # ---------------------------------------------------------------------------
   e2e:
     name: E2E · Android API ${{ matrix.api-level }}
-    needs: static
-    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -184,7 +182,11 @@ jobs:
             adb shell settings put global transition_animation_scale 0 || true
             adb shell settings put global animator_duration_scale 0 || true
             adb shell svc power stayon true || true
-            adb shell dumpsys window | grep -E 'mCurrentFocus' | head -3
+            echo '--- adb devices ---'
+            adb devices
+            echo '--- flutter devices ---'
+            flutter devices || true
+            adb shell dumpsys window | grep -E 'mCurrentFocus' | head -3 || true
             start=$(date +%s)
             cd ${{ env.APP_DIR }}
             flutter test integration_test/app_flow_test.dart \
@@ -193,6 +195,22 @@ jobs:
             status=${PIPESTATUS[0]}
             echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
             exit $status
+
+      - name: Surface E2E failure details
+        if: always()
+        shell: bash
+        run: |
+          LOG="${{ env.APP_DIR }}/e2e-${{ matrix.api-level }}.log"
+          echo "### e2e log (${{ matrix.api-level }})"
+          if [ -f "$LOG" ]; then
+            tail -45 "$LOG" | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=e2e-${{ matrix.api-level }}::${line}"
+            done
+            echo "--- full tail ---"
+            tail -60 "$LOG"
+          else
+            echo "::error title=e2e-${{ matrix.api-level }}::no log file — the emulator never started the test"
+          fi
 
       - name: Collect device facts
         if: always()
