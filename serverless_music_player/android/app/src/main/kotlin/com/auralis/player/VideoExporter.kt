@@ -26,7 +26,6 @@ import android.text.TextUtils
 import org.json.JSONArray
 import java.io.File
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -268,7 +267,12 @@ class VideoExporter(private val context: Context) {
                         val bytes = ByteArray(info.size)
                         outBuffer.get(bytes)
                         val sampleInfo = MediaCodec.BufferInfo().apply {
-                            set(0, bytes.size, info.presentationTimeUs, info.flags)
+                            set(
+                                0,
+                                bytes.size,
+                                info.presentationTimeUs,
+                                info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME,
+                            )
                         }
                         if (muxerStarted) {
                             muxer.writeSampleData(
@@ -342,7 +346,12 @@ class VideoExporter(private val context: Context) {
                         val bytes = ByteArray(info.size)
                         outBuffer.get(bytes)
                         val sampleInfo = MediaCodec.BufferInfo().apply {
-                            set(0, bytes.size, info.presentationTimeUs, info.flags)
+                            set(
+                                0,
+                                bytes.size,
+                                info.presentationTimeUs,
+                                info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME,
+                            )
                         }
                         if (muxerStarted) {
                             muxer.writeSampleData(
