@@ -128,6 +128,14 @@ class NotificationService {
         '${posted is int && posted > 0 ? '✅' : '⚠️'} '
             '$posted MuZic notification(s) showing now',
       ];
+      final sessionActive = raw['mediaSessionActive'] == true;
+      lines.add('${sessionActive ? '✅' : '⚠️'} Media session '
+          '${sessionActive ? 'active (lock-screen / Quick Settings player)' : 'not active'}');
+      final postedEntries = raw['posted'];
+      final shadeShowing = postedEntries is List &&
+          postedEntries.any((entry) => entry.toString().contains('#1202'));
+      lines.add('${shadeShowing ? '✅' : '⚠️'} Notification shade card '
+          '${shadeShowing ? 'showing' : 'not showing — play a song, then pull down the shade'}');
       if (importance is int && importance == 0) {
         lines.add('This channel is turned off in Android settings — open '
             'notification settings and turn MuZic back on.');

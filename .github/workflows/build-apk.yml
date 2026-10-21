@@ -5,15 +5,39 @@ on:
   push:
     branches:
       - 'arena/**'
+    # Docs-only pushes (including the automated E2E report commit) must not
+    # trigger a full APK rebuild.
+    paths-ignore:
+      - 'docs/**'
 
 permissions:
   contents: write
+  actions: read
+
+# A newer push supersedes a build that is still running for the same ref.
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-apk:
-    name: Build and publish APKs
+  # ---------------------------------------------------------------------------
+  # One job per ABI, running in parallel. Previously both ABIs were built
+  # sequentially in a single job, which made it the long pole of the pipeline.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.label }} APK
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: arm64
+            platform: android-arm64
+            apk: app-arm64-v8a-release.apk
+          - label: armv7
+            platform: android-arm
+            apk: app-armeabi-v7a-release.apk
     defaults:
       run:
         working-directory: serverless_music_player
@@ -26,6 +50,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          # Reuses the Gradle dependency cache between runs.
+          cache: gradle
 
       - name: Set up Flutter stable
         uses: subosito/flutter-action@v2
@@ -44,14 +70,14 @@ jobs:
           keytool -list -v -keystore android/app/muzic-release.p12 -storetype PKCS12 \
             -storepass MuZicRelease2026 2>&1 | grep -E "Alias name|Valid|Signature algorithm|error" | head -6
 
-      - name: Build per-ABI release APKs
+      - name: Build ${{ matrix.label }} release APK
         shell: bash
         run: |
           set +e
-          flutter build apk --release --target-platform=android-arm,android-arm64 --split-per-abi 2>&1 | tee build_out.txt
+          flutter build apk --release --target-platform=${{ matrix.platform }} --split-per-abi 2>&1 | tee build_out.txt
           status=${PIPESTATUS[0]}
           {
-            echo '## flutter build apk'
+            echo '## flutter build apk (${{ matrix.label }})'
             echo '```'
             tail -80 build_out.txt
             echo '```'
@@ -66,11 +92,9 @@ jobs:
         shell: bash
         run: |
           BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | tail -1)
-          for apk in build/app/outputs/flutter-apk/app-*-release.apk; do
-            echo "### $apk"
-            "$BT/apksigner" verify --print-certs "$apk" 2>&1 | grep -E "Signer #1 certificate (DN|SHA-256)" || true
-          done | tee -a "$GITHUB_STEP_SUMMARY"
-          "$BT/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-arm64-v8a-release.apk 2>&1 \
+          apk="build/app/outputs/flutter-apk/${{ matrix.apk }}"
+          "$BT/apksigner" verify --print-certs "$apk" 2>&1 | grep -E "Signer #1 certificate (DN|SHA-256)" | tee -a "$GITHUB_STEP_SUMMARY"
+          "$BT/apksigner" verify --print-certs "$apk" 2>&1 \
             | grep "SHA-256" | head -1 | while IFS= read -r line; do
             echo "::notice title=APK signing certificate::${line}"
           done
@@ -86,7 +110,7 @@ jobs:
           BASE_NAME=${PUBSPEC_VERSION%%+*}
           BASE_CODE=${PUBSPEC_VERSION##*+}
           BADGING=$("$BT/aapt2" dump badging \
-            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk 2>/dev/null \
+            "build/app/outputs/flutter-apk/${{ matrix.apk }}" 2>/dev/null \
             | grep -m1 "^package:")
           echo "pubspec=$PUBSPEC_VERSION" >> "$GITHUB_STEP_SUMMARY"
           echo "badging=$BADGING" >> "$GITHUB_STEP_SUMMARY"
@@ -94,7 +118,8 @@ jobs:
           code=$(echo "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
           name=$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           # --split-per-abi offsets the version code per ABI (arm64-v8a is
-          # 2000 + base), so compare the base inside the offset.
+          # 2000 + base, armeabi-v7a is 1000 + base), so compare the base
+          # inside the offset.
           if [ -z "$code" ] || [ -z "$name" ]; then
             echo "::error title=version-missing::the manifest carries no versionName/versionCode"
             exit 1
@@ -108,11 +133,32 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: muzic-android-apks
-          path: serverless_music_player/build/app/outputs/flutter-apk/app-*-release.apk
+          name: muzic-apk-${{ matrix.label }}
+          path: serverless_music_player/build/app/outputs/flutter-apk/${{ matrix.apk }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Collects both ABI artifacts and publishes the same GitHub release as
+  # before (tag apk-build-<run number>, same asset names and notes).
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish APK release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Download built APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh run download "${{ github.run_id }}" --pattern 'muzic-apk-*' --dir dist
+          find dist -name '*.apk' -print
 
       - name: Publish direct APK download links
         env:
@@ -120,10 +166,12 @@ jobs:
           GH_REPOSITORY: ${{ github.repository }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
-          VERSION=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}')
+          VERSION=$(grep -m1 '^version:' serverless_music_player/pubspec.yaml | awk '{print $2}')
+          ARM64=$(find dist -name 'app-arm64-v8a-release.apk' | head -1)
+          ARMV7=$(find dist -name 'app-armeabi-v7a-release.apk' | head -1)
           gh release create "apk-build-${RUN_NUMBER}" \
-            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+            "$ARM64" \
+            "$ARMV7" \
             --repo "${GH_REPOSITORY}" \
             --title "MuZic ${VERSION} (APK build ${RUN_NUMBER})" \
             --notes "MuZic version ${VERSION}.

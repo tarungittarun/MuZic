@@ -43,6 +43,18 @@ class PlaybackService : Service() {
         private const val CHANNEL_NAME = "MuZic playback"
         const val NOTIFICATION_ID = 1201
 
+        /**
+         * Plain (non-media) card so playback controls also appear in the
+         * notification LIST when the shade is pulled down at the home screen.
+         * Android diverts media-style notifications to the Quick Settings /
+         * lock-screen media player and hides them from the notification list,
+         * so the media card alone never shows there on many devices.
+         * This card has no MediaStyle and no session token, so SystemUI keeps
+         * it in the list. It is VISIBILITY_SECRET so the secure lock screen
+         * still shows only the rich media player, not a duplicate.
+         */
+        const val SHADE_NOTIFICATION_ID = 1202
+
         const val EXTRA_TITLE = "title"
         const val EXTRA_ARTIST = "artist"
         const val EXTRA_ALBUM = "album"
@@ -142,6 +154,7 @@ class PlaybackService : Service() {
         // Must be foreground for the card to survive the app going to the
         // background, and for Android to treat it as a media notification.
         startForeground(NOTIFICATION_ID, buildNotification())
+        postShadeCard()
         return START_STICKY
     }
 
@@ -187,6 +200,7 @@ class PlaybackService : Service() {
             publishSessionState()
             val manager = getSystemService(NotificationManager::class.java)
             manager?.notify(NOTIFICATION_ID, buildNotification())
+            postShadeCard()
         }
     }
 
@@ -303,6 +317,60 @@ class PlaybackService : Service() {
         return builder.build()
     }
 
+    /**
+     * The plain notification-list card described at [SHADE_NOTIFICATION_ID].
+     * Same artwork and transport buttons as the media card, but deliberately
+     * NOT a media notification: no MediaStyle, no session token, no transport
+     * category — otherwise SystemUI would divert it out of the shade list
+     * just like the main card.
+     */
+    private fun buildShadeCard(): Notification {
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_muzic)
+            .setContentTitle(latestTitle)
+            .setContentText(latestArtist)
+            .setSubText(latestAlbum)
+            .setContentIntent(contentIntent())
+            // Hidden on a secure lock screen (the media player already shows
+            // there); visible in the unlocked notification shade.
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setShowWhen(false)
+            .setOnlyAlertOnce(true)
+            // Ongoing so it cannot be swiped away mid-playback and stays
+            // pinned in the shade; it is cancelled when playback stops.
+            .setOngoing(true)
+            .setAutoCancel(false)
+
+        artworkBitmap?.let { builder.setLargeIcon(it) }
+
+        if (hasPrevious) {
+            builder.addAction(
+                R.drawable.ic_skip_previous,
+                "Previous",
+                transportIntent("previous"),
+            )
+        }
+        builder.addAction(
+            if (playing) R.drawable.ic_pause else R.drawable.ic_play,
+            if (playing) "Pause" else "Play",
+            transportIntent("toggle"),
+        )
+        if (hasNext) {
+            builder.addAction(
+                R.drawable.ic_skip_next,
+                "Next",
+                transportIntent("next"),
+            )
+        }
+        return builder.build()
+    }
+
+    private fun postShadeCard() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        runCatching { manager.notify(SHADE_NOTIFICATION_ID, buildShadeCard()) }
+    }
+
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java) ?: return
@@ -322,6 +390,13 @@ class PlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        // Remove both cards: the media card is the foreground notification,
+        // the shade card needs an explicit cancel.
+        runCatching { stopForeground(true) }
+        runCatching {
+            getSystemService(NotificationManager::class.java)
+                ?.cancel(SHADE_NOTIFICATION_ID)
+        }
         if (noisyRegistered) {
             runCatching { unregisterReceiver(noisyReceiver) }
             noisyRegistered = false

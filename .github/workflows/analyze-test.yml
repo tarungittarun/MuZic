@@ -2,8 +2,19 @@ name: Analyze and test
 
 on:
   push:
+    # Docs-only pushes do not change the app; skip the run entirely.
+    paths-ignore:
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
   workflow_dispatch:
+
+# Pushing a branch with an open PR fires both the push and the pull_request
+# triggers; group by branch and cancel the stale run so the work is done once.
+concurrency:
+  group: analyze-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   analyze-test:

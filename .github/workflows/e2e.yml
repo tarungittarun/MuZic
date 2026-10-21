@@ -1,9 +1,10 @@
 name: End-to-end test report
 
 on:
-  push:
-    branches:
-      - 'arena/**'
+  # Manual only: the emulator runs are the slowest part of CI and are only
+  # valuable when a device-level check is explicitly wanted. They used to run
+  # on every push (and the report commit then retriggered the other
+  # workflows), which made every change take far longer than necessary.
   workflow_dispatch:
 
 permissions:
