@@ -269,6 +269,36 @@ class DiagnosticsService extends ChangeNotifier {
     }
   }
 
+  /// Writes the report into the shared Downloads/MuZic folder (visible in the
+  /// Files app and to other apps) and returns the display path.
+  Future<String> saveToDownloads() async {
+    final report = buildReport();
+    final stamp = DateTime.now()
+        .toIso8601String()
+        .replaceAll(':', '-')
+        .replaceAll('.', '-');
+    final name = 'muzic_diagnostics_$stamp.txt';
+    try {
+      final saved = await const MethodChannel('music_player/system')
+          .invokeMethod<String>('saveText', <String, Object?>{
+        'fileName': name,
+        'text': report,
+      });
+      logInfo('diagnostics', 'report saved to downloads', <String, Object?>{
+        'path': saved,
+        'bytes': report.length,
+      });
+      return saved ?? '';
+    } on MissingPluginException {
+      final fallback = await exportReport();
+      return fallback;
+    } on PlatformException catch (error) {
+      logWarn('diagnostics', 'save to downloads failed',
+          <String, Object?>{'error': '$error'});
+      return await exportReport();
+    }
+  }
+
   /// Text of the most recent report for copying to the clipboard.
   String clipboardReport() => buildReport();
 
@@ -283,7 +313,7 @@ class DiagnosticsService extends ChangeNotifier {
         .toIso8601String()
         .replaceAll(':', '-')
         .replaceAll('.', '-');
-    final file = File('${directory.path}/music_diagnostics_$stamp.txt');
+    final file = File('${directory.path}/muzic_diagnostics_$stamp.txt');
     await file.writeAsString(report, flush: true);
     _lastReportPath = file.path;
     logInfo('diagnostics', 'report exported', <String, Object?>{

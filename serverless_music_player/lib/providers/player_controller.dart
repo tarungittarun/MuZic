@@ -242,6 +242,14 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Pauses playback (used by the sleep timer).
+  Future<void> pause() async {
+    if (!_audio.player.playing) return;
+    logInfo('player', 'paused by sleep timer');
+    await _audio.player.pause();
+    notifyListeners();
+  }
+
   Future<void> next() async {
     try {
       await _audio.player.seekToNext();

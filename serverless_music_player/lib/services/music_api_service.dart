@@ -304,7 +304,10 @@ class MusicApiService {
         'error': '$error',
         'ms': stopwatch.elapsedMilliseconds,
       });
-      rethrow;
+      // YouTube sometimes returns markup that the parser cannot read
+      // ("Streamed" consent/bot page). Treat it as "no results" so the app
+      // keeps working instead of surfacing a FormatException.
+      return const <SongModel>[];
     }
   }
 

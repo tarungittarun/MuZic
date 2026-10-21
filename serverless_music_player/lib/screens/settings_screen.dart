@@ -8,6 +8,7 @@ import '../services/audio_effects_service.dart';
 import '../services/discover_options.dart';
 import '../services/lyrics_language.dart';
 import '../services/notification_service.dart';
+import '../services/sleep_timer_service.dart';
 import '../theme/app_theme.dart';
 import 'diagnostics_screen.dart';
 
@@ -247,6 +248,33 @@ class SettingsScreen extends StatelessWidget {
                 ],
                 Divider(height: 1, color: palette.outline),
                 ListTile(
+                  leading: Icon(Icons.notifications_none_rounded,
+                      color: palette.textSecondary),
+                  title: const Text('Send a test notification'),
+                  subtitle: Text(
+                    'Confirms MuZic can post notifications on this device.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.send_rounded, size: 18),
+                  onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final ok = await NotificationService.ensurePermission(force: true);
+                    final shown = await NotificationService.sendTest();
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          shown
+                              ? (ok
+                                  ? 'Test notification sent — check your shade.'
+                                  : 'Sent, but notifications are blocked for MuZic. Allow them in system settings.')
+                              : 'Could not post a notification on this device.',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                Divider(height: 1, color: palette.outline),
+                ListTile(
                   leading: Icon(Icons.battery_saver_rounded,
                       color: palette.textSecondary),
                   title: const Text('Allow background playback'),
@@ -270,6 +298,66 @@ class SettingsScreen extends StatelessWidget {
                     }
                   },
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'SLEEP TIMER',
+            style: TextStyle(
+              color: palette.textMuted,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.8,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: Column(
+              children: <Widget>[
+                SwitchListTile(
+                  value: settings.sleepTimerEnabled,
+                  secondary: Icon(Icons.bedtime_outlined,
+                      color: settings.sleepTimerEnabled
+                          ? palette.accent
+                          : palette.textSecondary),
+                  title: const Text('Pause after inactivity'),
+                  subtitle: Text(
+                    'A warning appears 5 minutes before MuZic pauses playback '
+                    'when nothing has happened in the app.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  onChanged: (value) {
+                    settings.setSleepTimer(enabled: value);
+                    context.read<SleepTimerService>().registerActivity();
+                  },
+                ),
+                if (settings.sleepTimerEnabled) ...<Widget>[
+                  Divider(height: 1, color: palette.outline),
+                  ListTile(
+                    leading: Icon(Icons.timer_outlined,
+                        color: palette.textSecondary),
+                    title: const Text('Inactivity duration'),
+                    subtitle: Text(
+                      _sleepLabel(settings.sleepTimerMinutes),
+                      style: TextStyle(color: palette.textMuted, fontSize: 12),
+                    ),
+                    trailing: const Icon(Icons.expand_more_rounded),
+                    onTap: () => _pickSleepDuration(context, settings),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Text(
+                      'Timeline: ${_sleepLabel(settings.sleepTimerMinutes)} '
+                      'without activity → warning → 5 more minutes → paused.',
+                      style: TextStyle(
+                        color: palette.textMuted,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -599,6 +687,51 @@ class SettingsScreen extends StatelessWidget {
     );
     if (selected != null) {
       await settings.setLyricsLanguage(selected);
+    }
+  }
+
+  String _sleepLabel(int minutes) {
+    if (minutes < 60) return '$minutes minutes';
+    final hours = minutes ~/ 60;
+    final rest = minutes % 60;
+    return rest == 0 ? '$hours hour${hours == 1 ? '' : 's'}' : '$hours h $rest min';
+  }
+
+  Future<void> _pickSleepDuration(
+    BuildContext context,
+    AppSettingsService settings,
+  ) async {
+    const options = <int>[15, 30, 45, 60, 90, 120, 180];
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: context.palette.surface,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text('Pause after',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+            ),
+            for (final minutes in options)
+              ListTile(
+                title: Text(_sleepLabel(minutes)),
+                trailing: settings.sleepTimerMinutes == minutes
+                    ? Icon(Icons.check_rounded, color: context.palette.accent)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, minutes),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) {
+      await settings.setSleepTimer(minutes: selected);
+      if (context.mounted) {
+        context.read<SleepTimerService>().registerActivity();
+      }
     }
   }
 

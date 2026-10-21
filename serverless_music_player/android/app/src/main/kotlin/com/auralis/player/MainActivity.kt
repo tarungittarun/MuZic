@@ -1,14 +1,22 @@
 package com.auralis.player
 
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ContentValues
 import android.content.Intent
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
 import android.media.audiofx.Visualizer
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -35,6 +43,7 @@ class MainActivity : AudioServiceActivity() {
     private var visualizerCapture: Visualizer? = null
     private var visualizerSink: EventChannel.EventSink? = null
     private var visualizerHandler: Handler? = null
+    private var systemChannel: MethodChannel? = null
     private var videoExportChannel: MethodChannel? = null
     private var videoProgressSink: EventChannel.EventSink? = null
 
@@ -88,6 +97,37 @@ class MainActivity : AudioServiceActivity() {
                     call.argument<String>("subject") ?: "MuZic diagnostics",
                     call.argument<String>("text") ?: "",
                     result,
+                )
+                else -> result.notImplemented()
+            }
+        }
+
+        systemChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "music_player/system",
+        )
+        systemChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "notify" -> {
+                    postSimpleNotification(
+                        call.argument<Int>("id") ?: 1001,
+                        call.argument<String>("title") ?: "MuZic",
+                        call.argument<String>("body") ?: "",
+                        call.argument<String>("channelId") ?: "muzic_alerts",
+                        call.argument<String>("channelName") ?: "MuZic alerts",
+                    )
+                    result.success(true)
+                }
+                "cancel" -> {
+                    val manager = getSystemService(NotificationManager::class.java)
+                    manager?.cancel(call.argument<Int>("id") ?: 1001)
+                    result.success(true)
+                }
+                "saveText" -> result.success(
+                    saveTextToDownloads(
+                        call.argument<String>("fileName") ?: "muzic_report.txt",
+                        call.argument<String>("text") ?: "",
+                    ),
                 )
                 else -> result.notImplemented()
             }
@@ -200,6 +240,88 @@ class MainActivity : AudioServiceActivity() {
         visualizerCapture = null
         visualizerHandler?.removeCallbacksAndMessages(null)
         visualizerHandler = null
+    }
+
+    private fun postSimpleNotification(
+        id: Int,
+        title: String,
+        body: String,
+        channelId: String,
+        channelName: String,
+    ) {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                channelName,
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply { description = "MuZic playback alerts" }
+            manager.createNotificationChannel(channel)
+        }
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pending = PendingIntent.getActivity(
+            this,
+            id,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        builder
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+        manager.notify(id, builder.build())
+    }
+
+    /** Saves a text report into the shared Downloads collection. */
+    private fun saveTextToDownloads(fileName: String, text: String): String? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                    put(
+                        MediaStore.Downloads.RELATIVE_PATH,
+                        "${Environment.DIRECTORY_DOWNLOADS}/MuZic",
+                    )
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val uri = contentResolver.insert(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    values,
+                ) ?: return null
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(text.toByteArray())
+                }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+                "Downloads/MuZic/$fileName"
+            } else {
+                val directory = File(
+                    Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS,
+                    ),
+                    "MuZic",
+                )
+                if (!directory.exists()) directory.mkdirs()
+                val file = File(directory, fileName)
+                file.writeText(text)
+                file.absolutePath
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun exportVideo(call: MethodCall, result: MethodChannel.Result) {

@@ -216,9 +216,14 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                         label: const Text('Copy report'),
                       ),
                       OutlinedButton.icon(
+                        onPressed: () => _saveToDownloads(context),
+                        icon: const Icon(Icons.download_rounded),
+                        label: const Text('Save to Downloads'),
+                      ),
+                      OutlinedButton.icon(
                         onPressed: () => _saveReport(context),
                         icon: const Icon(Icons.save_alt_rounded),
-                        label: const Text('Save to file'),
+                        label: const Text('App storage'),
                       ),
                       OutlinedButton.icon(
                         onPressed: () => _shareReport(context),
@@ -342,6 +347,22 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
         content: Text(
           'Report copied to clipboard (${report.length} characters).',
         ),
+      ),
+    );
+  }
+
+  Future<void> _saveToDownloads(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final diagnostics = context.read<DiagnosticsService>();
+    final path = await diagnostics.saveToDownloads();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          path.isEmpty
+              ? 'Could not save the report to Downloads.'
+              : 'Report saved to $path',
+        ),
+        duration: const Duration(seconds: 6),
       ),
     );
   }

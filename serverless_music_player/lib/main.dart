@@ -14,6 +14,7 @@ import 'services/download_service.dart';
 import 'services/library_service.dart';
 import 'services/music_api_service.dart';
 import 'services/notification_service.dart';
+import 'services/sleep_timer_service.dart';
 import 'services/usage_service.dart';
 
 Future<void> main() async {
@@ -78,6 +79,8 @@ Future<void> main() async {
   );
   final effects = AudioEffectsService(settings: settings, player: audio.player);
   effects.attach();
+  final sleepTimer = SleepTimerService(settings: settings, player: player);
+  sleepTimer.start();
 
 
   logInfo('app', 'application starting');
@@ -92,6 +95,7 @@ Future<void> main() async {
     usage: usage,
     diagnostics: diagnostics,
     effects: effects,
+    sleepTimer: sleepTimer,
   ));
 
   // Ask for notification access once the UI is up: Android only shows the

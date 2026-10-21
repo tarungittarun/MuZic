@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../services/sleep_timer_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mini_player.dart';
 import 'home_screen.dart';
@@ -19,6 +21,16 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    final sleepTimer = context.watch<SleepTimerService>();
+    // Any touch anywhere in the app counts as "the user is still here".
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => sleepTimer.registerActivity(),
+      child: _scaffold(palette, sleepTimer),
+    );
+  }
+
+  Widget _scaffold(AppPalette palette, SleepTimerService sleepTimer) {
     return Scaffold(
       body: SafeArea(
         bottom: false,

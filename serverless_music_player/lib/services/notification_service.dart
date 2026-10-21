@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'app_log.dart';
@@ -29,6 +30,32 @@ class NotificationService {
       return status.isGranted;
     } catch (error) {
       logWarn('notification', 'permission check failed',
+          <String, Object?>{'error': '$error'});
+      return false;
+    }
+  }
+
+  /// Posts a plain test notification so the user can confirm MuZic is able to
+  /// display notifications at all (separate from the media card).
+  static Future<bool> sendTest() async {
+    try {
+      final ok = await const MethodChannel('music_player/system')
+          .invokeMethod<bool>('notify', <String, Object?>{
+        'id': 2001,
+        'title': 'MuZic notifications work',
+        'body': 'If you can read this in the shade, playback controls can show '
+            'up here too while music plays.',
+        'channelId': 'muzic_test',
+        'channelName': 'MuZic test',
+      });
+      logInfo('notification', 'test notification posted', <String, Object?>{
+        'ok': ok,
+      });
+      return ok ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException catch (error) {
+      logWarn('notification', 'test notification failed',
           <String, Object?>{'error': '$error'});
       return false;
     }

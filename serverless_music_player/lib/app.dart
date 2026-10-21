@@ -5,6 +5,7 @@ import 'app_info.dart';
 import 'providers/player_controller.dart';
 import 'services/app_settings_service.dart';
 import 'services/audio_effects_service.dart';
+import 'services/sleep_timer_service.dart';
 import 'services/audio_player_service.dart';
 import 'services/diagnostics_service.dart';
 import 'services/download_service.dart';
@@ -25,6 +26,7 @@ class MusicApp extends StatelessWidget {
     required this.usage,
     required this.diagnostics,
     required this.effects,
+    required this.sleepTimer,
     super.key,
   });
 
@@ -37,6 +39,7 @@ class MusicApp extends StatelessWidget {
   final UsageService usage;
   final DiagnosticsService diagnostics;
   final AudioEffectsService effects;
+  final SleepTimerService sleepTimer;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +54,7 @@ class MusicApp extends StatelessWidget {
         ChangeNotifierProvider<UsageService>.value(value: usage),
         ChangeNotifierProvider<DiagnosticsService>.value(value: diagnostics),
         Provider<AudioEffectsService>.value(value: effects),
+        ChangeNotifierProvider<SleepTimerService>.value(value: sleepTimer),
       ],
       child: Consumer<AppSettingsService>(
         builder: (context, appSettings, _) => MaterialApp(

@@ -20,6 +20,8 @@ class AppSettingsService extends ChangeNotifier {
   static const String _notificationPauseKey = 'notification_keep_on_pause';
   static const String _regionKey = 'discover_region';
   static const String _languagesKey = 'discover_languages';
+  static const String _sleepEnabledKey = 'sleep_timer_enabled';
+  static const String _sleepMinutesKey = 'sleep_timer_minutes';
 
   late Box<dynamic> _settings;
   ThemeMode _themeMode = ThemeMode.dark;
@@ -35,9 +37,11 @@ class AppSettingsService extends ChangeNotifier {
   bool _notificationPrevious = true;
   bool _notificationNext = true;
   bool _notificationSeekBar = true;
-  bool _keepNotificationOnPause = false;
+  bool _keepNotificationOnPause = true;
   String _region = 'IN';
   List<String> _languages = const <String>['hindi', 'english'];
+  bool _sleepTimerEnabled = false;
+  int _sleepTimerMinutes = 60;
 
   ThemeMode get themeMode => _themeMode;
 
@@ -68,6 +72,10 @@ class AppSettingsService extends ChangeNotifier {
   /// Languages used for Discover recommendation shelves.
   List<String> get languages => _languages;
 
+  /// Pause playback after this much inactivity (with a 5-minute warning).
+  bool get sleepTimerEnabled => _sleepTimerEnabled;
+  int get sleepTimerMinutes => _sleepTimerMinutes;
+
   Future<void> init() async {
     _settings = await Hive.openBox<dynamic>(_boxName);
     final saved = _settings.get(_themeModeKey)?.toString();
@@ -89,7 +97,8 @@ class AppSettingsService extends ChangeNotifier {
     _notificationPrevious = _settings.get(_notificationPrevKey) != false;
     _notificationNext = _settings.get(_notificationNextKey) != false;
     _notificationSeekBar = _settings.get(_notificationSeekKey) != false;
-    _keepNotificationOnPause = _settings.get(_notificationPauseKey) == true;
+    _keepNotificationOnPause =
+        _settings.get(_notificationPauseKey) != false;
     final savedRegion = _settings.get(_regionKey)?.toString().trim() ?? '';
     _region = savedRegion.isEmpty ? 'IN' : savedRegion;
     final savedLanguages = _settings.get(_languagesKey)?.toString() ?? '';
@@ -99,6 +108,22 @@ class AppSettingsService extends ChangeNotifier {
         .where((value) => value.isNotEmpty)
         .toList(growable: false);
     _languages = parsed.isEmpty ? const <String>['hindi', 'english'] : parsed;
+    _sleepTimerEnabled = _settings.get(_sleepEnabledKey) == true;
+    final sleepMinutes = _settings.get(_sleepMinutesKey);
+    _sleepTimerMinutes =
+        sleepMinutes is num && sleepMinutes.toInt() >= 5 ? sleepMinutes.toInt() : 60;
+  }
+
+  Future<void> setSleepTimer({bool? enabled, int? minutes}) async {
+    if (enabled != null) {
+      _sleepTimerEnabled = enabled;
+      await _settings.put(_sleepEnabledKey, enabled);
+    }
+    if (minutes != null) {
+      _sleepTimerMinutes = minutes.clamp(5, 480).toInt();
+      await _settings.put(_sleepMinutesKey, _sleepTimerMinutes);
+    }
+    notifyListeners();
   }
 
   Future<void> setNotificationEnabled(bool value) async {

@@ -781,50 +781,158 @@ class _LyricsPanelState extends State<_LyricsPanel> {
     final usage = context.read<UsageService>();
     final usable =
         variants.where((variant) => !variant.isEmpty).toList(growable: false);
-    final hasRomanized = usable.any((variant) => variant.isRomanized);
+    final availableLanguages = <String>{
+      for (final variant in usable)
+        if (!variant.isRomanized) variant.language.toLowerCase(),
+    };
+    final availableCodes = <String>{
+      for (final variant in usable)
+        variant.isRomanized ? 'romanized' : variant.language.toLowerCase(),
+    };
+    final current = settings.lyricsLanguageOverrideFor(widget.song.id) ??
+        settings.lyricsLanguage;
+    const languageCodes = <String>[
+      'english',
+      'hindi',
+      'telugu',
+      'tamil',
+      'kannada',
+      'malayalam',
+      'bengali',
+      'punjabi',
+      'gujarati',
+      'marathi',
+      'urdu',
+    ];
     final selected = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: context.palette.surface,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (sheetContext) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: <Widget>[
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
-              child: Text(
-                'Lyrics language',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.62,
+          maxChildSize: 0.9,
+          builder: (sheetContext, scrollController) => ListView(
+            controller: scrollController,
+            children: <Widget>[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 4, 20, 2),
+                child: Text(
+                  'Lyrics language',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+                ),
               ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.tune_rounded),
-              title: const Text('Follow default setting'),
-              subtitle: Text(lyricsLanguageLabel(settings.lyricsLanguage)),
-              onTap: () => Navigator.pop(sheetContext, '__default__'),
-            ),
-            if (!hasRomanized)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: Text(
+                  'Choose the script or language this song\'s lyrics should use. '
+                  'Available versions play instantly; others fall back to the '
+                  'original or a romanized version.',
+                  style: TextStyle(
+                    color: sheetContext.palette.textMuted,
+                    fontSize: 11.5,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              _LanguageSectionLabel(text: 'AVAILABLE FOR THIS TRACK'),
+              ListTile(
+                leading: const Icon(Icons.tune_rounded),
+                title: const Text('Follow default setting'),
+                subtitle: Text(lyricsLanguageLabel(settings.lyricsLanguage)),
+                trailing: current == settings.lyricsLanguage
+                    ? Icon(Icons.check_rounded,
+                        color: sheetContext.palette.accent)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, '__default__'),
+              ),
+              for (final variant in usable)
+                ListTile(
+                  leading: Icon(
+                    variant.hasSynced
+                        ? Icons.lyrics_rounded
+                        : Icons.notes_rounded,
+                  ),
+                  title: Text(variant.languageLabel),
+                  subtitle: Text(variant.displayLabel),
+                  trailing: current ==
+                          (variant.isRomanized
+                              ? 'romanized'
+                              : variant.language.toLowerCase())
+                      ? Icon(Icons.check_rounded,
+                          color: sheetContext.palette.accent)
+                      : null,
+                  onTap: () => Navigator.pop(
+                    sheetContext,
+                    variant.isRomanized ? 'romanized' : variant.language,
+                  ),
+                ),
+              const Divider(height: 18),
+              _LanguageSectionLabel(text: 'ALL LANGUAGES'),
               ListTile(
                 leading: const Icon(Icons.abc_rounded),
                 title: const Text('Romanized (Latin letters)'),
-                subtitle: const Text('Generated from the original script'),
+                subtitle: Text(
+                  availableCodes.contains('romanized')
+                      ? 'Provided by the source'
+                      : 'Generated from the original script',
+                  style: TextStyle(
+                    color: sheetContext.palette.textMuted,
+                    fontSize: 11.5,
+                  ),
+                ),
+                trailing: current == 'romanized'
+                    ? Icon(Icons.check_rounded,
+                        color: sheetContext.palette.accent)
+                    : null,
                 onTap: () => Navigator.pop(sheetContext, 'romanized'),
               ),
-            for (final variant in usable)
               ListTile(
-                leading: Icon(
-                  variant.hasSynced
-                      ? Icons.lyrics_rounded
-                      : Icons.notes_rounded,
-                ),
-                title: Text(variant.languageLabel),
-                subtitle: Text(variant.displayLabel),
-                onTap: () => Navigator.pop(
-                  sheetContext,
-                  variant.isRomanized ? 'romanized' : variant.language,
-                ),
+                leading: const Icon(Icons.music_note_rounded),
+                title: const Text('Original language'),
+                trailing: current == 'original'
+                    ? Icon(Icons.check_rounded,
+                        color: sheetContext.palette.accent)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, 'original'),
               ),
-          ],
+              for (final code in languageCodes)
+                ListTile(
+                  leading: Icon(
+                    availableLanguages.contains(code)
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.language_rounded,
+                    color: availableLanguages.contains(code)
+                        ? sheetContext.palette.mint
+                        : null,
+                  ),
+                  title: Text(lyricsLanguageLabel(code)),
+                  subtitle: availableLanguages.contains(code)
+                      ? Text(
+                          'Available for this song',
+                          style: TextStyle(
+                            color: sheetContext.palette.mint,
+                            fontSize: 11,
+                          ),
+                        )
+                      : Text(
+                          'Not available — shows original/romanized',
+                          style: TextStyle(
+                            color: sheetContext.palette.textMuted,
+                            fontSize: 11,
+                          ),
+                        ),
+                  trailing: current == code
+                      ? Icon(Icons.check_rounded,
+                          color: sheetContext.palette.accent)
+                      : null,
+                  onTap: () => Navigator.pop(sheetContext, code),
+                ),
+              const SizedBox(height: 12),
+            ],
+          ),
         ),
       ),
     );
@@ -836,6 +944,28 @@ class _LyricsPanelState extends State<_LyricsPanel> {
       unawaited(
           usage.recordSongEvent('lyrics_check', widget.song, detail: selected));
     }
+  }
+}
+
+class _LanguageSectionLabel extends StatelessWidget {
+  const _LanguageSectionLabel({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: context.palette.textMuted,
+          fontSize: 9.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.5,
+        ),
+      ),
+    );
   }
 }
 
