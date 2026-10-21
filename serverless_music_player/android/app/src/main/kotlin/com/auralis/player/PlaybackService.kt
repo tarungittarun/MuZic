@@ -84,6 +84,10 @@ class PlaybackService : Service() {
 
         private const val SHADE_PREFS = "muzic_shade_card"
         private const val KEY_SHADE_LEVEL = "shade_level"
+        private const val KEY_SHADE_LAYOUT_REV = "shade_layout_rev"
+
+        /** Bump when the shade-card layouts change: re-trials level 2. */
+        private const val SHADE_LAYOUT_REV = 3
 
         /** Set by MainActivity: receives transport commands from the card. */
         var commandSink: ((String, Double?) -> Unit)? = null
@@ -158,9 +162,22 @@ class PlaybackService : Service() {
         createChannel()
         // Remember the richest shade-card level this device accepts, so a
         // demotion survives restarts instead of being retried every launch.
-        shadeLevel = getSharedPreferences(SHADE_PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_SHADE_LEVEL, 2)
-            .coerceIn(0, 2)
+        // When the card layouts themselves change, the richest level gets
+        // one fresh trial on this device.
+        val shadePrefs = getSharedPreferences(SHADE_PREFS, Context.MODE_PRIVATE)
+        shadeLevel = shadePrefs.getInt(KEY_SHADE_LEVEL, 2).coerceIn(0, 2)
+        if (shadePrefs.getInt(KEY_SHADE_LAYOUT_REV, 0) != SHADE_LAYOUT_REV) {
+            shadeLevel = 2
+            shadePrefs.edit()
+                .putInt(KEY_SHADE_LEVEL, shadeLevel)
+                .putInt(KEY_SHADE_LAYOUT_REV, SHADE_LAYOUT_REV)
+                .apply()
+        }
+        // Clear a stray blank ongoing notification (#0) left behind by a
+        // very old build; nothing in this version posts with id 0.
+        runCatching {
+            getSystemService(NotificationManager::class.java)?.cancel(0)
+        }
         val mediaSession = MediaSessionCompat(this, "MuZic").apply {
             setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
@@ -302,8 +319,8 @@ class PlaybackService : Service() {
      * overlaid on the banner stays readable on any artwork.
      */
     private fun makeBannerBitmap(source: Bitmap): Bitmap {
-        val width = 512
-        val height = 200
+        val width = 768
+        val height = 576
         val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
         val scale = maxOf(
@@ -320,11 +337,11 @@ class PlaybackService : Service() {
         canvas.drawBitmap(source, matrix, Paint(Paint.FILTER_BITMAP_FLAG))
         val gradient = LinearGradient(
             0f,
-            height * 0.30f,
+            height * 0.28f,
             0f,
             height.toFloat(),
-            intArrayOf(0x00000000, 0xC2000000.toInt()),
-            floatArrayOf(0f, 1f),
+            intArrayOf(0x00000000, 0x59000000, 0xE6000000.toInt()),
+            floatArrayOf(0f, 0.55f, 1f),
             Shader.TileMode.CLAMP,
         )
         canvas.drawRect(
@@ -554,6 +571,10 @@ class PlaybackService : Service() {
             }
             views.setTextColor(R.id.shade_title, 0xFFFFFFFF.toInt())
             views.setTextColor(R.id.shade_artist, 0xE8FFFFFF.toInt())
+            // Transport glyphs overlay the banner too: force them white
+            // whatever the theme (their XML tints are theme resources).
+            views.setInt(R.id.shade_prev, "setColorFilter", 0xFFFFFFFF.toInt())
+            views.setInt(R.id.shade_next, "setColorFilter", 0xFFFFFFFF.toInt())
         } else if (showArt) {
             views.setViewVisibility(R.id.shade_art, View.VISIBLE)
             views.setImageViewBitmap(R.id.shade_art, art)
