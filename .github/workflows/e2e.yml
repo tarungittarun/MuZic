@@ -52,6 +52,11 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           issues=$(grep -cE '^\s+(error|warning) •' analyze.txt || true)
           echo "issues=$issues" >> "$GITHUB_OUTPUT"
+          if [ $status -ne 0 ]; then
+            grep -E '^\s+(error|warning) •' analyze.txt | head -30 | while IFS= read -r line; do
+              echo "::error title=analyze::$(echo "$line" | cut -c1-300)"
+            done
+          fi
           exit $status
 
       - name: Unit & widget tests (JUnit + coverage)
