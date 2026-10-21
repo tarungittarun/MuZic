@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioManager
 import android.os.Build
 import android.os.IBinder
 import android.support.v4.media.MediaMetadataCompat
@@ -80,7 +81,7 @@ class PlaybackService : Service() {
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == Intent.ACTION_AUDIO_BECOMING_NOISY &&
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY &&
                 playing
             ) {
                 commandSink?.invoke("pause", null)
@@ -117,7 +118,7 @@ class PlaybackService : Service() {
         }
         session = mediaSession
         if (!noisyRegistered) {
-            registerReceiver(noisyReceiver, IntentFilter(Intent.ACTION_AUDIO_BECOMING_NOISY))
+            registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
             noisyRegistered = true
         }
     }
