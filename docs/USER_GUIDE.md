@@ -119,6 +119,16 @@ MuZic publishes a media session so Android can show a media card (title,
 artwork, previous / play-pause / next, seek bar) in the shade, on the lock
 screen, on Bluetooth displays and in Android Auto.
 
+The expanded shade card is styled after the system media player:
+full-width artwork fills the card, with the title, a big play/pause
+button, a **waveform seekbar** (the played part lights up and the
+playhead advances with the music), and a control row — **shuffle,
+previous, −10s, +10s, next, repeat** — overlaid on the artwork.
+Shuffle and repeat show their state (accent colour when on, a "1" on
+the repeat symbol for repeat-one) and work from the card exactly as
+they do in the app. While a song plays, the card re-syncs its
+progress with the music every second.
+
 *Settings → Playback*
 
 | Row | What it does |
