@@ -110,7 +110,7 @@ class PlaybackService : Service() {
         private const val KEY_SHADE_LAYOUT_REV = "shade_layout_rev"
 
         /** Bump when the shade-card layouts change: re-trials level 2. */
-        private const val SHADE_LAYOUT_REV = 10
+        private const val SHADE_LAYOUT_REV = 11
 
         /** Set by MainActivity: receives transport commands from the card. */
         var commandSink: ((String, Double?) -> Unit)? = null
@@ -700,10 +700,14 @@ class PlaybackService : Service() {
         val expanded = RemoteViews(packageName, R.layout.notification_shade_expanded)
         populateShadeViews(collapsed, expanded = false, variant = 2)
         populateShadeViews(expanded, expanded = true, variant = 2)
+        // No DecoratedCustomViewStyle here: that style wraps the custom
+        // view in the decorated template frame (extra padding around the
+        // card). Without it SystemUI gives the card the full row width,
+        // like the lock-screen player. The conservative fallback below
+        // keeps the style - it is the proven-floor configuration.
         return shadeBaseBuilder()
             .setCustomContentView(collapsed)
             .setCustomBigContentView(expanded)
-            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .build()
     }
 
