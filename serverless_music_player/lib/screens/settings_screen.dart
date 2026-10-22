@@ -10,10 +10,16 @@ import '../services/lyrics_language.dart';
 import '../services/notification_service.dart';
 import '../services/sleep_timer_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/muzic_home_button.dart';
 import 'diagnostics_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({this.embedded = false, this.onHome, super.key});
+
+  /// True when Settings is a bottom-navigation page rather than a pushed
+  /// route. Embedded mode has no route AppBar/back button.
+  final bool embedded;
+  final VoidCallback? onHome;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -24,18 +30,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsService>();
     final palette = context.palette;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-        leading: IconButton(
-          tooltip: 'Back',
-          onPressed: () => Navigator.maybePop(context),
-          icon: const Icon(Icons.arrow_back_rounded),
-        ),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
-        children: <Widget>[
+    final content = ListView(
+      padding: EdgeInsets.fromLTRB(18, widget.embedded ? 18 : 8, 18, 28),
+      children: <Widget>[
+        if (widget.embedded) ...<Widget>[
+          Row(
+            children: <Widget>[
+              MuZicHomeButton(onPressed: widget.onHome ?? () {}),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'MUZIC',
+                      style: TextStyle(
+                        fontSize: 10,
+                        letterSpacing: 2,
+                        color: palette.textMuted,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Settings',
+                      style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+        ],
           _ExpandableSettingsSection(
             title: 'Appearance',
             icon: Icons.palette_outlined,
@@ -72,7 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ExpandableSettingsSection(
             title: 'Lyrics',
             icon: Icons.lyrics_outlined,
@@ -125,11 +152,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ExpandableSettingsSection(
             title: 'Playback & recommendations',
             icon: Icons.play_circle_outline_rounded,
-            summary: 'Media player, notifications and autoplay',
+            summary: 'System player and personal mix',
             initiallyExpanded: true,
             child: Column(
               children: <Widget>[
@@ -190,132 +217,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: palette.textSecondary),
                   title: const Text('System media player'),
                   subtitle: Text(
-                    'The lock-screen and Quick Settings player is provided '
-                    'by Android while a song plays — artwork, seek, '
-                    'shuffle and repeat included. MuZic does not add a '
-                    'separate MuZic-made card to the notification shade. '
-                    'If Android’s card is hidden, tap this row to open '
-                    'Android’s Media controls settings (Pin media player / '
-                    'show on lock screen).',
+                    'Open Android’s media controls.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   trailing: const Icon(Icons.open_in_new_rounded, size: 18),
                   onTap: () => NotificationService.openMediaSettings(),
-                ),
-                Divider(height: 1, color: palette.outline),
-                FutureBuilder<String>(
-                  future: NotificationService.refreshStatus(),
-                  builder: (context, snapshot) => ListTile(
-                    leading: Icon(Icons.visibility_outlined,
-                        color: palette.textSecondary),
-                    title: const Text('Show active notifications'),
-                    subtitle: Text(
-                      snapshot.data ?? 'Checking…',
-                      style: TextStyle(
-                        color: palette.textMuted,
-                        fontSize: 11,
-                        height: 1.4,
-                      ),
-                    ),
-                    trailing: const Icon(Icons.refresh_rounded, size: 18),
-                    onTap: () => setState(() {}),
-                  ),
-                ),
-                Divider(height: 1, color: palette.outline),
-                ListTile(
-                  leading: Icon(Icons.health_and_safety_outlined,
-                      color: palette.textSecondary),
-                  title: const Text('Media notification health'),
-                  subtitle: Text(
-                    'Checks every step between MuZic and the system media '
-                    'player on the lock screen and in Quick Settings.',
-                    style: TextStyle(color: palette.textMuted, fontSize: 12),
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded, size: 18),
-                  onTap: () async {
-                    final messenger = ScaffoldMessenger.of(context);
-                    final lines = await NotificationService.healthReport();
-                    if (!mounted) return;
-                    final fix = await showDialog<bool>(
-                      context: context,
-                      builder: (dialogContext) => AlertDialog(
-                        title: const Text('Media notification health'),
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            for (final line in lines)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 7),
-                                child: Text(
-                                  line,
-                                  style: const TextStyle(
-                                      fontSize: 12.5, height: 1.35),
-                                ),
-                              ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'If the Session token line says state=playing, '
-                              'MuZic is publishing the standard Android media '
-                              'session; whether its card appears is then '
-                              'controlled by Android’s Media controls settings '
-                              '(Pin media player / Show media on lock screen).',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: Theme.of(dialogContext)
-                                    .colorScheme
-                                    .outline,
-                              ),
-                            ),
-                          ],
-                        ),
-                        actions: <Widget>[
-                          TextButton(
-                            onPressed: () => Navigator.of(dialogContext)
-                                .pop(false),
-                            child: const Text('Close'),
-                          ),
-                          FilledButton(
-                            onPressed: () =>
-                                Navigator.of(dialogContext).pop(true),
-                            child: const Text('Open settings'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (fix == true) {
-                      await NotificationService.openSystemSettings();
-                    } else {
-                      messenger.hideCurrentSnackBar();
-                    }
-                  },
-                ),
-                Divider(height: 1, color: palette.outline),
-                ListTile(
-                  leading: Icon(Icons.notifications_none_rounded,
-                      color: palette.textSecondary),
-                  title: const Text('Send a test notification'),
-                  subtitle: Text(
-                    'Confirms MuZic can post notifications on this device.',
-                    style: TextStyle(color: palette.textMuted, fontSize: 12),
-                  ),
-                  trailing: const Icon(Icons.send_rounded, size: 18),
-                  onTap: () async {
-                    final messenger = ScaffoldMessenger.of(context);
-                    final ok = await NotificationService.ensurePermission(force: true);
-                    final shown = await NotificationService.sendTest();
-                    messenger.showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          shown
-                              ? (ok
-                                  ? 'Test notification sent — check your shade.'
-                                  : 'Sent, but notifications are blocked for MuZic. Allow them in system settings.')
-                              : 'Could not post a notification on this device.',
-                        ),
-                      ),
-                    );
-                  },
                 ),
                 Divider(height: 1, color: palette.outline),
                 SwitchListTile(
@@ -326,9 +232,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           : palette.textSecondary),
                   title: const Text('Autoplay recommendations'),
                   subtitle: Text(
-                    'When a song or queue finishes lining up, MuZic adds a '
-                    'few related songs after it — like YouTube autoplay. '
-                    'They appear under “More like this” in Up next.',
+                    'Adds a personalised mix after your queue. Recommended '
+                    'tracks are actual Up next tracks and play in order.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   onChanged: settings.setAutoplayRecommendations,
@@ -344,8 +249,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        'Familiar leans on artists you play and favourite. '
-                        'Discovery leans more on fresh language charts.',
+                        'Choose how brave the Up next mix is.',
                         style: TextStyle(color: palette.textMuted, fontSize: 12),
                       ),
                       const SizedBox(height: 8),
@@ -373,23 +277,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                     ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
-                  child: Text(
-                    'About the Android media card: MuZic sends Android the '
-                    'best available artwork, title, artist, album, duration '
-                    'and the standard controls (previous, play/pause, next, '
-                    'seek, shuffle and repeat state). Your phone draws the '
-                    'card itself, so its size, waveform, colours and whether '
-                    'Android shows extra recommendations are controlled by '
-                    'Motorola/Android and Google, not by MuZic.',
-                    style: TextStyle(
-                      color: palette.textMuted,
-                      fontSize: 11,
-                      height: 1.45,
-                    ),
                   ),
                 ),
                 Divider(height: 1, color: palette.outline),
@@ -420,7 +307,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ExpandableSettingsSection(
             title: 'Sleep timer',
             icon: Icons.bedtime_outlined,
@@ -474,7 +361,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ExpandableSettingsSection(
             title: 'Discover',
             icon: Icons.explore_rounded,
@@ -510,7 +397,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ExpandableSettingsSection(
             title: 'Audio effects',
             icon: Icons.graphic_eq_rounded,
@@ -638,7 +525,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ExpandableSettingsSection(
             title: 'Diagnostics',
             icon: Icons.bug_report_outlined,
@@ -686,7 +573,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ExpandableSettingsSection(
             title: 'Privacy',
             icon: Icons.shield_outlined,
@@ -717,7 +604,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ExpandableSettingsSection(
             title: 'About MuZic',
             icon: Icons.info_outline_rounded,
@@ -732,10 +619,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: TextStyle(color: palette.textMuted, fontSize: 12)),
             ),
           ),
-        ],
+      ],
+    );
+    if (widget.embedded) return content;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Settings'),
+        leading: IconButton(
+          tooltip: 'Back',
+          onPressed: () => Navigator.maybePop(context),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
       ),
+      body: content,
     );
   }
+
   Future<void> _pickLyricsLanguage(
     BuildContext context,
     AppSettingsService settings,
@@ -990,30 +889,89 @@ class _ExpandableSettingsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: ExpansionTile(
-        key: PageStorageKey<String>('settings-section-$title'),
-        initiallyExpanded: initiallyExpanded,
-        maintainState: true,
-        leading: Icon(icon, color: palette.accent),
-        title: Text(
-          title,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
-        ),
-        subtitle: Text(
-          summary,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: palette.textMuted, fontSize: 12),
-        ),
-        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
-        childrenPadding: const EdgeInsets.only(bottom: 4),
-        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
-          child,
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Keep the section heading visually separate from the controls inside:
+    // a raised accent-led header, then a recessed contents panel below it.
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.08),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
         ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: Material(
+          color: palette.surface,
+          child: ExpansionTile(
+            key: PageStorageKey<String>('settings-section-$title'),
+            initiallyExpanded: initiallyExpanded,
+            maintainState: true,
+            tilePadding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
+            childrenPadding: EdgeInsets.zero,
+            backgroundColor: palette.surface,
+            collapsedBackgroundColor: palette.surface,
+            iconColor: palette.accent,
+            collapsedIconColor: palette.accent,
+            shape: Border(bottom: BorderSide(color: palette.outline, width: 0.8)),
+            collapsedShape: Border.all(color: palette.outline, width: 0.8),
+            leading: Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: <Color>[
+                    palette.accent.withValues(alpha: 0.22),
+                    palette.mint.withValues(alpha: 0.18),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Icon(icon, color: palette.accent, size: 22),
+            ),
+            title: Text(
+              title,
+              style: TextStyle(
+                fontSize: 16.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.2,
+                color: palette.textPrimary,
+              ),
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Text(
+                summary,
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            children: <Widget>[
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? palette.background.withValues(alpha: 0.68)
+                      : palette.surfaceRaised.withValues(alpha: 0.48),
+                  border: Border(
+                    top: BorderSide(color: palette.outline, width: 0.8),
+                    left: BorderSide(color: palette.accent, width: 3),
+                  ),
+                ),
+                child: child,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

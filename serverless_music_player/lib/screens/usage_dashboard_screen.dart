@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/usage_service.dart';
+import '../widgets/muzic_home_button.dart';
 import '../theme/app_theme.dart';
 
 class UsageDashboardScreen extends StatelessWidget {
-  const UsageDashboardScreen({super.key});
+  const UsageDashboardScreen({this.onHome, super.key});
+
+  final VoidCallback? onHome;
 
   @override
   Widget build(BuildContext context) {
@@ -18,9 +21,11 @@ class UsageDashboardScreen extends StatelessWidget {
     return Column(
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 14, 12),
+          padding: const EdgeInsets.fromLTRB(18, 20, 14, 12),
           child: Row(
             children: <Widget>[
+              MuZicHomeButton(onPressed: onHome ?? () {}),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

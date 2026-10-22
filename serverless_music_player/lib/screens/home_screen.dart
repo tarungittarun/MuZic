@@ -13,11 +13,21 @@ import '../services/lossless_radio_service.dart';
 import '../services/music_api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/cover_art.dart';
+import '../widgets/muzic_home_button.dart';
 import '../widgets/song_tile.dart';
-import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    this.searchFocusTick = 0,
+    this.homeResetTick = 0,
+    super.key,
+  });
+
+  /// Incremented when the already-selected Search tab is tapped again.
+  final int searchFocusTick;
+
+  /// Incremented when the MuZic note is tapped on another main page.
+  final int homeResetTick;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -25,9 +35,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _queryController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  final ScrollController _scrollController = ScrollController();
 
   List<SongModel> _results = <SongModel>[];
   List<AlbumSummary> _albums = <AlbumSummary>[];
+  List<ArtistSummary> _artists = <ArtistSummary>[];
   final Map<String, List<SongModel>> _trendingByLanguage =
       <String, List<SongModel>>{};
   SearchSource _source = SearchSource.automatic;
@@ -43,9 +56,51 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.searchFocusTick != widget.searchFocusTick) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _searchFocusNode.requestFocus();
+        _queryController.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _queryController.text.length,
+        );
+      });
+    }
+    if (oldWidget.homeResetTick != widget.homeResetTick) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _resetToHome();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _queryController.dispose();
+    _searchFocusNode.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _resetToHome() {
+    _queryController.clear();
+    _searchFocusNode.unfocus();
+    setState(() {
+      _results = <SongModel>[];
+      _albums = <AlbumSummary>[];
+      _artists = <ArtistSummary>[];
+      _searching = false;
+      _lastQuery = '';
+      _loading = false;
+    });
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   Future<void> _loadTrending() async {
@@ -68,6 +123,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _results = <SongModel>[];
         _albums = <AlbumSummary>[];
+        _artists = <ArtistSummary>[];
         _searching = false;
         _lastQuery = '';
       });
@@ -81,14 +137,23 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     final api = context.read<MusicApiService>();
     try {
-      final songs = await api.search(text, source: _source, limit: 30);
-      final albums = _source == SearchSource.youtube
-          ? const <AlbumSummary>[]
-          : await api.searchAlbums(text, limit: 10);
+      // Start all three lookups before awaiting so artist results do not add
+      // another serial round-trip to an already busy search.
+      final songsFuture = api.search(text, source: _source, limit: 30);
+      final albumsFuture = _source == SearchSource.youtube
+          ? Future<List<AlbumSummary>>.value(const <AlbumSummary>[])
+          : api.searchAlbums(text, limit: 10);
+      final artistsFuture = _source == SearchSource.youtube
+          ? Future<List<ArtistSummary>>.value(const <ArtistSummary>[])
+          : api.searchArtists(text, limit: 8);
+      final songs = await songsFuture;
+      final albums = await albumsFuture;
+      final artists = await artistsFuture;
       if (!mounted) return;
       setState(() {
         _results = songs;
         _albums = albums;
+        _artists = artists;
       });
     } catch (error) {
       if (!mounted) return;
@@ -100,9 +165,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _play(List<SongModel> songs, int index) async {
+  Future<void> _play(
+    List<SongModel> songs,
+    int index, {
+    bool shuffle = false,
+  }) async {
     try {
-      await context.read<PlayerController>().playQueue(songs, initialIndex: index);
+      final player = context.read<PlayerController>();
+      await player.playQueue(songs, initialIndex: index);
+      if (shuffle && !player.shuffleEnabled) await player.toggleShuffle();
     } catch (error) {
       if (!mounted) return;
       final message = error is StateError ? error.message : '$error';
@@ -110,6 +181,29 @@ class _HomeScreenState extends State<HomeScreen> {
         SnackBar(content: Text('Could not start playback: $message')),
       );
     }
+  }
+
+  void _openArtist(ArtistSummary artist) {
+    final api = context.read<MusicApiService>();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: context.palette.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => _ArtistLibrarySheet(
+        artist: artist,
+        songsFuture: api.search('${artist.name} songs', source: _source, limit: 30),
+        albumsFuture: api.searchAlbums(artist.name, limit: 20),
+        onPlay: (songs, index, {bool shuffle = false}) {
+          Navigator.pop(sheetContext);
+          unawaited(_play(songs, index, shuffle: shuffle));
+        },
+        onOpenAlbum: (album) {
+          Navigator.pop(sheetContext);
+          unawaited(_openAlbum(album));
+        },
+      ),
+    );
   }
 
   Future<void> _openAlbum(AlbumSummary album) async {
@@ -158,12 +252,15 @@ class _HomeScreenState extends State<HomeScreen> {
     return RefreshIndicator(
       onRefresh: _loadTrending,
       child: ListView(
+        controller: _scrollController,
         padding: const EdgeInsets.only(bottom: 28),
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 14, 6),
+            padding: const EdgeInsets.fromLTRB(18, 18, 14, 6),
             child: Row(
               children: <Widget>[
+                MuZicHomeButton(onPressed: _resetToHome),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -191,26 +288,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (_searching)
                   IconButton(
                     tooltip: 'Clear search',
-                    onPressed: () {
-                      _queryController.clear();
-                      setState(() {
-                        _searching = false;
-                        _results = <SongModel>[];
-                        _albums = <AlbumSummary>[];
-                        _lastQuery = '';
-                      });
-                    },
+                    onPressed: _resetToHome,
                     icon: const Icon(Icons.close_rounded),
                   ),
-                IconButton.filledTonal(
-                  tooltip: 'Settings',
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const SettingsScreen(),
-                    ),
-                  ),
-                  icon: const Icon(Icons.tune_rounded),
-                ),
               ],
             ),
           ),
@@ -218,6 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
             child: TextField(
               controller: _queryController,
+              focusNode: _searchFocusNode,
               textInputAction: TextInputAction.search,
               onSubmitted: _search,
               onChanged: (_) => setState(() {}),
@@ -314,7 +395,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<Widget> _searchResults() {
     final palette = context.palette;
-    if (_results.isEmpty && _albums.isEmpty && !_loading) {
+    if (_results.isEmpty && _albums.isEmpty && _artists.isEmpty && !_loading) {
       return <Widget>[
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 44, 20, 20),
@@ -340,6 +421,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final top = _results.isNotEmpty ? _results.first : null;
     return <Widget>[
+      if (_artists.isNotEmpty) ...<Widget>[
+        const _ShelfHeader(
+          title: 'Artists',
+          subtitle: 'Open an artist library',
+        ),
+        SizedBox(
+          height: 148,
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
+            scrollDirection: Axis.horizontal,
+            itemCount: _artists.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (context, index) => _ArtistCard(
+              artist: _artists[index],
+              onTap: () => _openArtist(_artists[index]),
+            ),
+          ),
+        ),
+      ],
       if (top != null)
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 4),
@@ -653,6 +753,263 @@ class _LosslessRadioShelf extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ArtistCard extends StatelessWidget {
+  const _ArtistCard({required this.artist, required this.onTap});
+
+  final ArtistSummary artist;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return SizedBox(
+      width: 112,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Column(
+          children: <Widget>[
+            CircleAvatar(
+              radius: 42,
+              backgroundColor: palette.surfaceRaised,
+              backgroundImage: artist.imageUrl.isEmpty
+                  ? null
+                  : NetworkImage(artist.imageUrl),
+              child: artist.imageUrl.isEmpty
+                  ? Icon(Icons.person_rounded, color: palette.accent, size: 34)
+                  : null,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              artist.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'Artist library',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 10.5, color: palette.accent),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ArtistLibrarySheet extends StatelessWidget {
+  const _ArtistLibrarySheet({
+    required this.artist,
+    required this.songsFuture,
+    required this.albumsFuture,
+    required this.onPlay,
+    required this.onOpenAlbum,
+  });
+
+  final ArtistSummary artist;
+  final Future<List<SongModel>> songsFuture;
+  final Future<List<AlbumSummary>> albumsFuture;
+  final void Function(List<SongModel> songs, int index, {bool shuffle}) onPlay;
+  final void Function(AlbumSummary album) onOpenAlbum;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    String normalise(String value) =>
+        value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+
+    return SafeArea(
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.78,
+        minChildSize: 0.45,
+        maxChildSize: 0.94,
+        builder: (context, scrollController) => ListView(
+          controller: scrollController,
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                CircleAvatar(
+                  radius: 34,
+                  backgroundColor: palette.surfaceRaised,
+                  backgroundImage: artist.imageUrl.isEmpty
+                      ? null
+                      : NetworkImage(artist.imageUrl),
+                  child: artist.imageUrl.isEmpty
+                      ? Icon(Icons.person_rounded,
+                          color: palette.accent, size: 30)
+                      : null,
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        artist.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        artist.subtitle.isEmpty
+                            ? 'Artist library'
+                            : artist.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: palette.textMuted, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            FutureBuilder<List<SongModel>>(
+              future: songsFuture,
+              builder: (context, snapshot) {
+                final songs = snapshot.data ?? const <SongModel>[];
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    _ShelfHeader(
+                      title: 'Top songs',
+                      subtitle: songs.isEmpty ? '' : '${songs.length} tracks',
+                    ),
+                    if (snapshot.connectionState != ConnectionState.done)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 22),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (songs.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: Text(
+                          'No songs found for this artist yet.',
+                          style: TextStyle(color: palette.textMuted),
+                        ),
+                      )
+                    else ...<Widget>[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+                        child: Row(
+                          children: <Widget>[
+                            FilledButton.icon(
+                              onPressed: () => onPlay(songs, 0),
+                              icon: const Icon(Icons.play_arrow_rounded),
+                              label: const Text('Play all'),
+                            ),
+                            const SizedBox(width: 9),
+                            OutlinedButton.icon(
+                              onPressed: () => onPlay(songs, 0, shuffle: true),
+                              icon: const Icon(Icons.shuffle_rounded),
+                              label: const Text('Shuffle'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      for (var index = 0; index < songs.length; index++)
+                        SongTile(
+                          song: songs[index],
+                          onTap: () => onPlay(songs, index),
+                        ),
+                    ],
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 10),
+            FutureBuilder<List<AlbumSummary>>(
+              future: albumsFuture,
+              builder: (context, snapshot) {
+                final allAlbums = snapshot.data ?? const <AlbumSummary>[];
+                final artistKey = normalise(artist.name);
+                final matching = allAlbums
+                    .where(
+                      (album) =>
+                          normalise(album.artist).contains(artistKey) ||
+                          normalise(album.title).contains(artistKey),
+                    )
+                    .toList(growable: false);
+                final albums = matching.isEmpty ? allAlbums : matching;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    _ShelfHeader(
+                      title: 'Albums',
+                      subtitle: albums.isEmpty ? '' : '${albums.length} releases',
+                    ),
+                    if (snapshot.connectionState != ConnectionState.done)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 18),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (albums.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: Text(
+                          'No albums found for this artist yet.',
+                          style: TextStyle(color: palette.textMuted),
+                        ),
+                      )
+                    else
+                      for (final album in albums)
+                        ListTile(
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 20),
+                          leading: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: SizedBox(
+                              width: 52,
+                              height: 52,
+                              child: album.imageUrl == null
+                                  ? Container(color: palette.surfaceRaised)
+                                  : Image.network(
+                                      album.imageUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        color: palette.surfaceRaised,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                          title: Text(
+                            album.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            <String>[
+                              if (album.artist.isNotEmpty) album.artist,
+                              if (album.songCount != null)
+                                '${album.songCount} songs',
+                            ].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () => onOpenAlbum(album),
+                        ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -110,10 +110,14 @@ class PlayerController extends ChangeNotifier {
   List<SongModel> get queue => List<SongModel>.unmodifiable(_queue);
 
   /// Related songs MuZic lined up automatically after the user's queue.
+  /// They are real queue items and appear at the end of Up next.
   List<SongModel> get recommendations =>
       List<SongModel>.unmodifiable(_recommendations);
 
-  /// Why a recommended song was selected, for the More like this cards.
+  Set<String> get recommendationIds =>
+      _recommendations.map((song) => song.id).toSet();
+
+  /// Why a recommended song was selected, for its Up next row.
   String recommendationReasonFor(SongModel song) =>
       _recommendationReasons[song.id] ?? '';
   int? get currentIndex => _currentIndex;
@@ -482,8 +486,7 @@ class PlayerController extends ChangeNotifier {
     );
   }
 
-  /// Starts playback at an existing queue position (used by Up next and
-  /// the More like this section).
+  /// Starts playback at an existing queue position (used by Up next).
   Future<void> playAtQueueIndex(int index) async {
     if (index < 0 || index >= _queue.length) return;
     try {

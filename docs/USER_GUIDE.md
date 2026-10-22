@@ -24,7 +24,11 @@ screenshots.
 
 The home tab is a browsable feed, not just a search box.
 
-1. **Greeting + search bar** at the top.
+1. **MuZic note + greeting + search bar** at the top. The gradient music
+   note at the top-left is the Home button: tap it and it shakes/vibrates
+   briefly while returning you to the clean home feed. The same note appears
+   at the top-left of Library, Usage and Settings.
+2. **Greeting + search bar** at the top.
 2. **Recently played** — the last tracks you started, newest first.
 3. **Liked songs** — everything you hearted.
 4. **Trending in \<language\>** — one shelf per language you picked
@@ -59,7 +63,16 @@ shelves reload automatically when you change the selection.
      track in that album (tap any track to play the album from there).
    - **Songs** — up to 30 results with the usual actions (favourite, download,
      add to queue/playlist, details).
-4. The **✕** button clears the search and returns you to the home feed.
+4. **Artists** — when a search matches an artist, tap the artist to open
+   the **artist library**: Play all / Shuffle, that artist's top songs and
+   albums. Albums open through the normal album sheet and playback flow.
+5. The **✕** button clears the search and returns you to the home feed.
+6. **Bottom navigation** is **Search · Library · Settings (gear) · Usage**
+   and can be swiped sideways on narrow screens. Tapping **Search** once
+   opens Search; tapping it again while already there focuses the search
+   box, opens the keyboard and selects the current text.
+7. **Light mode** uses a layered lavender background, tinted cards and
+   deeper raised controls rather than a flat white page.
 
 ---
 
@@ -71,17 +84,21 @@ shelves reload automatically when you change the selection.
 - The **mini player** at the bottom opens the full now-playing sheet.
 - **Queue** (☰ in now playing): reorder, jump to a track, remove items.
 - **Shuffle / repeat** live in the mini player and the queue sheet.
-- **More like this**: when *Settings → Playback & recommendations →
-  Autoplay recommendations* is on (it is on by default), MuZic builds a
-  small radio queue after your own songs. Like mainstream streaming apps,
-  it does **not** simply search the current title again. It mixes the
-  current artists, artists from your favourites/recents/repeated plays,
-  the album context, your previous searches and trending songs in your
+- **Up next (actual playback order)**: when *Settings → Playback &
+  recommendations → Autoplay recommendations* is on (it is on by default),
+  MuZic builds a small radio queue after your own songs. Like mainstream
+  streaming apps, it does **not** simply search the current title again. It
+  mixes the current artists, artists from your favourites/recents/repeated
+  plays, the album context, your previous searches and trending songs in your
   selected languages. Alternate versions of songs already queued or just
   played are filtered out, no artist is allowed to dominate the list, and
-  recently recommended songs are rotated away. Open **Up next** to see the
-  **More like this** row and the reason on each card; tap a card to jump to
-  it. Choose **Familiar**, **Balanced** or **Discovery** under
+  recently recommended songs are rotated away. Those recommendations are not
+  a separate suggestion row: they are the final tracks in **Up next**, marked
+  **Recommended** with the reason. **Up next** shows only tracks after the
+  current track, in the exact order they will play. Drag a row by its handle
+  to rearrange it (including moving a recommendation ahead of your queued
+  songs), tap a row to play it, or use **Clear** to remove everything after
+  the current track. Choose **Familiar**, **Balanced** or **Discovery** under
   *Recommendation mix* in Settings. Turn autoplay off and MuZic will never
   add songs you did not choose.
 - Playback continues in the background and survives screen-off.
@@ -150,30 +167,31 @@ Motorola it is shown on the lock screen and in Quick Settings, while
 the first-pull notification shade has no MuZic player. Other phones
 may place the same system player on additional surfaces.
 
-*Settings → Playback & recommendations* — Settings is now organised into
-expandable sections, so tap the section you want and change only that
-part.
+Settings is reached from the **gear** in the bottom row. It is organised
+into expandable sections: each section heading is a raised header card
+(icon, title, one-line summary and chevron), while the controls inside sit
+in a separate inset panel beneath it, so the heading never blends into its
+contents. *Settings → Playback & recommendations* contains the playback
+rows below; the old test/health notification dumps were removed from
+Settings (the separate opt-in Diagnostics screen still records media health
+in its exported report).
 
 | Row | What it does |
 | --- | --- |
 | **Notification access** | Shows Allowed/Blocked. **Allow** asks for the permission; if it is still blocked it opens the system settings page for MuZic. The media player cannot appear without it. |
-| **Send a test notification** | Posts a plain notification. If this appears but the media player does not, the problem is playback, not the permission. |
-| **Show active notifications** | Lists what Android is currently showing for MuZic (including whether the media player exists). |
-| **Media notification health** | Step-by-step check of everything the media player needs (permission, channel, audio service, session). |
+| **System media player** | Opens Android's own media-controls settings. MuZic does not draw a replacement shade card. |
 | **Allow background playback** | Battery-optimisation exemption. Required on MIUI, ColorOS, FuntouchOS, MagicOS — otherwise the player gets killed a few minutes after you leave the app. |
-| **Autoplay recommendations** | On by default. Adds a personalised radio mix after your queue and shows it under **More like this** in Up next. |
+| **Autoplay recommendations** | On by default. Adds a personalised radio mix after your queue as real, rearrangeable **Up next** tracks. |
 | **Recommendation mix** | **Familiar** leans on artists you already play; **Balanced** mixes taste and charts; **Discovery** gives fresh trending picks more weight. |
 | **Android media-card limits** | MuZic supplies Android with the best artwork and song details it has, plus previous / play-pause / next, seek, shuffle and repeat state. Motorola/Android draws the Quick Settings card itself, so MuZic cannot resize it, recolour it or force Android/Google to show extra recommendation cards there. MuZic does publish the standard browsable/resumable media hooks Android offers apps. |
 
 **If the system player does not appear**
 
-1. Settings → Playback & recommendations → **Send a test notification**. No notification? Fix
-   the permission / OEM "hide notifications" setting first.
-2. Test notification appears but there is no system player on the lock
-   screen or in Quick Settings while a song plays? Tap **Show active
-   notifications**. No MuZic playback entry means Android is not
-   publishing the system player (send us a diagnostics report — the app
-   version and icon are logged).
+1. Check **Notification access** in Settings → Playback & recommendations.
+   If it is blocked, allow notifications for MuZic first.
+2. If there is still no system player on the lock screen or in Quick
+   Settings while a song plays, send a diagnostics report (the app version,
+   media session and queue state are logged).
 3. Allow **background playback** and re-test after locking the screen once.
 4. On Motorola phones, also check **Settings → Sound & vibration → Media**:
    turn on the lock-screen media player / pin the media player, and under
@@ -194,9 +212,8 @@ part.
    and face-unlock **Skip lock screen** OFF (it hides lock-screen media
    players). Edge Neo models on Android 15 also have a known Motorola bug
    where the music-card area renders blank: switch *Control center* style
-   (Modern ↔ Classic) once and the panel redraws the card. MuZic detects
-   Motorola devices and lists these checks inside **Media notification
-   health** automatically.
+   (Modern ↔ Classic) once and the panel redraws the card. The optional
+   diagnostics report still records the media-session health lines.
 
 ---
 
@@ -361,7 +378,7 @@ stays in Movies/MuZic.
 
 | Symptom | Fix |
 | --- | --- |
-| No system media player on the lock screen or in Quick Settings | Play a song; allow notifications; enable **Allow background playback**; check **Show active notifications** and **Media notification health** in Settings → Playback. |
+| No system media player on the lock screen or in Quick Settings | Play a song; allow notifications; enable **Allow background playback**; on Motorola enable **Pin media player**, then export a diagnostics report if it is still missing. |
 | System media player disappears after a while | Battery optimisation (Settings → Playback & recommendations → Allow background playback) — common on Xiaomi/OPPO/vivo. |
 | System media player disappears when paused | Android normally keeps the paused player until it is swiped away; if it vanishes, disable battery optimisation for MuZic in Settings → Playback. |
 | "Could not start playback" | Try the other source (JioSaavn/YouTube) — some regional tracks are missing from one of them. |

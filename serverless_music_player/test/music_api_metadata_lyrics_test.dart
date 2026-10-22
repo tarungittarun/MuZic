@@ -64,6 +64,43 @@ void main() {
     });
   });
 
+  group('MusicApiService artist search', () {
+    test('parses artist results for the artist library', () async {
+      Uri? requestedUri;
+      final client = MockClient((request) async {
+        requestedUri = request.url;
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'results': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'id': 'artist-1',
+                'title': 'Example Artist',
+                'subtitle': 'Artist',
+                'image': 'https://example.test/artist-150.jpg',
+              },
+              <String, dynamic>{
+                'id': '',
+                'title': 'Ignore incomplete rows',
+              },
+            ],
+          }),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      });
+      final api = MusicApiService(httpClient: client);
+      addTearDown(api.dispose);
+
+      final artists = await api.searchArtists('Example Artist');
+
+      expect(requestedUri?.queryParameters['__call'], 'search.getArtistResults');
+      expect(artists, hasLength(1));
+      expect(artists.single.id, 'artist-1');
+      expect(artists.single.name, 'Example Artist');
+      expect(artists.single.imageUrl, contains('artist'));
+    });
+  });
+
   group('MusicApiService lyrics', () {
     test('uses exact LRCLIB match, parses synced lines, and caches it', () async {
       var requestCount = 0;

@@ -163,6 +163,65 @@ class MusicApiService {
     }
   }
 
+  /// Artist matches for a query. Used to open an artist library with that
+  /// artist's songs and albums instead of treating every search as songs.
+  Future<List<ArtistSummary>> searchArtists(
+    String query, {
+    int limit = 8,
+  }) async {
+    final cleanQuery = query.trim();
+    if (cleanQuery.isEmpty) return const <ArtistSummary>[];
+    final uri = Uri.https(_saavnHost, '/api.php', <String, String>{
+      '__call': 'search.getArtistResults',
+      '_format': 'json',
+      '_marker': '0',
+      'api_version': '4',
+      'ctx': 'web6dot0',
+      'q': cleanQuery,
+      'p': '1',
+      'n': '$limit',
+    });
+    try {
+      final response =
+          await _http.get(uri, headers: _saavnHeaders).timeout(_timeout);
+      if (response.statusCode != 200) return const <ArtistSummary>[];
+      final root = _asMap(jsonDecode(response.body));
+      if (root == null) return const <ArtistSummary>[];
+      final rows = root['results'] ?? root['data'];
+      if (rows is! Iterable) return const <ArtistSummary>[];
+      final artists = <ArtistSummary>[];
+      for (final value in rows) {
+        final row = _asMap(value);
+        if (row == null) continue;
+        final id = (row['id'] ?? row['artist_id'] ?? '').toString().trim();
+        final name = _cleanText(row['title'] ?? row['name'] ?? '');
+        if (id.isEmpty || name.isEmpty) continue;
+        artists.add(
+          ArtistSummary(
+            id: id,
+            name: name,
+            imageUrl: _imageUrl(row['image']),
+            subtitle: _cleanText(
+              row['subtitle'] ?? row['description'] ?? 'Artist',
+            ),
+          ),
+        );
+        if (artists.length >= limit) break;
+      }
+      logInfo('api', 'searchArtists', <String, Object?>{
+        'query': cleanQuery,
+        'results': artists.length,
+      });
+      return artists;
+    } catch (error) {
+      logWarn('api', 'searchArtists failed', <String, Object?>{
+        'query': cleanQuery,
+        'error': '$error',
+      });
+      return const <ArtistSummary>[];
+    }
+  }
+
   /// Album matches for a query (search results page shelves).
   Future<List<AlbumSummary>> searchAlbums(
     String query, {
@@ -1183,6 +1242,20 @@ class MusicApiService {
 }
 
 /// Lightweight album result used by the search and discover shelves.
+class ArtistSummary {
+  const ArtistSummary({
+    required this.id,
+    required this.name,
+    this.imageUrl = '',
+    this.subtitle = '',
+  });
+
+  final String id;
+  final String name;
+  final String imageUrl;
+  final String subtitle;
+}
+
 class AlbumSummary {
   const AlbumSummary({
     required this.id,

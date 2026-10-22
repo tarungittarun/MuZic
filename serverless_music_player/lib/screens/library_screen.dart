@@ -11,10 +11,13 @@ import '../services/usage_service.dart';
 import '../services/video_library_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/muzic_home_button.dart';
 import '../widgets/song_tile.dart';
 
 class LibraryScreen extends StatelessWidget {
-  const LibraryScreen({super.key});
+  const LibraryScreen({this.onHome, super.key});
+
+  final VoidCallback? onHome;
 
   @override
   Widget build(BuildContext context) {
@@ -26,9 +29,11 @@ class LibraryScreen extends StatelessWidget {
         builder: (tabContext) => Column(
           children: <Widget>[
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 16, 7),
+              padding: const EdgeInsets.fromLTRB(18, 20, 16, 7),
               child: Row(
                 children: <Widget>[
+                  MuZicHomeButton(onPressed: onHome ?? () {}),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

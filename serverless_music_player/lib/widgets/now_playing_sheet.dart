@@ -1227,240 +1227,166 @@ class _QueueSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<PlayerController>();
     final palette = context.palette;
-    final recommendations = player.recommendations;
-    final recommendationIds =
-        recommendations.map((song) => song.id).toSet();
+    final player = context.watch<PlayerController>();
+    final queue = player.queue;
+    final currentIndex = player.currentIndex ?? -1;
+    final upcomingStart = (currentIndex + 1).clamp(0, queue.length).toInt();
+    final upcoming = upcomingStart >= queue.length
+        ? const <SongModel>[]
+        : queue.sublist(upcomingStart);
+
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.72,
-        child: Column(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+          child: Column(
           children: <Widget>[
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 2, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 4, 4, 10),
               child: Row(
                 children: <Widget>[
                   const Expanded(
-                    child: Text('Up next', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                    child: Text(
+                      'Up next',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                    ),
                   ),
-                  Text('${player.queue.length} tracks', style: TextStyle(color: palette.textMuted, fontSize: 12)),
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: player.queue.length <= 1 ? null : player.clearUpNext,
-                    child: const Text('Clear up next'),
+                  Text(
+                    upcoming.isEmpty
+                        ? 'Nothing queued'
+                        : '${upcoming.length} next',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  const SizedBox(width: 6),
+                  TextButton.icon(
+                    onPressed: upcoming.isEmpty
+                        ? null
+                        : () => player.clearUpNext(),
+                    icon: const Icon(Icons.clear_all_rounded, size: 18),
+                    label: const Text('Clear'),
+                  ),
+                  IconButton(
+                    tooltip: 'Close queue',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
                   ),
                 ],
               ),
             ),
-            if (recommendations.isNotEmpty) ...<Widget>[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
-                child: Row(
-                  children: <Widget>[
-                    Icon(Icons.auto_awesome_rounded,
-                        size: 17, color: palette.accent),
-                    const SizedBox(width: 7),
-                    const Text(
-                      'More like this',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Based on what you play — not just this title',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: palette.textMuted, fontSize: 11),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(
-                height: 72,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: recommendations.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, recIndex) {
-                    final song = recommendations[recIndex];
-                    final queueIndex = player.queue
-                        .indexWhere((queued) => queued.id == song.id);
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: queueIndex < 0
-                          ? null
-                          : () => player.playAtQueueIndex(queueIndex),
-                      child: Container(
-                        width: 218,
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: palette.surfaceRaised,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: palette.outline),
-                        ),
-                        child: Row(
-                          children: <Widget>[
-                            CoverArt(song: song, size: 44, radius: 10),
-                            const SizedBox(width: 9),
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Text(
-                                    song.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  Text(
-                                    song.artist,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: palette.textMuted,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  if (player.recommendationReasonFor(song).isNotEmpty)
-                                    Text(
-                                      player.recommendationReasonFor(song),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: palette.accent,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            Icon(Icons.play_arrow_rounded,
-                                size: 20, color: palette.accent),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 10),
-            ],
             Expanded(
-              child: player.queue.isEmpty
-                  ? Center(child: Text('Queue is empty.', style: TextStyle(color: palette.textMuted)))
+              child: upcoming.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 28),
+                      child: _EmptyUpNext(),
+                    )
                   : ReorderableListView.builder(
-                      itemCount: player.queue.length,
+                      buildDefaultDragHandles: false,
+                      itemCount: upcoming.length,
                       onReorder: (oldIndex, newIndex) {
-                        if (newIndex > oldIndex) newIndex--;
-                        player.reorderQueue(oldIndex, newIndex);
+                        final adjustedNewIndex =
+                            newIndex > oldIndex ? newIndex - 1 : newIndex;
+                        player.reorderQueue(
+                          upcomingStart + oldIndex,
+                          upcomingStart + adjustedNewIndex,
+                        );
                       },
                       itemBuilder: (context, index) {
-                        final song = player.queue[index];
-                        final active = index == player.currentIndex;
-                        return ListTile(
-                          key: ValueKey<String>('$index-${song.id}'),
-                          onTap: () => player.playAtQueueIndex(index),
-                          leading: CoverArt(song: song, size: 44, radius: 12),
-                          title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(
-                            recommendationIds.contains(song.id)
-                                ? '${song.artist} • Recommended${player.recommendationReasonFor(song).isEmpty ? '' : ' • ${player.recommendationReasonFor(song)}'}'
-                                : song.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          titleTextStyle: TextStyle(color: active ? palette.accent : palette.textPrimary, fontWeight: active ? FontWeight.w700 : FontWeight.w500),
-                          trailing: ReorderableDragStartListener(
-                            index: index,
-                            child: Icon(Icons.drag_handle_rounded, color: palette.textMuted),
+                        final song = upcoming[index];
+                        final globalIndex = upcomingStart + index;
+                        final recommended =
+                            player.recommendationIds.contains(song.id);
+                        final reason = recommended
+                            ? player.recommendationReasonFor(song)
+                            : '';
+                        return ReorderableDelayedDragStartListener(
+                          key: ValueKey<String>('up-next-${song.id}'),
+                          index: index,
+                          child: Material(
+                            color: Colors.transparent,
+                            child: ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 12, right: 4),
+                              leading: CoverArt(song: song, size: 46, radius: 11),
+                              title: Text(
+                                song.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                recommended
+                                    ? <String>[
+                                        song.artist,
+                                        'Recommended',
+                                        if (reason.isNotEmpty) reason,
+                                      ].join(' • ')
+                                    : song.artist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: recommended
+                                      ? palette.accent
+                                      : palette.textMuted,
+                                  fontWeight: recommended
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                ),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  if (recommended)
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 2),
+                                      child: Icon(
+                                        Icons.auto_awesome_rounded,
+                                        size: 16,
+                                        color: palette.accent,
+                                      ),
+                                    ),
+                                  const Icon(Icons.drag_handle_rounded),
+                                ],
+                              ),
+                              onTap: () => player.playAtQueueIndex(globalIndex),
+                            ),
                           ),
                         );
                       },
                     ),
             ),
           ],
+          ),
         ),
       ),
     );
   }
 }
 
+class _EmptyUpNext extends StatelessWidget {
+  const _EmptyUpNext();
 
-/// Bottom sheet that shows an in-flight lyric-video render and offers to stop
-/// it. Reachable from the player's export button and from the mini player, so
-/// the percentage is always one tap away even after closing the player.
-Future<void> showExportProgress(BuildContext context) async {
-  final manager = context.read<VideoExportManager>();
-  final stop = await showModalBottomSheet<bool>(
-    context: context,
-    showDragHandle: true,
-    builder: (sheetContext) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-            child: Text(
-              'Rendering lyric video',
-              style: Theme.of(sheetContext).textTheme.titleMedium,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-            child: AnimatedBuilder(
-              animation: manager,
-              builder: (context, _) {
-                if (!manager.isBusy) {
-                  return const Text('Finished — check Downloads for the video.');
-                }
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    LinearProgressIndicator(
-                      value: manager.percent == 0 ? null : manager.progress,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '${manager.percent}% complete · ${manager.songTitle ?? ''}',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'It keeps rendering in the background while you use the app.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.palette.textMuted,
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.stop_circle_outlined),
-            title: const Text('Stop exporting'),
-            subtitle: const Text('The partial file is discarded.'),
-            onTap: () => Navigator.of(sheetContext).pop(true),
-          ),
-          ListTile(
-            leading: const Icon(Icons.play_arrow_rounded),
-            title: const Text('Keep rendering'),
-            onTap: () => Navigator.of(sheetContext).pop(false),
-          ),
-          const SizedBox(height: 6),
-        ],
-      ),
-    ),
-  );
-  if (stop == true) await manager.cancel();
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
+        Icon(Icons.queue_music_rounded, size: 46, color: palette.textMuted),
+        const SizedBox(height: 12),
+        const Text(
+          'Nothing is queued next',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Songs you queue—and recommendations when autoplay is on—will '
+          'play from this list in this exact order.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: palette.textMuted, height: 1.4),
+        ),
+      ],
+    );
+  }
 }
