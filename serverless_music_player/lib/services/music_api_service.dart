@@ -430,7 +430,7 @@ class MusicApiService {
     // One provider often credits only the singer while another lists the
     // full composer/singer/lyricist team for the same track.
     return artistsA.length != artistsB.length &&
-        (artistsA.isSubsetOf(artistsB) || artistsB.isSubsetOf(artistsA));
+        (artistsB.containsAll(artistsA) || artistsA.containsAll(artistsB));
   }
 
   static int _searchCopyQuality(SongModel song) {
