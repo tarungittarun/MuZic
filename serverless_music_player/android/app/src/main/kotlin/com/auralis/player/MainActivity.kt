@@ -447,7 +447,8 @@ class MainActivity : AudioServiceActivity() {
             val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
             val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""
             val duration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: -1L
-            val style = status.notification.notificationStyle?.name ?: "none"
+            val style = status.notification.extras
+                .getString(Notification.EXTRA_TEMPLATE) ?: "none"
             listOf(
                 "pkg=${controller.packageName} state=$stateName " +
                     "actions=${playbackState?.actions ?: -1L} " +
