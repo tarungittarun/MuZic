@@ -704,19 +704,64 @@ class _LyricsPanel extends StatefulWidget {
 }
 
 class _LyricsPanelState extends State<_LyricsPanel> {
-  late Future<LyricsBundle> _bundle;
+  LyricsModel? _primary;
+  List<LyricsModel> _variants = const <LyricsModel>[];
+  bool _loading = true;
+  bool _failed = false;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
     super.initState();
-    _bundle = context.read<MusicApiService>().fetchLyricsVariants(widget.song);
+    _load(widget.song);
   }
 
   @override
   void didUpdateWidget(covariant _LyricsPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.song.id != widget.song.id) {
-      _bundle = context.read<MusicApiService>().fetchLyricsVariants(widget.song);
+      _primary = null;
+      _variants = const <LyricsModel>[];
+      _loading = true;
+      _failed = false;
+      _load(widget.song);
+    }
+  }
+
+  Future<void> _load(SongModel song) async {
+    final generation = ++_loadGeneration;
+    final api = context.read<MusicApiService>();
+
+    bool stillCurrent() =>
+        mounted && generation == _loadGeneration && song.id == widget.song.id;
+
+    LyricsModel? primary;
+    try {
+      primary = await api.fetchLyrics(song);
+      if (!stillCurrent()) return;
+      setState(() {
+        _primary = primary;
+        if (primary != null && !primary.isEmpty) _loading = false;
+      });
+    } catch (_) {
+      // The full variant fetch below can still recover through catalogue or
+      // JioSaavn fallbacks, so do not show an error yet.
+    }
+
+    try {
+      final bundle = await api.fetchLyricsVariants(song);
+      if (!stillCurrent()) return;
+      setState(() {
+        _variants = bundle.variants;
+        _loading = false;
+        _failed = bundle.isEmpty && (primary?.isEmpty ?? true);
+      });
+    } catch (_) {
+      if (!stillCurrent()) return;
+      setState(() {
+        _loading = false;
+        _failed = _primary?.isEmpty ?? true;
+      });
     }
   }
 
@@ -725,22 +770,25 @@ class _LyricsPanelState extends State<_LyricsPanel> {
     final palette = context.palette;
     final settings = context.watch<AppSettingsService>();
     final override = settings.lyricsLanguageOverrideFor(widget.song.id);
-    return FutureBuilder<LyricsBundle>(
-      future: _bundle,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(
-            child: Text(
-              'Lyrics are unavailable right now.',
-              style: TextStyle(color: palette.textMuted),
-            ),
-          );
-        }
-        final variants =
-            snapshot.data?.variants ?? const <LyricsModel>[];
+    final loadedVariants =
+        _variants.where((variant) => !variant.isEmpty).toList(growable: false);
+    final variants = loadedVariants.isNotEmpty
+        ? loadedVariants
+        : (_primary != null && !_primary!.isEmpty
+            ? <LyricsModel>[_primary!]
+            : const <LyricsModel>[]);
+    if (_loading && variants.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_failed && variants.isEmpty) {
+      return Center(
+        child: Text(
+          'Lyrics are unavailable right now.',
+          style: TextStyle(color: palette.textMuted),
+        ),
+      );
+    }
+    {
         final selected = selectLyricsVariant(
           variants: variants,
           song: widget.song,
@@ -802,8 +850,7 @@ class _LyricsPanelState extends State<_LyricsPanel> {
             ),
           ],
         );
-      },
-    );
+    }
   }
 
   Future<void> _pickLanguage(
@@ -1220,15 +1267,19 @@ class _QueueSheet extends StatelessWidget {
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      'Auto-added after your queue',
-                      style: TextStyle(color: palette.textMuted, fontSize: 11),
+                    Expanded(
+                      child: Text(
+                        'Based on what you play — not just this title',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: palette.textMuted, fontSize: 11),
+                      ),
                     ),
                   ],
                 ),
               ),
               SizedBox(
-                height: 64,
+                height: 72,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1278,6 +1329,16 @@ class _QueueSheet extends StatelessWidget {
                                       fontSize: 11,
                                     ),
                                   ),
+                                  if (player.recommendationReasonFor(song).isNotEmpty)
+                                    Text(
+                                      player.recommendationReasonFor(song),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: palette.accent,
+                                        fontSize: 10,
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
@@ -1311,7 +1372,7 @@ class _QueueSheet extends StatelessWidget {
                           title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                           subtitle: Text(
                             recommendationIds.contains(song.id)
-                                ? '${song.artist} • Recommended'
+                                ? '${song.artist} • Recommended${player.recommendationReasonFor(song).isEmpty ? '' : ' • ${player.recommendationReasonFor(song)}'}'
                                 : song.artist,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

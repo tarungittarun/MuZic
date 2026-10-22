@@ -36,17 +36,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
         children: <Widget>[
-          Text(
-            'APPEARANCE',
-            style: TextStyle(
-              color: palette.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Card(
+          _ExpandableSettingsSection(
+            title: 'Appearance',
+            icon: Icons.palette_outlined,
+            summary: 'Theme: ' + settings.themeMode.name,
+            initiallyExpanded: false,
             child: Column(
               children: <Widget>[
                 _ThemeOption(
@@ -79,17 +73,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            'LYRICS',
-            style: TextStyle(
-              color: palette.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Card(
+          _ExpandableSettingsSection(
+            title: 'Lyrics',
+            icon: Icons.lyrics_outlined,
+            summary: 'Default: ' + lyricsLanguageLabel(settings.lyricsLanguage),
+            initiallyExpanded: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(17, 12, 17, 6),
               child: Column(
@@ -138,17 +126,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            'PLAYBACK',
-            style: TextStyle(
-              color: palette.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Card(
+          _ExpandableSettingsSection(
+            title: 'Playback & recommendations',
+            icon: Icons.play_circle_outline_rounded,
+            summary: 'Media player, notifications and autoplay',
+            initiallyExpanded: true,
             child: Column(
               children: <Widget>[
                 FutureBuilder<bool>(
@@ -352,6 +334,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: settings.setAutoplayRecommendations,
                 ),
                 Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Text(
+                        'Recommendation mix',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Familiar leans on artists you play and favourite. '
+                        'Discovery leans more on fresh language charts.',
+                        style: TextStyle(color: palette.textMuted, fontSize: 12),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: <Widget>[
+                          ChoiceChip(
+                            label: const Text('Familiar'),
+                            selected: settings.recommendationStyle == 'familiar',
+                            onSelected: (_) =>
+                                settings.setRecommendationStyle('familiar'),
+                          ),
+                          ChoiceChip(
+                            label: const Text('Balanced'),
+                            selected: settings.recommendationStyle == 'balanced',
+                            onSelected: (_) =>
+                                settings.setRecommendationStyle('balanced'),
+                          ),
+                          ChoiceChip(
+                            label: const Text('Discovery'),
+                            selected: settings.recommendationStyle == 'discovery',
+                            onSelected: (_) =>
+                                settings.setRecommendationStyle('discovery'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
                   padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
                   child: Text(
                     'About the Android media card: MuZic sends Android the '
@@ -397,17 +421,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            'SLEEP TIMER',
-            style: TextStyle(
-              color: palette.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Card(
+          _ExpandableSettingsSection(
+            title: 'Sleep timer',
+            icon: Icons.bedtime_outlined,
+            summary: settings.sleepTimerEnabled ? _sleepLabel(settings.sleepTimerMinutes) + ' of inactivity' : 'Off',
+            initiallyExpanded: false,
             child: Column(
               children: <Widget>[
                 SwitchListTile(
@@ -457,17 +475,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            'DISCOVER',
-            style: TextStyle(
-              color: palette.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Card(
+          _ExpandableSettingsSection(
+            title: 'Discover',
+            icon: Icons.explore_rounded,
+            summary: (kRegionOptions[settings.region] ?? settings.region) + ' • ' + settings.languages.map((code) => kDiscoverLanguageLabel[code] ?? code).join(', '),
+            initiallyExpanded: false,
             child: Column(
               children: <Widget>[
                 ListTile(
@@ -499,17 +511,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            'AUDIO EFFECTS',
-            style: TextStyle(
-              color: palette.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Card(
+          _ExpandableSettingsSection(
+            title: 'Audio effects',
+            icon: Icons.graphic_eq_rounded,
+            summary: 'Virtualizer, bass boost and equalizer',
+            initiallyExpanded: false,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
               child: Column(
@@ -633,17 +639,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            'DIAGNOSTICS',
-            style: TextStyle(
-              color: palette.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Card(
+          _ExpandableSettingsSection(
+            title: 'Diagnostics',
+            icon: Icons.bug_report_outlined,
+            summary: settings.diagnosticsEnabled ? 'Capture on' : 'Capture off',
+            initiallyExpanded: false,
             child: Column(
               children: <Widget>[
                 SwitchListTile(
@@ -687,17 +687,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            'PRIVACY',
-            style: TextStyle(
-              color: palette.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Card(
+          _ExpandableSettingsSection(
+            title: 'Privacy',
+            icon: Icons.shield_outlined,
+            summary: 'Saved only on this device',
+            initiallyExpanded: false,
             child: Padding(
               padding: const EdgeInsets.all(17),
               child: Row(
@@ -724,17 +718,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            'ABOUT',
-            style: TextStyle(
-              color: palette.textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Card(
+          _ExpandableSettingsSection(
+            title: 'About MuZic',
+            icon: Icons.info_outline_rounded,
+            summary: 'Version ' + AppInfo.version + '+' + AppInfo.buildNumber,
+            initiallyExpanded: false,
             child: ListTile(
               leading: Icon(Icons.graphic_eq_rounded, color: palette.accent),
               title: const Text(AppInfo.displayName),
@@ -981,6 +969,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await context.read<AudioEffectsService>().apply();
       }
     }
+  }
+}
+
+class _ExpandableSettingsSection extends StatelessWidget {
+  const _ExpandableSettingsSection({
+    required this.title,
+    required this.icon,
+    required this.summary,
+    required this.child,
+    this.initiallyExpanded = false,
+  });
+
+  final String title;
+  final IconData icon;
+  final String summary;
+  final Widget child;
+  final bool initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        key: PageStorageKey<String>('settings-section-$title'),
+        initiallyExpanded: initiallyExpanded,
+        maintainState: true,
+        leading: Icon(icon, color: palette.accent),
+        title: Text(
+          title,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text(
+          summary,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: palette.textMuted, fontSize: 12),
+        ),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+        childrenPadding: const EdgeInsets.only(bottom: 4),
+        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
+          child,
+        ],
+      ),
+    );
   }
 }
 

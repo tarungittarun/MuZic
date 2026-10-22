@@ -12,6 +12,7 @@ import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/library_service.dart';
 import '../services/music_api_service.dart';
+import '../services/recommendation_engine.dart';
 import '../services/usage_service.dart';
 
 class PlayerController extends ChangeNotifier {
@@ -99,6 +100,7 @@ class PlayerController extends ChangeNotifier {
   String? _downloadingId;
   double _downloadProgress = 0;
   final List<SongModel> _recommendations = <SongModel>[];
+  final Map<String, String> _recommendationReasons = <String, String>{};
   int _pendingListeningMs = 0;
   String? _lastUsageTrackId;
   int _playGeneration = 0;
@@ -110,6 +112,10 @@ class PlayerController extends ChangeNotifier {
   /// Related songs MuZic lined up automatically after the user's queue.
   List<SongModel> get recommendations =>
       List<SongModel>.unmodifiable(_recommendations);
+
+  /// Why a recommended song was selected, for the More like this cards.
+  String recommendationReasonFor(SongModel song) =>
+      _recommendationReasons[song.id] ?? '';
   int? get currentIndex => _currentIndex;
   Duration get position => _position;
   Duration get duration => _duration;
@@ -173,6 +179,7 @@ class PlayerController extends ChangeNotifier {
       _queue = <SongModel>[first.song];
       _sources = <AudioSource>[first.source];
       _recommendations.clear();
+      _recommendationReasons.clear();
       _currentIndex = 0;
       _currentSong = first.song;
       _position = Duration.zero;
@@ -226,41 +233,71 @@ class PlayerController extends ChangeNotifier {
     }
 
     try {
-      final seenIds = _queue.map((song) => song.id).toSet();
-      final seenTitles = _queue.map(_recommendationKey).toSet();
-      final candidates = <SongModel>[];
-      final artist = seed.artist.trim();
-      final queries = <String>[
-        if (artist.isNotEmpty) '$artist songs',
-        '${seed.title} ${seed.artist}'.trim(),
-      ];
+      final candidates = await _gatherRecommendationCandidates(seed);
+      if (generation != _playGeneration) return;
 
-      for (final query in queries) {
-        if (generation != _playGeneration || candidates.length >= 12) break;
-        if (query.isEmpty) continue;
-        final results = await _musicApi.search(query, limit: 14);
-        for (final result in results) {
-          if (result.isLiveStream) continue;
-          final key = _recommendationKey(result);
-          if (seenIds.contains(result.id) || seenTitles.contains(key)) {
-            continue;
-          }
-          seenIds.add(result.id);
-          seenTitles.add(key);
-          candidates.add(result);
-          if (candidates.length >= 12) break;
-        }
+      final affinity = _recommendationArtistAffinity(seed);
+      final recentSongs = _library.recentSongs;
+      final recentlyPlayed = recentSongs.take(18).toList(growable: false);
+      final previousIds = _usage.recentRecommendationIds.take(80).toSet();
+      final common = (
+        seed: seed,
+        excludedIds: _queue.map((song) => song.id).toSet(),
+        excludedTitleKeys: _queue
+            .map((song) => RecommendationEngine.canonicalTitleKey(song.title))
+            .toSet(),
+        recentlyPlayedIds: recentlyPlayed.map((song) => song.id).toSet(),
+        recentTitleKeys: recentlyPlayed
+            .map((song) => RecommendationEngine.canonicalTitleKey(song.title))
+            .toSet(),
+        artistAffinity: affinity.scores,
+        preferredLanguages: <String>{
+          if (seed.language.trim().isNotEmpty) seed.language.trim(),
+          ...?_settings?.languages,
+        },
+        style: _settings?.recommendationStyle ?? 'balanced',
+      );
+
+      var ranked = RecommendationEngine.rank(
+        candidates: candidates,
+        seed: common.seed,
+        excludedIds: common.excludedIds,
+        excludedTitleKeys: common.excludedTitleKeys,
+        recentlyPlayedIds: common.recentlyPlayedIds,
+        recentTitleKeys: common.recentTitleKeys,
+        previouslyRecommendedIds: previousIds,
+        artistAffinity: common.artistAffinity,
+        preferredLanguages: common.preferredLanguages,
+        style: common.style,
+      );
+      if (ranked.isEmpty && previousIds.isNotEmpty) {
+        // The rotation memory is there to avoid repeats, not to starve the
+        // radio when the local catalogue pool is small. Fall back to older
+        // recommendations while still excluding the queue and fresh recents.
+        ranked = RecommendationEngine.rank(
+          candidates: candidates,
+          seed: common.seed,
+          excludedIds: common.excludedIds,
+          excludedTitleKeys: common.excludedTitleKeys,
+          recentlyPlayedIds: common.recentlyPlayedIds,
+          recentTitleKeys: common.recentTitleKeys,
+          previouslyRecommendedIds: const <String>{},
+          artistAffinity: common.artistAffinity,
+          preferredLanguages: common.preferredLanguages,
+          style: common.style,
+        );
       }
 
       var appended = 0;
-      for (final candidate in candidates) {
+      for (final recommendation in ranked) {
         if (generation != _playGeneration || appended >= 8) break;
         final failures = <String>[];
-        final track = await _resolveTrack(candidate, failures: failures);
+        final track =
+            await _resolveTrack(recommendation.song, failures: failures);
         if (generation != _playGeneration) return;
         if (track == null) {
           logWarn('player', 'recommendation skipped', <String, Object?>{
-            'song': candidate.title,
+            'song': recommendation.song.title,
             'reasons': failures.join(' | '),
           });
           continue;
@@ -269,6 +306,8 @@ class PlayerController extends ChangeNotifier {
         _sources.add(track.source);
         await _audio.append(track.source);
         _recommendations.add(track.song);
+        _recommendationReasons[track.song.id] = recommendation.reason;
+        unawaited(_usage.recordSongEvent('recommendation', track.song));
         appended++;
         notifyListeners();
       }
@@ -277,6 +316,13 @@ class PlayerController extends ChangeNotifier {
         logInfo('player', 'autoplay recommendations added', <String, Object?>{
           'seed': seed.title,
           'count': appended,
+          'candidates': candidates.length,
+          'style': common.style,
+        });
+      } else {
+        logInfo('player', 'no fresh autoplay recommendations', <String, Object?>{
+          'seed': seed.title,
+          'candidates': candidates.length,
         });
       }
     } catch (error) {
@@ -288,12 +334,152 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  String _recommendationKey(SongModel song) {
-    String normalise(String value) => value
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-        .trim();
-    return '${normalise(song.title)}|${normalise(song.artist)}';
+  /// Builds a Spotify-style candidate pool instead of searching for the seed
+  /// title again. Lanes: seed/profile artists, favourites and repeated plays,
+  /// album context, language charts, selected-language discovery and the
+  /// listener's own previous searches.
+  Future<List<RecommendationCandidate>> _gatherRecommendationCandidates(
+    SongModel seed,
+  ) async {
+    final tasks = <Future<List<RecommendationCandidate>>>[];
+
+    void addSongs(
+      Future<List<SongModel>> future,
+      String lane, {
+      double laneBoost = 0,
+    }) {
+      tasks.add(
+        future.then<List<RecommendationCandidate>>(
+          (songs) => songs
+              .map(
+                (song) => RecommendationCandidate(
+                  song: song,
+                  lane: lane,
+                  laneBoost: laneBoost,
+                ),
+              )
+              .toList(growable: false),
+        ).catchError((Object _) => const <RecommendationCandidate>[]),
+      );
+    }
+
+    final affinity = _recommendationArtistAffinity(seed);
+    for (final artist in affinity.topArtists.take(6)) {
+      addSongs(
+        _musicApi.searchJioSaavn('$artist songs', limit: 18),
+        'artist',
+        laneBoost: 3,
+      );
+    }
+    if (seed.source == SongSource.youtube) {
+      addSongs(
+        _musicApi.searchYouTube('${seed.artist} songs', limit: 16),
+        'artist',
+        laneBoost: 2,
+      );
+    }
+
+    final languages = <String>{
+      if (seed.language.trim().isNotEmpty) seed.language.trim().toLowerCase(),
+      ...?_settings?.languages.map((value) => value.toLowerCase()),
+    };
+    for (final language in languages.take(3)) {
+      addSongs(
+        _musicApi.fetchTrending(language: language, limit: 20),
+        'trending',
+        laneBoost: 2,
+      );
+    }
+
+    for (final search in _usage.topSearches.take(2)) {
+      addSongs(
+        _musicApi.searchJioSaavn(search.query, limit: 16),
+        'search',
+        laneBoost: 1,
+      );
+    }
+
+    if (seed.source == SongSource.jioSaavn &&
+        seed.album.trim().isNotEmpty &&
+        RecommendationEngine.canonicalTitleKey(seed.album) !=
+            RecommendationEngine.canonicalTitleKey(seed.title)) {
+      tasks.add(() async {
+        try {
+          final albums = await _musicApi.searchAlbums(seed.album, limit: 5);
+          AlbumSummary? match;
+          for (final album in albums) {
+            if (RecommendationEngine.canonicalTitleKey(album.title) ==
+                RecommendationEngine.canonicalTitleKey(seed.album)) {
+              match = album;
+              break;
+            }
+          }
+          if (match == null) return const <RecommendationCandidate>[];
+          final songs = await _musicApi.fetchAlbumSongs(match.id, limit: 30);
+          return songs
+              .map(
+                (song) => RecommendationCandidate(
+                  song: song,
+                  lane: 'album',
+                  laneBoost: 2,
+                ),
+              )
+              .toList(growable: false);
+        } catch (_) {
+          return const <RecommendationCandidate>[];
+        }
+      }());
+    }
+
+    final groups = await Future.wait(tasks);
+    return groups.expand((group) => group).toList(growable: false);
+  }
+
+  _ArtistAffinity _recommendationArtistAffinity(SongModel seed) {
+    final scores = <String, double>{};
+    final displayNames = <String, String>{};
+
+    void addArtist(String display, double weight) {
+      final key = RecommendationEngine.normalise(display);
+      if (key.isEmpty || key == 'unknown' || key == 'unknown artist') return;
+      displayNames.putIfAbsent(key, () => display.trim());
+      scores[key] = (scores[key] ?? 0) + weight;
+    }
+
+    void addSong(SongModel song, double weight) {
+      for (final artist in RecommendationEngine.artistsOf(song)) {
+        addArtist(artist, weight);
+      }
+    }
+
+    addSong(seed, 7);
+    for (final song in _queue) {
+      addSong(song, 2.2);
+    }
+    for (final song in _library.favoriteSongs) {
+      addSong(song, 5);
+    }
+    for (final song in _library.downloadedSongs) {
+      addSong(song, 3);
+    }
+    final recents = _library.recentSongs;
+    for (var index = 0; index < recents.length; index++) {
+      addSong(recents[index], index < 5 ? 4 : (index < 15 ? 2.4 : 1.1));
+    }
+    for (final track in _usage.topTracks) {
+      for (final artist in RecommendationEngine.artistNames(track.artist)) {
+        addArtist(artist, 2 + track.plays.clamp(0, 12).toDouble() * 0.55);
+      }
+    }
+
+    final rankedKeys = scores.keys.toList()
+      ..sort((a, b) => scores[b]!.compareTo(scores[a]!));
+    return _ArtistAffinity(
+      scores: Map<String, double>.unmodifiable(scores),
+      topArtists: rankedKeys
+          .map((key) => displayNames[key]!)
+          .toList(growable: false),
+    );
   }
 
   /// Starts playback at an existing queue position (used by Up next and
@@ -469,6 +655,7 @@ class PlayerController extends ChangeNotifier {
     // The user explicitly cleared what was coming next, including any
     // autoplay recommendations MuZic had lined up.
     _recommendations.clear();
+    _recommendationReasons.clear();
     _currentSong = keepSong;
     _currentIndex = 0;
     await _audio.setQueue(
@@ -719,6 +906,13 @@ class PlayerController extends ChangeNotifier {
     super.dispose();
   }
 
+}
+
+class _ArtistAffinity {
+  const _ArtistAffinity({required this.scores, required this.topArtists});
+
+  final Map<String, double> scores;
+  final List<String> topArtists;
 }
 
 class _ResolvedTrack {

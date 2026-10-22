@@ -71,12 +71,19 @@ shelves reload automatically when you change the selection.
 - The **mini player** at the bottom opens the full now-playing sheet.
 - **Queue** (☰ in now playing): reorder, jump to a track, remove items.
 - **Shuffle / repeat** live in the mini player and the queue sheet.
-- **More like this**: when *Settings → Playback → Autoplay recommendations*
-  is on (it is on by default), MuZic quietly lines up to eight related songs
-  after your own queue. Open **Up next** to see the **More like this** row;
-  tap any card to jump to it. Songs MuZic added this way are marked
-  “Recommended” in the queue. Turn the setting off and MuZic will never add
-  songs you did not choose.
+- **More like this**: when *Settings → Playback & recommendations →
+  Autoplay recommendations* is on (it is on by default), MuZic builds a
+  small radio queue after your own songs. Like mainstream streaming apps,
+  it does **not** simply search the current title again. It mixes the
+  current artists, artists from your favourites/recents/repeated plays,
+  the album context, your previous searches and trending songs in your
+  selected languages. Alternate versions of songs already queued or just
+  played are filtered out, no artist is allowed to dominate the list, and
+  recently recommended songs are rotated away. Open **Up next** to see the
+  **More like this** row and the reason on each card; tap a card to jump to
+  it. Choose **Familiar**, **Balanced** or **Discovery** under
+  *Recommendation mix* in Settings. Turn autoplay off and MuZic will never
+  add songs you did not choose.
 - Playback continues in the background and survives screen-off.
 
 ### The quality badge
@@ -95,7 +102,12 @@ MuZic never claims "hi-res" for a lossy stream: JioSaavn tops out at AAC
 
 ![Synced lyrics](img/lyrics.svg)
 
-Open the now-playing sheet and tap the **lyrics** icon.
+Open the now-playing sheet and tap the **lyrics** icon. MuZic shows the
+first good lyrics result as soon as it arrives, then finishes loading the
+other language variants in the background instead of keeping the spinner
+up for every source. If LRCLIB is temporarily unavailable, MuZic can fall
+back to catalogue/JioSaavn lyrics and will retry on a later open rather
+than remembering the failure for the whole session.
 
 - **Auto-scroll** follows the song smoothly and keeps the current line around a
   third of the way down the screen.
@@ -138,7 +150,9 @@ Motorola it is shown on the lock screen and in Quick Settings, while
 the first-pull notification shade has no MuZic player. Other phones
 may place the same system player on additional surfaces.
 
-*Settings → Playback*
+*Settings → Playback & recommendations* — Settings is now organised into
+expandable sections, so tap the section you want and change only that
+part.
 
 | Row | What it does |
 | --- | --- |
@@ -147,12 +161,13 @@ may place the same system player on additional surfaces.
 | **Show active notifications** | Lists what Android is currently showing for MuZic (including whether the media player exists). |
 | **Media notification health** | Step-by-step check of everything the media player needs (permission, channel, audio service, session). |
 | **Allow background playback** | Battery-optimisation exemption. Required on MIUI, ColorOS, FuntouchOS, MagicOS — otherwise the player gets killed a few minutes after you leave the app. |
-| **Autoplay recommendations** | On by default. Adds related songs after your queue and shows them under **More like this** in Up next. |
+| **Autoplay recommendations** | On by default. Adds a personalised radio mix after your queue and shows it under **More like this** in Up next. |
+| **Recommendation mix** | **Familiar** leans on artists you already play; **Balanced** mixes taste and charts; **Discovery** gives fresh trending picks more weight. |
 | **Android media-card limits** | MuZic supplies Android with the best artwork and song details it has, plus previous / play-pause / next, seek, shuffle and repeat state. Motorola/Android draws the Quick Settings card itself, so MuZic cannot resize it, recolour it or force Android/Google to show extra recommendation cards there. MuZic does publish the standard browsable/resumable media hooks Android offers apps. |
 
 **If the system player does not appear**
 
-1. Settings → Playback → **Send a test notification**. No notification? Fix
+1. Settings → Playback & recommendations → **Send a test notification**. No notification? Fix
    the permission / OEM "hide notifications" setting first.
 2. Test notification appears but there is no system player on the lock
    screen or in Quick Settings while a song plays? Tap **Show active
@@ -347,7 +362,7 @@ stays in Movies/MuZic.
 | Symptom | Fix |
 | --- | --- |
 | No system media player on the lock screen or in Quick Settings | Play a song; allow notifications; enable **Allow background playback**; check **Show active notifications** and **Media notification health** in Settings → Playback. |
-| System media player disappears after a while | Battery optimisation (Settings → Playback → Allow background playback) — common on Xiaomi/OPPO/vivo. |
+| System media player disappears after a while | Battery optimisation (Settings → Playback & recommendations → Allow background playback) — common on Xiaomi/OPPO/vivo. |
 | System media player disappears when paused | Android normally keeps the paused player until it is swiped away; if it vanishes, disable battery optimisation for MuZic in Settings → Playback. |
 | "Could not start playback" | Try the other source (JioSaavn/YouTube) — some regional tracks are missing from one of them. |
 | A track will not play but others do | Long-press the row → details; if the stream host is `googlevideo.com` the cached URL expired — play the track again to refresh it. |

@@ -145,6 +145,21 @@ class UsageService extends ChangeNotifier {
     return result.take(5).toList(growable: false);
   }
 
+  /// Songs MuZic has already auto-recommended recently, newest first.
+  ///
+  /// Spotify-like radio should rotate: it must not hand back the same eight
+  /// songs every time the listener starts a similar track.
+  List<String> get recentRecommendationIds {
+    final result = <String>[];
+    final seen = <String>{};
+    for (final event in _allEvents) {
+      if (event.type != 'recommendation' || event.songId.isEmpty) continue;
+      if (seen.add(event.songId)) result.add(event.songId);
+      if (result.length >= 120) break;
+    }
+    return result;
+  }
+
   List<UsageQuerySummary> get topSearches {
     final counts = <String, int>{};
     for (final event in _allEvents) {

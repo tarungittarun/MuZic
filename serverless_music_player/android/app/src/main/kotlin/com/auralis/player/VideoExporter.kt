@@ -581,8 +581,21 @@ class VideoExporter(private val context: Context) {
         val root = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
             ?: context.filesDir
         val directory = File(root, "exports")
-        if (!directory.exists()) directory.mkdirs()
-        val safe = name.replace(Regex("[^A-Za-z0-9._ -]"), "_").ifEmpty { "muzic_video" }
+        if (!directory.exists() && !directory.mkdirs() && !directory.exists()) {
+            throw IllegalStateException(
+                "Could not create the lyric-video output folder: ${directory.absolutePath}"
+            )
+        }
+        // Long song titles plus long artist credit lists can exceed Android's
+        // per-file name limit and make MediaMuxer fail with a misleading
+        // ENOENT. Keep the visible name useful but bounded.
+        val safe = name
+            .replace(Regex("[^A-Za-z0-9._ -]"), "_")
+            .replace(Regex("\s+"), " ")
+            .trim()
+            .take(82)
+            .trim()
+            .ifEmpty { "muzic_video" }
         return File(directory, "$safe.mp4")
     }
 

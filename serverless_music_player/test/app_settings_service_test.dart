@@ -46,12 +46,14 @@ void main() {
       // YouTube-style autoplay is useful out of the box, but it is still a
       // persisted user preference and can be turned off.
       expect(first.autoplayRecommendations, isTrue);
+      expect(first.recommendationStyle, 'balanced');
 
       await first.setDiagnosticsEnabled(true);
       await first.setSleepTimer(enabled: true, minutes: 45);
       await first.setRegion('US');
       await first.setLanguages(<String>['english']);
       await first.setAutoplayRecommendations(false);
+      await first.setRecommendationStyle('discovery');
       await Hive.box<dynamic>('app_settings').close();
 
       final restored = AppSettingsService();
@@ -62,6 +64,7 @@ void main() {
       expect(restored.region, 'US');
       expect(restored.languages, <String>['english']);
       expect(restored.autoplayRecommendations, isFalse);
+      expect(restored.recommendationStyle, 'discovery');
     } finally {
       await Hive.close();
       await directory.delete(recursive: true);

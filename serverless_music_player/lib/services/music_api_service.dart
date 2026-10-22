@@ -34,6 +34,7 @@ class MusicApiService {
   static const String _saavnHost = 'www.jiosaavn.com';
   static const String _saavnKey = '38346591';
   static const Duration _timeout = Duration(seconds: 18);
+  static const Duration _lyricsTimeout = Duration(seconds: 8);
 
   final http.Client _http;
   final YoutubeExplode _youtube;
@@ -466,15 +467,26 @@ class MusicApiService {
   Future<LyricsBundle> fetchLyricsVariants(SongModel song) {
     final cached = _variantsCache[song.id];
     if (cached != null) return cached;
-    final request = _fetchLyricsVariants(song);
+    final request = _fetchLyricsVariants(song).then((bundle) {
+      // A transient 503/network failure must not pin an empty result for the
+      // rest of the app session; the next lyrics open should retry.
+      if (bundle.isEmpty) _variantsCache.remove(song.id);
+      return bundle;
+    });
     _variantsCache[song.id] = request;
     return request;
   }
 
   Future<LyricsBundle> _fetchLyricsVariants(SongModel song) async {
     final variants = <LyricsModel>[];
+
+    // JioSaavn is independent of LRCLIB. Start it now so it does not add its
+    // network time after the (sometimes slow/rate-limited) LRCLIB calls.
+    final saavnFuture = _fetchSaavnLyricsVariant(song);
+
+    LyricsModel? primary;
     try {
-      final primary = await fetchLyrics(song);
+      primary = await fetchLyrics(song);
       if (!primary.isEmpty) {
         variants.add(annotateLyrics(primary, song, source: primary.source));
       }
@@ -484,32 +496,44 @@ class MusicApiService {
         'error': '$error',
       });
     }
-    try {
-      final extra = await _extraLrclibCandidates(song, variants);
-      variants.addAll(extra);
-    } catch (error) {
-      logDebug('api', 'lyrics: extra LRCLIB candidates failed', <String, Object?>{
-        'song': song.title,
-        'error': '$error',
-      });
-    }
-    try {
-      final saavn = await fetchSaavnLyrics(song);
-      if (saavn != null && !saavn.isEmpty) {
-        variants.add(annotateLyrics(saavn, song, source: 'jiosaavn'));
+
+    // Extra LRCLIB catalogue matches are only worth their extra request when
+    // we still need lyrics or a synced version. When the primary already has
+    // synced lines, returning immediately keeps the lyrics screen fast.
+    if (primary == null || primary.isEmpty || !primary.hasSynced) {
+      try {
+        final extra = await _extraLrclibCandidates(song, variants);
+        variants.addAll(extra);
+      } catch (error) {
+        logDebug('api', 'lyrics: extra LRCLIB candidates failed', <String, Object?>{
+          'song': song.title,
+          'error': '$error',
+        });
       }
-    } catch (error) {
-      logDebug('api', 'lyrics: JioSaavn lyrics failed', <String, Object?>{
-        'song': song.title,
-        'error': '$error',
-      });
     }
+
+    final saavn = await saavnFuture;
+    if (saavn != null && !saavn.isEmpty) variants.add(saavn);
     logInfo('api', 'lyrics variants collected', <String, Object?>{
       'song': song.title,
       'variants': variants.length,
       'languages': variants.map((variant) => variant.languageLabel).join(', '),
     });
     return LyricsBundle(songId: song.id, variants: variants);
+  }
+
+  Future<LyricsModel?> _fetchSaavnLyricsVariant(SongModel song) async {
+    try {
+      final saavn = await fetchSaavnLyrics(song);
+      if (saavn == null || saavn.isEmpty) return null;
+      return annotateLyrics(saavn, song, source: 'jiosaavn');
+    } catch (error) {
+      logDebug('api', 'lyrics: JioSaavn lyrics failed', <String, Object?>{
+        'song': song.title,
+        'error': '$error',
+      });
+      return null;
+    }
   }
 
   /// Up to two additional LRCLIB matches (different releases/languages),
@@ -580,7 +604,7 @@ class MusicApiService {
       'lyrics_id': song.sourceId,
     });
     final response =
-        await _http.get(uri, headers: _saavnHeaders).timeout(_timeout);
+        await _http.get(uri, headers: _saavnHeaders).timeout(_lyricsTimeout);
     if (response.statusCode != 200) return null;
     final map = _asMap(jsonDecode(response.body));
     if (map == null) return null;
@@ -717,7 +741,7 @@ class MusicApiService {
       }
 
       _lastLyricsRequestAt = DateTime.now();
-      final response = await _http.get(uri, headers: headers).timeout(_timeout);
+      final response = await _http.get(uri, headers: headers).timeout(_lyricsTimeout);
       if (response.statusCode == 429 || response.statusCode == 503) {
         String? retryHeader;
         for (final entry in response.headers.entries) {
