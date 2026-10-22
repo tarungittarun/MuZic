@@ -8,6 +8,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../app_info.dart';
 import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
+import 'recommendation_engine.dart';
 import 'app_log.dart';
 import 'lyrics_language.dart';
 
@@ -98,11 +99,15 @@ class MusicApiService {
       final decoded = jsonDecode(response.body);
       final root = _asMap(decoded);
       final rows = _findSongRows(root ?? <String, dynamic>{});
-      final songs = rows
+      final parsed = rows
           .take(limit)
           .map(_songFromSaavn)
           .whereType<SongModel>()
           .toList(growable: false);
+      // Providers return the same recording once per album/playlist it
+      // appears on (for example a film song repeated across compilations).
+      // Search should show that recording once, not a wall of copies.
+      final songs = dedupeSearchResults(parsed);
       logInfo('api', 'searchJioSaavn', <String, Object?>{
         'query': query,
         'results': songs.length,
@@ -336,7 +341,7 @@ class MusicApiService {
     final stopwatch = Stopwatch()..start();
     try {
       final videos = await _youtube.search.search(query).timeout(_timeout);
-      final songs = videos
+      final rawSongs = videos
           .where((video) => !video.isLive)
           .take(limit)
           .map((video) => SongModel(
@@ -352,6 +357,7 @@ class MusicApiService {
                 sourceUrl: video.url,
               ))
           .toList(growable: false);
+      final songs = dedupeSearchResults(rawSongs);
       logInfo('api', 'searchYouTube', <String, Object?>{
         'query': query,
         'results': songs.length,
@@ -369,6 +375,72 @@ class MusicApiService {
       // keeps working instead of surfacing a FormatException.
       return const <SongModel>[];
     }
+  }
+
+  /// Collapses provider copies of the same recording into one search
+  /// result, keeping the most usable copy (playable URL, artwork and
+  /// provider quality decide). Order follows the first appearance.
+  static List<SongModel> dedupeSearchResults(Iterable<SongModel> input) {
+    final result = <SongModel>[];
+    for (final song in input) {
+      var duplicateIndex = -1;
+      for (var index = 0; index < result.length; index++) {
+        if (_isSameRecording(result[index], song)) {
+          duplicateIndex = index;
+          break;
+        }
+      }
+      if (duplicateIndex == -1) {
+        result.add(song);
+      } else if (_searchCopyQuality(song) >
+          _searchCopyQuality(result[duplicateIndex])) {
+        result[duplicateIndex] = song;
+      }
+    }
+    return result;
+  }
+
+  static bool _isSameRecording(SongModel a, SongModel b) {
+    if (a.id == b.id) return true;
+    final titleA = RecommendationEngine.canonicalTitleKey(a.title);
+    final titleB = RecommendationEngine.canonicalTitleKey(b.title);
+    if (titleA.isEmpty || titleA != titleB) return false;
+
+    final artistsA = RecommendationEngine.artistsOf(a)
+        .map(RecommendationEngine.normalise)
+        .where((artist) => artist.isNotEmpty)
+        .toSet();
+    final artistsB = RecommendationEngine.artistsOf(b)
+        .map(RecommendationEngine.normalise)
+        .where((artist) => artist.isNotEmpty)
+        .toSet();
+    if (artistsA.isNotEmpty &&
+        artistsA.length == artistsB.length &&
+        artistsA.containsAll(artistsB)) {
+      return true;
+    }
+
+    final durationA = a.duration;
+    final durationB = b.duration;
+    final closeDuration = durationA != null &&
+        durationB != null &&
+        (durationA - durationB).abs() <= const Duration(seconds: 4);
+    if (!closeDuration) return false;
+    if (artistsA.intersection(artistsB).isNotEmpty) return true;
+    // One provider often credits only the singer while another lists the
+    // full composer/singer/lyricist team for the same track.
+    return artistsA.length != artistsB.length &&
+        (artistsA.isSubsetOf(artistsB) || artistsB.isSubsetOf(artistsA));
+  }
+
+  static int _searchCopyQuality(SongModel song) {
+    var quality = 0;
+    if ((song.streamUrl ?? '').isNotEmpty) quality += 4;
+    if (song.source == SongSource.jioSaavn) quality += 2;
+    if (song.artworkUrl.isNotEmpty) quality += 1;
+    if (song.duration != null) quality += 1;
+    if ((song.playCount ?? 0) > 0) quality += 1;
+    return quality;
   }
 
   /// Resolves a playable audio URL for [song].

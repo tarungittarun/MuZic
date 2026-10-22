@@ -5,6 +5,7 @@ import '../providers/player_controller.dart';
 import '../services/sleep_timer_service.dart';
 import '../services/video_export_manager.dart';
 import '../theme/app_theme.dart';
+import 'animated_rhythm_icon.dart';
 import 'cover_art.dart';
 import 'now_playing_sheet.dart';
 
@@ -153,12 +154,14 @@ class MiniPlayer extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              if (player.isPlaying)
-                                Icon(
-                                  Icons.graphic_eq_rounded,
-                                  size: 14,
+                              if (player.isPlaying) ...<Widget>[
+                                const SizedBox(width: 6),
+                                AnimatedRhythmIcon(
+                                  active: true,
                                   color: palette.mint,
+                                  size: 14,
                                 ),
+                              ],
                             ],
                           ),
                           const SizedBox(height: 2),

@@ -25,6 +25,14 @@ class _MainShellState extends State<MainShell> {
   int _homeResetTick = 0;
   final ScrollController _navScrollController = ScrollController();
 
+  // One UI-style one-hand reach: three firm pull-downs at the top of a
+  // page drop the whole app into the lower part of the screen (as in
+  // Samsung's one-handed mode). A tap on the empty area restores it.
+  bool _oneHandReachActive = false;
+  int _pullDownCount = 0;
+  DateTime? _pullWindowStart;
+  bool _pullCountedThisDrag = false;
+
   @override
   void dispose() {
     _navScrollController.dispose();
@@ -59,6 +67,44 @@ class _MainShellState extends State<MainShell> {
     _centreDestination(index);
   }
 
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (!context.read<AppSettingsService>().oneHandModeEnabled) return false;
+    final metrics = notification.metrics;
+    if (metrics.axis != Axis.vertical) return false;
+    if (notification is ScrollStartNotification) {
+      _pullCountedThisDrag = false;
+      return false;
+    }
+    if (_oneHandReachActive || notification is! OverscrollNotification) {
+      return false;
+    }
+    if (_pullCountedThisDrag ||
+        metrics.extentBefore != 0 ||
+        notification.overscroll >= -14) {
+      return false;
+    }
+    _pullCountedThisDrag = true;
+    final now = DateTime.now();
+    if (_pullWindowStart == null ||
+        now.difference(_pullWindowStart!) > const Duration(seconds: 2)) {
+      _pullWindowStart = now;
+      _pullDownCount = 1;
+    } else {
+      _pullDownCount++;
+    }
+    if (_pullDownCount >= 3) {
+      _pullDownCount = 0;
+      _pullWindowStart = null;
+      setState(() => _oneHandReachActive = true);
+    }
+    return false;
+  }
+
+  void _exitOneHandReach() {
+    if (!_oneHandReachActive) return;
+    setState(() => _oneHandReachActive = false);
+  }
+
   void _goHome() {
     setState(() {
       _tab = 0;
@@ -83,7 +129,13 @@ class _MainShellState extends State<MainShell> {
     // One UI one-hand mode gives the bottom navigation taller, easier
     // thumb targets. Turning it off restores the compact bar.
     final oneHand = context.watch<AppSettingsService>().oneHandModeEnabled;
-    return Scaffold(
+    if (!oneHand && _oneHandReachActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _oneHandReachActive = false);
+      });
+    }
+    final reachActive = oneHand && _oneHandReachActive;
+    final scaffold = Scaffold(
       body: SafeArea(
         bottom: false,
         child: IndexedStack(
@@ -164,6 +216,78 @@ class _MainShellState extends State<MainShell> {
             ],
           ),
         ),
+      ),
+    );
+    if (!oneHand) return scaffold;
+    return NotificationListener<ScrollNotification>(
+      onNotification: _handleScrollNotification,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final drop = reachActive ? constraints.maxHeight * 0.40 : 0.0;
+          return ColoredBox(
+            color: Colors.black,
+            child: Stack(
+              children: <Widget>[
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeOutCubic,
+                  left: 0,
+                  right: 0,
+                  top: drop,
+                  bottom: 0,
+                  child: scaffold,
+                ),
+                if (reachActive)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    height: drop,
+                    child: SafeArea(
+                      bottom: false,
+                      child: InkWell(
+                        onTap: _exitOneHandReach,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: palette.surface.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.22),
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Icon(
+                                  Icons.keyboard_arrow_up_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                SizedBox(width: 5),
+                                Text(
+                                  'One-hand reach · tap to restore',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

@@ -18,6 +18,32 @@ screenshots.
 
 ---
 
+## What's new in 1.5.38
+
+- **No more walls of the same song in search:** if JioSaavn returns the
+  same recording from a film album, a compilation and a playlist, MuZic now
+  keeps the best single copy and hides the repeats.
+- **Settings, properly categorised:** **Playback** now contains only the
+  system media player, notification access and background playback;
+  **Recommendations** has its own section (autoplay, mix and the
+  three-repeat protection); downloads live under **Downloads & storage**.
+- **Library's top section is back:** the classic top tab strip
+  (Liked · Downloads · Recent · Playlists · Local) and the familiar
+  Downloads Songs/Lyric videos pill return, while left/right swiping still
+  moves continuously through every section.
+- **Real one-hand reach mode:** pull down firmly **three times** at the
+  top of a page and the whole MuZic screen drops into the lower part of
+  the display, One UI-style, so everything is within thumb reach. Tap the
+  empty area above to restore it. Turn it off in
+  *Settings → Appearance → One-hand mode*.
+- **A more lifelike in-app player:** Now Playing now has an ambient
+  artwork-tinted background, gently breathing artwork while music plays,
+  centred title/artist, an animated rhythm indicator, a chunkier seek
+  slider, and a properly grouped transport row with a large central
+  play/pause button.
+
+---
+
 ## What's new in 1.5.37
 
 - **Lock-screen-style mini player:** the compact player at the bottom now

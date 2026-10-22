@@ -28,7 +28,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   /// Accordion state: only one Settings drop-down is open at a time.
-  String? _openSectionTitle = 'Playback & recommendations';
+  String? _openSectionTitle = 'Playback';
 
   void _handleSectionChanged(String title, bool expanded) {
     setState(() => _openSectionTitle = expanded ? title : null);
@@ -117,9 +117,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   title: const Text('One-hand mode'),
                   subtitle: Text(
-                    'One UI-style reachability: Library sections and key '
-                    'controls sit near the bottom, where your thumb is. '
-                    'Turn off for the classic top-tab layout.',
+                    'One UI-style reachability: pull down firmly three '
+                    'times at the top of a page and the whole screen drops '
+                    'into thumb reach. Tap the empty area to restore it, '
+                    'or turn this off for the classic full-screen layout.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   onChanged: settings.setOneHandModeEnabled,
@@ -184,12 +185,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 14),
           _ExpandableSettingsSection(
-            title: 'Playback & recommendations',
+            title: 'Playback',
             icon: Icons.play_circle_outline_rounded,
-            summary: 'System player and personal mix',
-            expanded: _openSectionTitle == 'Playback & recommendations',
+            summary: 'System player and background playback',
+            expanded: _openSectionTitle == 'Playback',
             onExpansionChanged: (value) =>
-                _handleSectionChanged('Playback & recommendations', value),
+                _handleSectionChanged('Playback', value),
             child: Column(
               children: <Widget>[
                 FutureBuilder<bool>(
@@ -256,6 +257,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onTap: () => NotificationService.openMediaSettings(),
                 ),
                 Divider(height: 1, color: palette.outline),
+                ListTile(
+                  leading: Icon(Icons.battery_saver_rounded,
+                      color: palette.textSecondary),
+                  title: const Text('Allow background playback'),
+                  subtitle: Text(
+                    'Exempt MuZic from battery optimisation so playback '
+                    'is not killed (needed on MIUI, ColorOS, FuntouchOS).',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    await NotificationService.requestBatteryExemption();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Allow MuZic to run in the background in the '
+                            'system dialog to keep playback alive.',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _ExpandableSettingsSection(
+            title: 'Recommendations',
+            icon: Icons.auto_awesome_motion_rounded,
+            summary: 'Personal Up next mix',
+            expanded: _openSectionTitle == 'Recommendations',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('Recommendations', value),
+            child: Column(
+              children: <Widget>[
                 SwitchListTile(
                   value: settings.autoplayRecommendations,
                   secondary: Icon(Icons.auto_awesome_motion_rounded,
@@ -313,6 +351,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 Divider(height: 1, color: palette.outline),
                 ListTile(
+                  leading: Icon(Icons.repeat_rounded, color: palette.textSecondary),
+                  title: const Text('Repeat protection'),
+                  subtitle: Text(
+                    'The same song is recommended at most three times. '
+                    'After that, MuZic rotates to something else.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _ExpandableSettingsSection(
+            title: 'Downloads & storage',
+            icon: Icons.folder_outlined,
+            summary: 'Where downloaded songs are saved',
+            expanded: _openSectionTitle == 'Downloads & storage',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('Downloads & storage', value),
+            child: Column(
+              children: <Widget>[
+                ListTile(
                   leading: Icon(Icons.folder_outlined, color: palette.textSecondary),
                   title: const Text('Downloads folder'),
                   subtitle: Text(
@@ -362,31 +422,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       }
                     },
                   ),
-                Divider(height: 1, color: palette.outline),
-                ListTile(
-                  leading: Icon(Icons.battery_saver_rounded,
-                      color: palette.textSecondary),
-                  title: const Text('Allow background playback'),
-                  subtitle: Text(
-                    'Exempt MuZic from battery optimisation so playback '
-                    'is not killed (needed on MIUI, ColorOS, FuntouchOS).',
-                    style: TextStyle(color: palette.textMuted, fontSize: 12),
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () async {
-                    await NotificationService.requestBatteryExemption();
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Allow MuZic to run in the background in the '
-                            'system dialog to keep playback alive.',
-                          ),
-                        ),
-                      );
-                    }
-                  },
-                ),
               ],
             ),
           ),

@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
-import '../services/app_settings_service.dart';
 import '../services/library_service.dart';
 import '../services/local_files_service.dart';
 import '../services/usage_service.dart';
@@ -25,15 +24,6 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  static const List<String> _sections = <String>[
-    'Liked',
-    'Downloads · Songs',
-    'Downloads · Videos',
-    'Recent',
-    'Playlists',
-    'Local',
-  ];
-
   final PageController _pageController = PageController();
   int _sectionIndex = 0;
 
@@ -52,57 +42,66 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _sectionBar(BuildContext context) {
+  int get _topTabIndex => switch (_sectionIndex) {
+        0 => 0,
+        1 || 2 => 1,
+        3 => 2,
+        4 => 3,
+        _ => 4,
+      };
+
+  void _goToTopTab(int topIndex) {
+    final target = switch (topIndex) {
+      0 => 0,
+      1 => _sectionIndex == 2 ? 2 : 1,
+      2 => 3,
+      3 => 4,
+      _ => 5,
+    };
+    _goToSection(target);
+  }
+
+  /// The pre-1.5.37 Library header treatment: a classic top tab strip under
+  /// the page title. The pages beneath it still swipe continuously through
+  /// Downloads' inner sections.
+  Widget _topTabBar(BuildContext context) {
     final palette = context.palette;
-    final library = context.watch<LibraryService>();
-    final videos = context.watch<VideoLibraryService>().videos;
-    final counts = <int>[
-      library.favoriteSongs.length,
-      library.downloadedSongs.length,
-      videos.length,
-      library.recentSongs.length,
-      library.playlists.length,
-      library.localSongs.length,
-    ];
+    const tabs = <String>['Liked', 'Downloads', 'Recent', 'Playlists', 'Local'];
     return SizedBox(
-      height: 48,
-      child: ListView.separated(
+      height: 46,
+      child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-        itemCount: _sections.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 7),
+        padding: const EdgeInsets.fromLTRB(10, 2, 10, 0),
+        itemCount: tabs.length,
         itemBuilder: (context, index) {
-          final selected = index == _sectionIndex;
-          return Material(
-            color: selected
-                ? palette.accent.withValues(alpha: 0.20)
-                : palette.surface,
-            shape: StadiumBorder(
-              side: BorderSide(
-                color: selected ? palette.accent : palette.outline,
-                width: 0.8,
-              ),
-            ),
-            child: InkWell(
-              customBorder: const StadiumBorder(),
-              onTap: () => _goToSection(index),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      _sections[index],
-                      style: TextStyle(
-                        color: selected ? palette.accent : palette.textSecondary,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
-                      ),
+          final selected = index == _topTabIndex;
+          return InkWell(
+            onTap: () => _goToTopTab(index),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 13),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: <Widget>[
+                  Text(
+                    tabs[index],
+                    style: TextStyle(
+                      color: selected ? palette.accent : palette.textMuted,
+                      fontSize: 13.5,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                     ),
-                    const SizedBox(width: 6),
-                    _CountChip(count: counts[index]),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 8),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: selected ? 28 : 0,
+                    height: 3,
+                    decoration: BoxDecoration(
+                      color: palette.accent,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                ],
               ),
             ),
           );
@@ -111,11 +110,76 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  /// Downloads keeps its familiar two-way pill from the previous design,
+  /// but Songs and Lyric videos are neighbouring pages in the same swipe
+  /// flow rather than a trapped nested tab view.
+  Widget _downloadsSwitcher(BuildContext context) {
+    final palette = context.palette;
+    final songs = context.watch<LibraryService>().downloadedSongs;
+    final videos = context.watch<VideoLibraryService>().videos;
+    Widget segment(int page, IconData icon, String label, int count) {
+      final selected = _sectionIndex == page;
+      return Expanded(
+        child: Material(
+          color: selected
+              ? palette.accent.withValues(alpha: 0.18)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _goToSection(page),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  Icon(
+                    icon,
+                    size: 16,
+                    color: selected ? palette.accent : palette.textMuted,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: selected ? palette.accent : palette.textMuted,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  _CountChip(count: count),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 3),
+      child: Container(
+        decoration: BoxDecoration(
+          color: palette.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: palette.outline, width: 0.7),
+        ),
+        padding: const EdgeInsets.all(4),
+        child: Row(
+          children: <Widget>[
+            segment(1, Icons.audio_file_rounded, 'Songs', songs.length),
+            segment(2, Icons.movie_creation_outlined, 'Lyric videos', videos.length),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
     final palette = context.palette;
-    final oneHand = context.watch<AppSettingsService>().oneHandModeEnabled;
     return Column(
       children: <Widget>[
         Padding(
@@ -148,7 +212,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ],
           ),
         ),
-        if (!oneHand) _sectionBar(context),
+        _topTabBar(context),
+        if (_sectionIndex == 1 || _sectionIndex == 2)
+          _downloadsSwitcher(context),
         Expanded(
           child: PageView(
             controller: _pageController,
@@ -173,13 +239,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ],
           ),
         ),
-        // One UI one-hand mode: the section switcher sits by the thumb
-        // (above the mini player) instead of under the top header.
-        if (oneHand)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 2),
-            child: _sectionBar(context),
-          ),
       ],
     );
   }
