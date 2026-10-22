@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
+import '../services/app_settings_service.dart';
 import '../services/library_service.dart';
 import '../services/local_files_service.dart';
 import '../services/usage_service.dart';
@@ -14,84 +15,172 @@ import '../widgets/empty_state.dart';
 import '../widgets/muzic_home_button.dart';
 import '../widgets/song_tile.dart';
 
-class LibraryScreen extends StatelessWidget {
+class LibraryScreen extends StatefulWidget {
   const LibraryScreen({this.onHome, super.key});
 
   final VoidCallback? onHome;
 
   @override
+  State<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends State<LibraryScreen> {
+  static const List<String> _sections = <String>[
+    'Liked',
+    'Downloads · Songs',
+    'Downloads · Videos',
+    'Recent',
+    'Playlists',
+    'Local',
+  ];
+
+  final PageController _pageController = PageController();
+  int _sectionIndex = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _goToSection(int index) {
+    if (index == _sectionIndex) return;
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Widget _sectionBar(BuildContext context) {
+    final palette = context.palette;
+    final library = context.watch<LibraryService>();
+    final videos = context.watch<VideoLibraryService>().videos;
+    final counts = <int>[
+      library.favoriteSongs.length,
+      library.downloadedSongs.length,
+      videos.length,
+      library.recentSongs.length,
+      library.playlists.length,
+      library.localSongs.length,
+    ];
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+        itemCount: _sections.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 7),
+        itemBuilder: (context, index) {
+          final selected = index == _sectionIndex;
+          return Material(
+            color: selected
+                ? palette.accent.withValues(alpha: 0.20)
+                : palette.surface,
+            shape: StadiumBorder(
+              side: BorderSide(
+                color: selected ? palette.accent : palette.outline,
+                width: 0.8,
+              ),
+            ),
+            child: InkWell(
+              customBorder: const StadiumBorder(),
+              onTap: () => _goToSection(index),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      _sections[index],
+                      style: TextStyle(
+                        color: selected ? palette.accent : palette.textSecondary,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    _CountChip(count: counts[index]),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryService>();
     final palette = context.palette;
-    return DefaultTabController(
-      length: 5,
-      child: Builder(
-        builder: (tabContext) => Column(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 20, 16, 7),
-              child: Row(
-                children: <Widget>[
-                  MuZicHomeButton(onPressed: onHome ?? () {}),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text('YOUR SPACE', style: TextStyle(fontSize: 10, letterSpacing: 2, color: palette.textMuted, fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 4),
-                        const Text('Library', style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800)),
-                      ],
-                    ),
-                  ),
-                  IconButton.filledTonal(
-                    tooltip: 'Import files from this device',
-                    onPressed: () => _importLocalFiles(tabContext),
-                    icon: const Icon(Icons.library_add_rounded),
-                  ),
-                  const SizedBox(width: 6),
-                  IconButton.filledTonal(
-                    tooltip: 'Create playlist',
-                    onPressed: () => _createPlaylist(tabContext),
-                    icon: const Icon(Icons.add_rounded),
-                  ),
-                ],
+    final oneHand = context.watch<AppSettingsService>().oneHandModeEnabled;
+    return Column(
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 20, 16, 7),
+          child: Row(
+            children: <Widget>[
+              MuZicHomeButton(onPressed: widget.onHome ?? () {}),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('YOUR SPACE', style: TextStyle(fontSize: 10, letterSpacing: 2, color: palette.textMuted, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    const Text('Library', style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800)),
+                  ],
+                ),
               ),
-            ),
-            const TabBar(
-              isScrollable: true,
-              tabs: <Widget>[
-                Tab(text: 'Liked'),
-                Tab(text: 'Downloads'),
-                Tab(text: 'Recent'),
-                Tab(text: 'Playlists'),
-                Tab(text: 'Local'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
-                children: <Widget>[
-                  _SongList(
-                    songs: library.favoriteSongs,
-                    emptyIcon: Icons.favorite_border_rounded,
-                    emptyTitle: 'No liked songs yet',
-                    emptyMessage: 'Tap the heart on a track to keep it here.',
-                  ),
-                  const _DownloadsTab(),
-                  _SongList(
-                    songs: library.recentSongs,
-                    emptyIcon: Icons.history_rounded,
-                    emptyTitle: 'Your listening history starts here',
-                    emptyMessage: 'Recently played tracks appear on this device only.',
-                  ),
-                  _PlaylistList(playlists: library.playlists),
-                  _LocalList(songs: library.localSongs),
-                ],
+              IconButton.filledTonal(
+                tooltip: 'Import files from this device',
+                onPressed: () => _importLocalFiles(context),
+                icon: const Icon(Icons.library_add_rounded),
               ),
-            ),
-          ],
+              const SizedBox(width: 6),
+              IconButton.filledTonal(
+                tooltip: 'Create playlist',
+                onPressed: () => _createPlaylist(context),
+                icon: const Icon(Icons.add_rounded),
+              ),
+            ],
+          ),
         ),
-      ),
+        if (!oneHand) _sectionBar(context),
+        Expanded(
+          child: PageView(
+            controller: _pageController,
+            onPageChanged: (index) => setState(() => _sectionIndex = index),
+            children: <Widget>[
+              _SongList(
+                songs: library.favoriteSongs,
+                emptyIcon: Icons.favorite_border_rounded,
+                emptyTitle: 'No liked songs yet',
+                emptyMessage: 'Tap the heart on a track to keep it here.',
+              ),
+              const _DownloadedSongsPage(),
+              const _LyricVideosPage(),
+              _SongList(
+                songs: library.recentSongs,
+                emptyIcon: Icons.history_rounded,
+                emptyTitle: 'Your listening history starts here',
+                emptyMessage: 'Recently played tracks appear on this device only.',
+              ),
+              _PlaylistList(playlists: library.playlists),
+              _LocalList(songs: library.localSongs),
+            ],
+          ),
+        ),
+        // One UI one-hand mode: the section switcher sits by the thumb
+        // (above the mini player) instead of under the top header.
+        if (oneHand)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: _sectionBar(context),
+          ),
+      ],
     );
   }
 
@@ -161,8 +250,7 @@ class LibraryScreen extends StatelessWidget {
             type: 'playlist_create',
             detail: name.trim(),
           );
-      if (!context.mounted) return;
-      DefaultTabController.of(context).animateTo(3);
+      if (context.mounted) _goToSection(4);
     }
   }
 }
@@ -199,116 +287,59 @@ class _LocalList extends StatelessWidget {
   }
 }
 
-/// Downloads with its own two tabs at the top: offline Songs you play in
-/// MuZic, and Lyric videos you exported (saved in Movies/MuZic for sharing).
-class _DownloadsTab extends StatelessWidget {
-  const _DownloadsTab();
+/// Downloaded songs are a first-class Library section (the swipe after
+/// Liked), so horizontal navigation never gets trapped in a nested tab.
+class _DownloadedSongsPage extends StatelessWidget {
+  const _DownloadedSongsPage();
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.palette;
     final songs = context.watch<LibraryService>().downloadedSongs;
-    final videos = context.watch<VideoLibraryService>().videos;
-    return DefaultTabController(
-      length: 2,
-      child: Column(
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-            child: Container(
-              decoration: BoxDecoration(
-                color: palette.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: palette.outline, width: 0.7),
-              ),
-              padding: const EdgeInsets.all(4),
-              child: TabBar(
-                dividerColor: Colors.transparent,
-                indicatorSize: TabBarIndicatorSize.tab,
-                indicator: BoxDecoration(
-                  color: palette.accent.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                labelColor: palette.accent,
-                unselectedLabelColor: palette.textMuted,
-                labelStyle: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
-                ),
-                tabs: <Widget>[
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        const Icon(Icons.audio_file_rounded, size: 16),
-                        const SizedBox(width: 6),
-                        const Text('Songs'),
-                        const SizedBox(width: 6),
-                        _CountChip(count: songs.length),
-                      ],
-                    ),
-                  ),
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        const Icon(Icons.movie_creation_outlined, size: 16),
-                        const SizedBox(width: 6),
-                        const Text('Lyric videos'),
-                        const SizedBox(width: 6),
-                        _CountChip(count: videos.length),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Expanded(
-            child: TabBarView(
-              children: <Widget>[
-                if (songs.isEmpty)
-                  const EmptyState(
-                    icon: Icons.download_for_offline_rounded,
-                    title: 'No songs downloaded yet',
-                    message:
-                        'Download a track and it will be available without '
-                        'a connection. Use its 3-dot menu to share the '
-                        'original file.',
-                  )
-                else
-                  ListView.builder(
-                    padding: const EdgeInsets.only(top: 8, bottom: 18),
-                    itemCount: songs.length,
-                    itemBuilder: (context, index) => SongTile(
-                      song: songs[index],
-                      onTap: () => context
-                          .read<PlayerController>()
-                          .playQueue(songs, initialIndex: index),
-                    ),
-                  ),
-                if (videos.isEmpty)
-                  const EmptyState(
-                    icon: Icons.movie_creation_outlined,
-                    title: 'No lyric videos yet',
-                    message:
-                        'Export one from the player: the movie icon next '
-                        'to the waveform button. Videos are saved to '
-                        'Movies/MuZic.',
-                  )
-                else
-                  ListView(
-                    padding: const EdgeInsets.only(top: 8, bottom: 18),
-                    children: <Widget>[
-                      for (final video in videos)
-                        _LyricVideoTile(video: video),
-                    ],
-                  ),
-              ],
-            ),
-          ),
-        ],
+    if (songs.isEmpty) {
+      return const EmptyState(
+        icon: Icons.download_for_offline_rounded,
+        title: 'No songs downloaded yet',
+        message:
+            'Download a track and it will be available without '
+            'a connection. Use its 3-dot menu to share the '
+            'original file.',
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 18),
+      itemCount: songs.length,
+      itemBuilder: (context, index) => SongTile(
+        song: songs[index],
+        onTap: () => context
+            .read<PlayerController>()
+            .playQueue(songs, initialIndex: index),
       ),
+    );
+  }
+}
+
+/// Lyric videos continue the same swipe flow after Downloads · Songs.
+class _LyricVideosPage extends StatelessWidget {
+  const _LyricVideosPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final videos = context.watch<VideoLibraryService>().videos;
+    if (videos.isEmpty) {
+      return const EmptyState(
+        icon: Icons.movie_creation_outlined,
+        title: 'No lyric videos yet',
+        message:
+            'Export one from the player: the movie icon next '
+            'to the waveform button. Videos are saved to '
+            'Movies/MuZic.',
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.only(top: 8, bottom: 18),
+      children: <Widget>[
+        for (final video in videos) _LyricVideoTile(video: video),
+      ],
     );
   }
 }

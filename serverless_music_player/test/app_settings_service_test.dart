@@ -48,6 +48,8 @@ void main() {
       expect(first.autoplayRecommendations, isTrue);
       expect(first.recommendationStyle, 'balanced');
       expect(first.liveVisualizerEnabled, isFalse);
+      expect(first.hasCustomDownloadsFolder, isFalse);
+      expect(first.oneHandModeEnabled, isTrue);
 
       await first.setDiagnosticsEnabled(true);
       await first.setSleepTimer(enabled: true, minutes: 45);
@@ -56,6 +58,8 @@ void main() {
       await first.setAutoplayRecommendations(false);
       await first.setRecommendationStyle('discovery');
       await first.setLiveVisualizerEnabled(true);
+      await first.setDownloadsFolder(uri: 'content://tree/test', name: 'My music');
+      await first.setOneHandModeEnabled(false);
       await Hive.box<dynamic>('app_settings').close();
 
       final restored = AppSettingsService();
@@ -68,6 +72,9 @@ void main() {
       expect(restored.autoplayRecommendations, isFalse);
       expect(restored.recommendationStyle, 'discovery');
       expect(restored.liveVisualizerEnabled, isTrue);
+      expect(restored.downloadsFolderUri, 'content://tree/test');
+      expect(restored.downloadsFolderName, 'My music');
+      expect(restored.oneHandModeEnabled, isFalse);
     } finally {
       await Hive.close();
       await directory.delete(recursive: true);

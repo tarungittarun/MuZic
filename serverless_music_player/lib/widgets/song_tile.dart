@@ -20,6 +20,8 @@ class SongTile extends StatefulWidget {
     required this.onTap,
     this.showActions = true,
     this.showDetails = false,
+    this.subtitleOverride,
+    this.trailing,
     super.key,
   });
 
@@ -27,6 +29,13 @@ class SongTile extends StatefulWidget {
   final VoidCallback onTap;
   final bool showActions;
   final bool showDetails;
+
+  /// Optional line shown under the artist (e.g. a recommendation reason).
+  final String? subtitleOverride;
+
+  /// Optional trailing widget that replaces the usual action buttons
+  /// (e.g. the drag handle in Up next).
+  final Widget? trailing;
 
   @override
   State<SongTile> createState() => _SongTileState();
@@ -47,12 +56,24 @@ class _SongTileState extends State<SongTile> {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<PlayerController>();
-    final palette = context.palette;
     final song = widget.song;
-    final downloaded = player.isDownloaded(song);
-    final progress = player.downloadProgressFor(song);
-    final isCurrent = player.currentSong?.id == song.id;
+    // Rebuild this row only when *its* playback/download state changes.
+    // Watching the whole controller here rebuilt every visible row on each
+    // position tick, which made long lists feel capped and juddery.
+    final isCurrent = context.select<PlayerController, bool>(
+      (player) => player.currentSong?.id == song.id,
+    );
+    final downloaded = context.select<PlayerController, bool>(
+      (player) => player.isDownloaded(song),
+    );
+    final progress = context.select<PlayerController, double?>(
+      (player) => player.downloadProgressFor(song),
+    );
+    final isFavorite = context.select<PlayerController, bool>(
+      (player) => player.isFavorite(song),
+    );
+    final player = context.read<PlayerController>();
+    final palette = context.palette;
     final quickMeta = <String>[
       if (song.duration != null) _formatDuration(song.duration!),
       if (_releaseLabel(song.releaseDate) != null) _releaseLabel(song.releaseDate)!,
@@ -112,6 +133,19 @@ class _SongTileState extends State<SongTile> {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(fontSize: 11, color: palette.textSecondary),
                           ),
+                          if (widget.subtitleOverride != null) ...<Widget>[
+                            const SizedBox(height: 3),
+                            Text(
+                              widget.subtitleOverride!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: palette.accent,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                           if (quickMeta.isNotEmpty) ...<Widget>[
                             const SizedBox(height: 3),
                             Text(
@@ -136,18 +170,20 @@ class _SongTileState extends State<SongTile> {
                           color: palette.textMuted,
                         ),
                       ),
-                    if (widget.showActions) ...<Widget>[
+                    if (widget.trailing != null)
+                      widget.trailing!
+                    else if (widget.showActions) ...<Widget>[
                       IconButton(
                         visualDensity: VisualDensity.compact,
                         constraints: const BoxConstraints.tightFor(width: 36, height: 38),
                         padding: EdgeInsets.zero,
-                        tooltip: player.isFavorite(song) ? 'Unlike' : 'Like',
+                        tooltip: isFavorite ? 'Unlike' : 'Like',
                         onPressed: () => player.toggleFavorite(song),
                         icon: Icon(
-                          player.isFavorite(song)
+                          isFavorite
                               ? Icons.favorite_rounded
                               : Icons.favorite_border_rounded,
-                          color: player.isFavorite(song) ? palette.accent : palette.textMuted,
+                          color: isFavorite ? palette.accent : palette.textMuted,
                           size: 19,
                         ),
                       ),

@@ -7,6 +7,8 @@ import '../services/app_settings_service.dart';
 import '../services/diagnostics_service.dart';
 import '../theme/app_theme.dart';
 
+enum _DiagnosticsTimePreset { all, last15Minutes, lastHour, today, custom }
+
 class DiagnosticsScreen extends StatefulWidget {
   const DiagnosticsScreen({super.key});
 
@@ -15,6 +17,104 @@ class DiagnosticsScreen extends StatefulWidget {
 }
 
 class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
+  final Set<LogLevel> _selectedLevels = Set<LogLevel>.of(LogLevel.values);
+  _DiagnosticsTimePreset _timePreset = _DiagnosticsTimePreset.all;
+  DateTime? _customStart;
+  DateTime? _customEnd;
+
+  List<LogEntry> _filteredEntries(List<LogEntry> entries) {
+    final now = DateTime.now();
+    DateTime? start;
+    DateTime? end;
+    switch (_timePreset) {
+      case _DiagnosticsTimePreset.all:
+        break;
+      case _DiagnosticsTimePreset.last15Minutes:
+        start = now.subtract(const Duration(minutes: 15));
+        end = now;
+      case _DiagnosticsTimePreset.lastHour:
+        start = now.subtract(const Duration(hours: 1));
+        end = now;
+      case _DiagnosticsTimePreset.today:
+        start = DateTime(now.year, now.month, now.day);
+        end = now;
+      case _DiagnosticsTimePreset.custom:
+        start = _customStart;
+        end = _customEnd;
+    }
+    return filterLogEntries(
+      entries,
+      levels: _selectedLevels,
+      start: start,
+      end: end,
+    );
+  }
+
+  Future<void> _pickCustomTimeRange() async {
+    final now = DateTime.now();
+    final initialStart =
+        _customStart ?? now.subtract(const Duration(hours: 1));
+    final initialEnd = _customEnd ?? now;
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: now.add(const Duration(days: 1)),
+      initialDateRange: DateTimeRange(start: initialStart, end: initialEnd),
+      helpText: 'Choose log dates',
+    );
+    if (range == null || !mounted) return;
+    final startTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialStart),
+      helpText: 'Exact start time',
+    );
+    if (startTime == null || !mounted) return;
+    final endTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialEnd),
+      helpText: 'Exact end time',
+    );
+    if (endTime == null || !mounted) return;
+    var start = DateTime(
+      range.start.year,
+      range.start.month,
+      range.start.day,
+      startTime.hour,
+      startTime.minute,
+    );
+    var end = DateTime(
+      range.end.year,
+      range.end.month,
+      range.end.day,
+      endTime.hour,
+      endTime.minute,
+    );
+    if (end.isBefore(start)) {
+      final swap = start;
+      start = end;
+      end = swap;
+    }
+    setState(() {
+      _customStart = start;
+      _customEnd = end;
+      _timePreset = _DiagnosticsTimePreset.custom;
+    });
+  }
+
+  String _timeRangeLabel() {
+    if (_timePreset != _DiagnosticsTimePreset.custom ||
+        _customStart == null ||
+        _customEnd == null) {
+      return '';
+    }
+    String stamp(DateTime value) =>
+        '${value.year}-${value.month.toString().padLeft(2, '0')}-'
+        '${value.day.toString().padLeft(2, '0')} '
+        '${value.hour.toString().padLeft(2, '0')}:'
+        '${value.minute.toString().padLeft(2, '0')}';
+    return '${stamp(_customStart!)} → ${stamp(_customEnd!)}';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -38,7 +138,8 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     final settings = context.watch<AppSettingsService>();
     final palette = context.palette;
     final captureOn = settings.diagnosticsEnabled;
-    final entries = AppLog.snapshot().reversed.toList(growable: false);
+    final allEntries = AppLog.snapshot().reversed.toList(growable: false);
+    final entries = _filteredEntries(allEntries);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Diagnostics'),
@@ -305,12 +406,121 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
             ],
           ),
           const SizedBox(height: 8),
+          if (captureOn) ...<Widget>[
+            Text(
+              'LOG TYPE',
+              style: TextStyle(
+                color: palette.textMuted,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.6,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Wrap(
+              spacing: 7,
+              runSpacing: 7,
+              children: <Widget>[
+                for (final level in LogLevel.values)
+                  FilterChip(
+                    label: Text(level.name.toUpperCase()),
+                    selected: _selectedLevels.contains(level),
+                    onSelected: (selected) {
+                      setState(() {
+                        if (selected) {
+                          _selectedLevels.add(level);
+                        } else {
+                          _selectedLevels.remove(level);
+                        }
+                      });
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'TIME',
+              style: TextStyle(
+                color: palette.textMuted,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.6,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Wrap(
+              spacing: 7,
+              runSpacing: 7,
+              children: <Widget>[
+                ChoiceChip(
+                  label: const Text('All time'),
+                  selected: _timePreset == _DiagnosticsTimePreset.all,
+                  onSelected: (_) => setState(
+                    () => _timePreset = _DiagnosticsTimePreset.all,
+                  ),
+                ),
+                ChoiceChip(
+                  label: const Text('Last 15 min'),
+                  selected:
+                      _timePreset == _DiagnosticsTimePreset.last15Minutes,
+                  onSelected: (_) => setState(
+                    () => _timePreset =
+                        _DiagnosticsTimePreset.last15Minutes,
+                  ),
+                ),
+                ChoiceChip(
+                  label: const Text('Last hour'),
+                  selected: _timePreset == _DiagnosticsTimePreset.lastHour,
+                  onSelected: (_) => setState(
+                    () => _timePreset = _DiagnosticsTimePreset.lastHour,
+                  ),
+                ),
+                ChoiceChip(
+                  label: const Text('Today'),
+                  selected: _timePreset == _DiagnosticsTimePreset.today,
+                  onSelected: (_) => setState(
+                    () => _timePreset = _DiagnosticsTimePreset.today,
+                  ),
+                ),
+                ActionChip(
+                  avatar: Icon(
+                    Icons.schedule_rounded,
+                    size: 16,
+                    color: _timePreset == _DiagnosticsTimePreset.custom
+                        ? palette.mint
+                        : palette.textMuted,
+                  ),
+                  label: const Text('Exact time…'),
+                  onPressed: () => _pickCustomTimeRange(),
+                ),
+              ],
+            ),
+            if (_timeRangeLabel().isNotEmpty) ...<Widget>[
+              const SizedBox(height: 7),
+              Text(
+                _timeRangeLabel(),
+                style: TextStyle(
+                  color: palette.mint,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              'Showing ${entries.length} of ${allEntries.length} captured entries',
+              style: TextStyle(color: palette.textMuted, fontSize: 11),
+            ),
+            const SizedBox(height: 6),
+          ],
           if (captureOn && entries.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Center(
                 child: Text(
-                  'No logs captured yet.',
+                  allEntries.isEmpty
+                      ? 'No logs captured yet.'
+                      : 'No logs match the selected type/time filters.',
                   style: TextStyle(color: palette.textMuted),
                 ),
               ),

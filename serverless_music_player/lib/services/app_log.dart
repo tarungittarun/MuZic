@@ -39,6 +39,29 @@ class LogEntry {
       };
 }
 
+/// Returns the entries matching [levels] and the optional time window.
+/// A null [start]/[end] leaves that side of the window open. The input order
+/// is preserved, so callers that already reversed the snapshot keep newest
+/// entries first.
+List<LogEntry> filterLogEntries(
+  Iterable<LogEntry> entries, {
+  Set<LogLevel> levels = const <LogLevel>{
+    LogLevel.debug,
+    LogLevel.info,
+    LogLevel.warn,
+    LogLevel.error,
+  },
+  DateTime? start,
+  DateTime? end,
+}) {
+  return entries.where((entry) {
+    if (!levels.contains(entry.level)) return false;
+    if (start != null && entry.time.isBefore(start)) return false;
+    if (end != null && entry.time.isAfter(end)) return false;
+    return true;
+  }).toList(growable: false);
+}
+
 /// Process-wide ring buffer of diagnostic log entries.
 ///
 /// Capture is **opt-in**: nothing is recorded until the user turns on

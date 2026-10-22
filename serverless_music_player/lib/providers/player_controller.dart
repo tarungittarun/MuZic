@@ -244,6 +244,7 @@ class PlayerController extends ChangeNotifier {
       final recentSongs = _library.recentSongs;
       final recentlyPlayed = recentSongs.take(18).toList(growable: false);
       final previousIds = _usage.recentRecommendationIds.take(80).toSet();
+      final recommendationCounts = _usage.recommendationCounts;
       final common = (
         seed: seed,
         excludedIds: _queue.map((song) => song.id).toSet(),
@@ -255,6 +256,7 @@ class PlayerController extends ChangeNotifier {
             .map((song) => RecommendationEngine.canonicalTitleKey(song.title))
             .toSet(),
         artistAffinity: affinity.scores,
+        recommendationCounts: recommendationCounts,
         preferredLanguages: <String>{
           if (seed.language.trim().isNotEmpty) seed.language.trim(),
           ...?_settings?.languages,
@@ -271,13 +273,15 @@ class PlayerController extends ChangeNotifier {
         recentTitleKeys: common.recentTitleKeys,
         previouslyRecommendedIds: previousIds,
         artistAffinity: common.artistAffinity,
+        recommendationCounts: common.recommendationCounts,
         preferredLanguages: common.preferredLanguages,
         style: common.style,
       );
       if (ranked.isEmpty && previousIds.isNotEmpty) {
         // The rotation memory is there to avoid repeats, not to starve the
         // radio when the local catalogue pool is small. Fall back to older
-        // recommendations while still excluding the queue and fresh recents.
+        // recommendations while still excluding the queue, fresh recents,
+        // and any song that has already reached the three-recommendation cap.
         ranked = RecommendationEngine.rank(
           candidates: candidates,
           seed: common.seed,
@@ -287,6 +291,7 @@ class PlayerController extends ChangeNotifier {
           recentTitleKeys: common.recentTitleKeys,
           previouslyRecommendedIds: const <String>{},
           artistAffinity: common.artistAffinity,
+          recommendationCounts: common.recommendationCounts,
           preferredLanguages: common.preferredLanguages,
           style: common.style,
         );

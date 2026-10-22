@@ -22,10 +22,12 @@ import android.content.ClipData
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
+import androidx.documentfile.provider.DocumentFile
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import com.ryanheise.audioservice.AudioServiceActivity
@@ -34,6 +36,7 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import kotlin.math.abs
 import kotlin.math.max
@@ -52,6 +55,7 @@ class MainActivity : AudioServiceActivity() {
     private var virtualizer: Virtualizer? = null
     private var localFilesChannel: MethodChannel? = null
     private var pendingLocalResult: MethodChannel.Result? = null
+    private var pendingFolderResult: MethodChannel.Result? = null
     private var visualizerChannel: EventChannel? = null
     private var visualizerCapture: Visualizer? = null
     private var visualizerSink: EventChannel.EventSink? = null
@@ -64,6 +68,7 @@ class MainActivity : AudioServiceActivity() {
 
     private companion object {
         const val PICK_AUDIO_REQUEST_CODE = 4213
+        const val PICK_DOWNLOADS_FOLDER_REQUEST_CODE = 4214
 
         /**
          * Channel the system media player posts on. Created by
@@ -72,6 +77,38 @@ class MainActivity : AudioServiceActivity() {
          */
         const val AUDIO_CHANNEL_ID = "com.auralis.player.audio"
         const val AUDIO_SERVICE_CLASS = "com.ryanheise.audioservice.AudioService"
+    }
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        preferHighestRefreshRate()
+    }
+
+    /// Ask Android to render MuZic at the panel's fastest supported mode
+    /// (90/120 Hz where available) instead of lingering at a low default.
+    private fun preferHighestRefreshRate() {
+        try {
+            val activeDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            } ?: return
+            val current = activeDisplay.mode
+            val fastest = activeDisplay.supportedModes
+                .filter { mode ->
+                    mode.physicalWidth == current.physicalWidth &&
+                        mode.physicalHeight == current.physicalHeight
+                }
+                .maxByOrNull { mode -> mode.refreshRate } ?: return
+            val attributes = window.attributes
+            attributes.preferredDisplayModeId = fastest.modeId
+            attributes.preferredRefreshRate = fastest.refreshRate
+            window.attributes = attributes
+        } catch (ignored: Exception) {
+            // Refresh-rate preference is best-effort; rendering still works
+            // at the system default if a device rejects the request.
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -116,6 +153,15 @@ class MainActivity : AudioServiceActivity() {
         localFilesChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "pickAudioFiles" -> pickAudioFiles(result)
+                "pickDownloadsFolder" -> pickDownloadsFolder(result)
+                "copyToDownloadsFolder" -> copyToDownloadsFolder(
+                    call.argument<String>("folderUri"),
+                    call.argument<String>("sourcePath"),
+                    call.argument<String>("fileName"),
+                    call.argument<String>("mimeType"),
+                    result,
+                )
+                "deleteContentFile" -> deleteContentFile(call.argument<String>("path"), result)
                 "shareFile" -> shareFile(
                     call.argument<String>("path"),
                     call.argument<String>("fileName"),
@@ -671,7 +717,29 @@ class MainActivity : AudioServiceActivity() {
      * copied as-is into the share cache and handed to Android's chooser
      * through FileProvider, so the receiver gets the original quality.
      */
+    private fun shareUri(uri: Uri, result: MethodChannel.Result) {
+        try {
+            val mime = contentResolver.getType(uri) ?: "audio/*"
+            val displayName = queryDisplayName(uri) ?: "MuZic song"
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TITLE, displayName)
+                clipData = ClipData.newRawUri("", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Share song"))
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("share_failed", e.message, null)
+        }
+    }
+
     private fun shareFile(path: String?, fileName: String?, result: MethodChannel.Result) {
+        if (!path.isNullOrBlank() && path.startsWith("content://")) {
+            shareUri(Uri.parse(path), result)
+            return
+        }
         try {
             if (path.isNullOrBlank()) {
                 result.error("missing_file", "The downloaded file is missing.", null)
@@ -716,6 +784,92 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+
+    private fun pickDownloadsFolder(result: MethodChannel.Result) {
+        if (pendingFolderResult != null) {
+            result.error("picker_busy", "A folder picker is already open", null)
+            return
+        }
+        try {
+            pendingFolderResult = result
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                        Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                        Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+                )
+            }
+            startActivityForResult(intent, PICK_DOWNLOADS_FOLDER_REQUEST_CODE)
+        } catch (e: Exception) {
+            pendingFolderResult = null
+            result.error("picker_unavailable", e.message, null)
+        }
+    }
+
+    private fun copyToDownloadsFolder(
+        folderUriValue: String?,
+        sourcePath: String?,
+        fileName: String?,
+        mimeType: String?,
+        result: MethodChannel.Result,
+    ) {
+        val treeUri = folderUriValue?.let { Uri.parse(it) }
+        val source = sourcePath?.let(::File)
+        val safeName = (fileName ?: "track").replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        if (treeUri == null || source == null || !source.exists()) {
+            result.error("invalid_copy", "The folder or download file was not found", null)
+            return
+        }
+        Thread {
+            try {
+                val parent = DocumentFile.fromTreeUri(this, treeUri)
+                if (parent == null || !parent.canWrite()) {
+                    runOnUiThread {
+                        result.error("folder_unwritable", "The selected folder cannot be written to", null)
+                    }
+                    return@Thread
+                }
+                parent.findFile(safeName)?.delete()
+                val target = parent.createFile(mimeType ?: "audio/mpeg", safeName)
+                val outputUri = target?.uri
+                if (outputUri == null) {
+                    runOnUiThread {
+                        result.error("copy_failed", "Android could not create the file", null)
+                    }
+                    return@Thread
+                }
+                FileInputStream(source).use { input ->
+                    contentResolver.openOutputStream(outputUri)?.use { output ->
+                        input.copyTo(output)
+                    } ?: throw IllegalStateException("Could not open the destination file")
+                }
+                runOnUiThread { result.success(outputUri.toString()) }
+            } catch (e: Exception) {
+                runOnUiThread { result.error("copy_failed", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun deleteContentFile(path: String?, result: MethodChannel.Result) {
+        if (path.isNullOrBlank() || !path.startsWith("content://")) {
+            result.success(false)
+            return
+        }
+        Thread {
+            val deleted = try {
+                DocumentsContract.deleteDocument(contentResolver, Uri.parse(path))
+            } catch (e: Exception) {
+                try {
+                    contentResolver.delete(Uri.parse(path), null, null) > 0
+                } catch (ignored: Exception) {
+                    false
+                }
+            }
+            runOnUiThread { result.success(deleted) }
+        }.start()
+    }
+
     private fun pickAudioFiles(result: MethodChannel.Result) {
         if (pendingLocalResult != null) {
             result.error("busy", "A file picker is already open.", null)
@@ -738,6 +892,32 @@ class MainActivity : AudioServiceActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == PICK_DOWNLOADS_FOLDER_REQUEST_CODE) {
+            val pendingFolder = pendingFolderResult
+            pendingFolderResult = null
+            val treeUri = if (resultCode == Activity.RESULT_OK) data?.data else null
+            if (pendingFolder == null || treeUri == null) {
+                pendingFolder?.success(null)
+                return
+            }
+            try {
+                val flags = (data?.flags ?: 0) and
+                    (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                val persistFlags = if (flags != 0) flags else
+                    (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                contentResolver.takePersistableUriPermission(treeUri, persistFlags)
+            } catch (ignored: Exception) {
+                // The grant may still work for this session on some OEM builds.
+            }
+            val document = DocumentFile.fromTreeUri(this, treeUri)
+            pendingFolder.success(
+                mapOf(
+                    "uri" to treeUri.toString(),
+                    "name" to (document?.name ?: "Selected folder"),
+                ),
+            )
+            return
+        }
         if (requestCode != PICK_AUDIO_REQUEST_CODE) {
             super.onActivityResult(requestCode, resultCode, data)
             return

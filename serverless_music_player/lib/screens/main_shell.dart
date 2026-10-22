@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../services/app_settings_service.dart';
 import '../services/sleep_timer_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mini_player.dart';
@@ -79,6 +80,9 @@ class _MainShellState extends State<MainShell> {
   }
 
   Widget _scaffold(AppPalette palette, SleepTimerService sleepTimer) {
+    // One UI one-hand mode gives the bottom navigation taller, easier
+    // thumb targets. Turning it off restores the compact bar.
+    final oneHand = context.watch<AppSettingsService>().oneHandModeEnabled;
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -107,7 +111,7 @@ class _MainShellState extends State<MainShell> {
             children: <Widget>[
               const MiniPlayer(),
               SizedBox(
-                height: 64,
+                height: oneHand ? 74 : 64,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     // Centre the first destination (Search) by padding
@@ -127,24 +131,28 @@ class _MainShellState extends State<MainShell> {
                             icon: Icons.search_rounded,
                             label: 'Search',
                             selected: _tab == 0,
+                            oneHand: oneHand,
                             onTap: () => _selectTab(0),
                           ),
                           _BottomDestination(
                             icon: Icons.library_music_rounded,
                             label: 'Library',
                             selected: _tab == 1,
+                            oneHand: oneHand,
                             onTap: () => _selectTab(1),
                           ),
                           _BottomDestination(
                             icon: Icons.settings_rounded,
                             label: 'Settings',
                             selected: _tab == 2,
+                            oneHand: oneHand,
                             onTap: () => _selectTab(2),
                           ),
                           _BottomDestination(
                             icon: Icons.insights_rounded,
                             label: 'Usage',
                             selected: _tab == 3,
+                            oneHand: oneHand,
                             onTap: () => _selectTab(3),
                           ),
                         ],
@@ -167,12 +175,14 @@ class _BottomDestination extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.oneHand = false,
   });
 
   final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool oneHand;
 
   @override
   Widget build(BuildContext context) {
@@ -186,7 +196,10 @@ class _BottomDestination extends StatelessWidget {
           children: <Widget>[
             AnimatedContainer(
               duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: oneHand ? 6 : 4,
+              ),
               decoration: BoxDecoration(
                 gradient: selected
                     ? LinearGradient(
@@ -209,7 +222,7 @@ class _BottomDestination extends StatelessWidget {
               ),
               child: Icon(
                 icon,
-                size: 22,
+                size: oneHand ? 24 : 22,
                 color: selected ? palette.accent : palette.textMuted,
               ),
             ),

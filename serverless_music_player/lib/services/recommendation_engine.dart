@@ -50,6 +50,8 @@ class RecommendationEngine {
     required Set<String> recentTitleKeys,
     required Set<String> previouslyRecommendedIds,
     required Map<String, double> artistAffinity,
+    Map<String, int> recommendationCounts = const <String, int>{},
+    int maxRecommendationsPerSong = 3,
     required Set<String> preferredLanguages,
     String style = 'balanced',
     int limit = 8,
@@ -76,6 +78,8 @@ class RecommendationEngine {
         recentlyPlayedIds: recentlyPlayedIds,
         recentTitleKeys: recentTitleKeys,
         previouslyRecommendedIds: previouslyRecommendedIds,
+        recommendationCounts: recommendationCounts,
+        maxRecommendationsPerSong: maxRecommendationsPerSong,
       )) {
         continue;
       }
@@ -248,11 +252,18 @@ class RecommendationEngine {
     required Set<String> recentlyPlayedIds,
     required Set<String> recentTitleKeys,
     required Set<String> previouslyRecommendedIds,
+    required Map<String, int> recommendationCounts,
+    required int maxRecommendationsPerSong,
   }) {
     if (song.isLiveStream || song.title.trim().isEmpty) return false;
     if (excludedIds.contains(song.id) ||
         recentlyPlayedIds.contains(song.id) ||
         previouslyRecommendedIds.contains(song.id)) {
+      return false;
+    }
+    // Hard repetition cap: a song already recommended three times is never
+    // recommended a fourth time, including via the small-pool fallback.
+    if ((recommendationCounts[song.id] ?? 0) >= maxRecommendationsPerSong) {
       return false;
     }
     final titleKey = canonicalTitleKey(song.title);

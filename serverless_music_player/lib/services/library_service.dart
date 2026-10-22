@@ -55,7 +55,10 @@ class LibraryService extends ChangeNotifier {
 
   bool isDownloaded(String songId) {
     final path = downloadedSong(songId)?.localPath;
-    return path != null && path.isNotEmpty && File(path).existsSync();
+    if (path == null || path.isEmpty) return false;
+    // Downloads in a user-picked folder use Android content URIs.
+    if (path.startsWith('content://')) return true;
+    return File(path).existsSync();
   }
 
   SongModel? downloadedSong(String songId) {
@@ -71,8 +74,11 @@ class LibraryService extends ChangeNotifier {
   List<SongModel> get favoriteSongs => _songsFrom(_favorites.values);
 
   List<SongModel> get downloadedSongs => _songsFrom(_downloads.values)
-      .where((song) =>
-          song.localPath != null && File(song.localPath!).existsSync())
+      .where((song) {
+        final path = song.localPath;
+        if (path == null || path.isEmpty) return false;
+        return path.startsWith('content://') || File(path).existsSync();
+      })
       .toList(growable: false);
 
   List<SongModel> get recentSongs {

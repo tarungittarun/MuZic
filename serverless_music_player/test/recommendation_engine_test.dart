@@ -140,5 +140,33 @@ void main() {
       expect(run('familiar').first.song.id, 'familiar');
       expect(run('discovery').first.song.id, 'discovery');
     });
+
+    test('never recommends the same song a fourth time', () {
+      final ranked = RecommendationEngine.rank(
+        candidates: <RecommendationCandidate>[
+          candidate(song('capped', 'Played Out Pick', 'Artist One')),
+          candidate(song('twice', 'Still Allowed Pick', 'Artist Two')),
+          candidate(song('fresh-cap', 'Fresh Pick', 'Artist Three')),
+        ],
+        seed: seed,
+        excludedIds: const <String>{},
+        excludedTitleKeys: const <String>{},
+        recentlyPlayedIds: const <String>{},
+        recentTitleKeys: const <String>{},
+        previouslyRecommendedIds: const <String>{},
+        artistAffinity: const <String, double>{},
+        preferredLanguages: const <String>{'hindi'},
+        recommendationCounts: const <String, int>{
+          'capped': 3,
+          'twice': 2,
+        },
+      );
+
+      expect(
+        ranked.map((item) => item.song.id),
+        containsAll(<String>['twice', 'fresh-cap']),
+      );
+      expect(ranked.map((item) => item.song.id), isNot(contains('capped')));
+    });
   });
 }

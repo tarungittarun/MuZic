@@ -10,6 +10,7 @@ import '../services/lyrics_language.dart';
 import '../services/notification_service.dart';
 import '../services/sleep_timer_service.dart';
 import '../theme/app_theme.dart';
+import '../services/local_files_service.dart';
 import '../widgets/muzic_home_button.dart';
 import 'diagnostics_screen.dart';
 
@@ -26,6 +27,13 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  /// Accordion state: only one Settings drop-down is open at a time.
+  String? _openSectionTitle = 'Playback & recommendations';
+
+  void _handleSectionChanged(String title, bool expanded) {
+    setState(() => _openSectionTitle = expanded ? title : null);
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsService>();
@@ -67,7 +75,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Appearance',
             icon: Icons.palette_outlined,
             summary: 'Theme: ${settings.themeMode.name}',
-            initiallyExpanded: false,
+            expanded: _openSectionTitle == 'Appearance',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('Appearance', value),
             child: Column(
               children: <Widget>[
                 _ThemeOption(
@@ -96,6 +106,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   selected: settings.themeMode == ThemeMode.dark,
                   onSelected: settings.setThemeMode,
                 ),
+                Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
+                SwitchListTile(
+                  value: settings.oneHandModeEnabled,
+                  secondary: Icon(
+                    Icons.back_hand_outlined,
+                    color: settings.oneHandModeEnabled
+                        ? palette.accent
+                        : palette.textSecondary,
+                  ),
+                  title: const Text('One-hand mode'),
+                  subtitle: Text(
+                    'One UI-style reachability: Library sections and key '
+                    'controls sit near the bottom, where your thumb is. '
+                    'Turn off for the classic top-tab layout.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  onChanged: settings.setOneHandModeEnabled,
+                ),
               ],
             ),
           ),
@@ -104,7 +132,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Lyrics',
             icon: Icons.lyrics_outlined,
             summary: 'Default: ${lyricsLanguageLabel(settings.lyricsLanguage)}',
-            initiallyExpanded: false,
+            expanded: _openSectionTitle == 'Lyrics',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('Lyrics', value),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(17, 12, 17, 6),
               child: Column(
@@ -157,7 +187,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Playback & recommendations',
             icon: Icons.play_circle_outline_rounded,
             summary: 'System player and personal mix',
-            initiallyExpanded: true,
+            expanded: _openSectionTitle == 'Playback & recommendations',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('Playback & recommendations', value),
             child: Column(
               children: <Widget>[
                 FutureBuilder<bool>(
@@ -281,6 +313,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 Divider(height: 1, color: palette.outline),
                 ListTile(
+                  leading: Icon(Icons.folder_outlined, color: palette.textSecondary),
+                  title: const Text('Downloads folder'),
+                  subtitle: Text(
+                    settings.hasCustomDownloadsFolder
+                        ? 'New downloads are saved in \u201c${settings.downloadsFolderName}\u201d. '
+                            'Existing downloads stay where they are.'
+                        : 'Default: MuZic app storage. Tap to choose a folder '
+                            'on this device for new downloads.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.folder_open_rounded, size: 18),
+                  onTap: () async {
+                    final picked = await LocalFilesService().pickDownloadsFolder();
+                    if (picked == null || !context.mounted) return;
+                    await settings.setDownloadsFolder(
+                      uri: picked.uri,
+                      name: picked.name,
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'New downloads will be saved in \u201c${picked.name}\u201d.',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                if (settings.hasCustomDownloadsFolder)
+                  ListTile(
+                    leading: Icon(Icons.folder_off_outlined, color: palette.textSecondary),
+                    title: const Text('Use default downloads folder'),
+                    subtitle: Text(
+                      'Go back to MuZic app storage for new downloads.',
+                      style: TextStyle(color: palette.textMuted, fontSize: 12),
+                    ),
+                    trailing: const Icon(Icons.restore_rounded, size: 18),
+                    onTap: () async {
+                      await settings.clearDownloadsFolder();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('New downloads will use MuZic app storage.'),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                Divider(height: 1, color: palette.outline),
+                ListTile(
                   leading: Icon(Icons.battery_saver_rounded,
                       color: palette.textSecondary),
                   title: const Text('Allow background playback'),
@@ -312,7 +395,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Sleep timer',
             icon: Icons.bedtime_outlined,
             summary: settings.sleepTimerEnabled ? '${_sleepLabel(settings.sleepTimerMinutes)} of inactivity' : 'Off',
-            initiallyExpanded: false,
+            expanded: _openSectionTitle == 'Sleep timer',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('Sleep timer', value),
             child: Column(
               children: <Widget>[
                 SwitchListTile(
@@ -366,7 +451,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Discover',
             icon: Icons.explore_rounded,
             summary: '${kRegionOptions[settings.region] ?? settings.region} • ${settings.languages.map((code) => kDiscoverLanguageLabel[code] ?? code).join(', ')}',
-            initiallyExpanded: false,
+            expanded: _openSectionTitle == 'Discover',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('Discover', value),
             child: Column(
               children: <Widget>[
                 ListTile(
@@ -402,7 +489,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Audio effects',
             icon: Icons.graphic_eq_rounded,
             summary: 'Virtualizer, bass boost and equalizer',
-            initiallyExpanded: false,
+            expanded: _openSectionTitle == 'Audio effects',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('Audio effects', value),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
               child: Column(
@@ -530,7 +619,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Diagnostics',
             icon: Icons.bug_report_outlined,
             summary: settings.diagnosticsEnabled ? 'Capture on' : 'Capture off',
-            initiallyExpanded: false,
+            expanded: _openSectionTitle == 'Diagnostics',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('Diagnostics', value),
             child: Column(
               children: <Widget>[
                 SwitchListTile(
@@ -578,7 +669,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Privacy',
             icon: Icons.shield_outlined,
             summary: 'Saved only on this device',
-            initiallyExpanded: false,
+            expanded: _openSectionTitle == 'Privacy',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('Privacy', value),
             child: Padding(
               padding: const EdgeInsets.all(17),
               child: Row(
@@ -609,7 +702,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'About MuZic',
             icon: Icons.info_outline_rounded,
             summary: 'Version ${AppInfo.version}+${AppInfo.buildNumber}',
-            initiallyExpanded: false,
+            expanded: _openSectionTitle == 'About MuZic',
+            onExpansionChanged: (value) =>
+                _handleSectionChanged('About MuZic', value),
             child: ListTile(
               leading: Icon(Icons.graphic_eq_rounded, color: palette.accent),
               title: const Text(AppInfo.displayName),
@@ -877,21 +972,24 @@ class _ExpandableSettingsSection extends StatelessWidget {
     required this.icon,
     required this.summary,
     required this.child,
-    this.initiallyExpanded = false,
+    required this.expanded,
+    required this.onExpansionChanged,
   });
 
   final String title;
   final IconData icon;
   final String summary;
   final Widget child;
-  final bool initiallyExpanded;
+  final bool expanded;
+  final ValueChanged<bool> onExpansionChanged;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Keep the section heading visually separate from the controls inside:
-    // a raised accent-led header, then a recessed contents panel below it.
+    // Accordion section: the heading is a raised header card; the controls
+    // sit in a separate recessed panel below it. The parent owns [expanded]
+    // so only one section can be open at a time.
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(22),
@@ -907,67 +1005,87 @@ class _ExpandableSettingsSection extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         child: Material(
           color: palette.surface,
-          child: ExpansionTile(
-            key: PageStorageKey<String>('settings-section-$title'),
-            initiallyExpanded: initiallyExpanded,
-            maintainState: true,
-            tilePadding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
-            childrenPadding: EdgeInsets.zero,
-            backgroundColor: palette.surface,
-            collapsedBackgroundColor: palette.surface,
-            iconColor: palette.accent,
-            collapsedIconColor: palette.accent,
-            shape: Border(bottom: BorderSide(color: palette.outline, width: 0.8)),
-            collapsedShape: Border.all(color: palette.outline, width: 0.8),
-            leading: Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: <Color>[
-                    palette.accent.withValues(alpha: 0.22),
-                    palette.mint.withValues(alpha: 0.18),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: Icon(icon, color: palette.accent, size: 22),
-            ),
-            title: Text(
-              title,
-              style: TextStyle(
-                fontSize: 16.5,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.2,
-                color: palette.textPrimary,
-              ),
-            ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 3),
-              child: Text(
-                summary,
-                style: TextStyle(
-                  color: palette.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
+          child: Column(
             children: <Widget>[
-              Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? palette.background.withValues(alpha: 0.68)
-                      : palette.surfaceRaised.withValues(alpha: 0.48),
-                  border: Border(
-                    top: BorderSide(color: palette.outline, width: 0.8),
-                    left: BorderSide(color: palette.accent, width: 3),
+              InkWell(
+                onTap: () => onExpansionChanged(!expanded),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                  child: Row(
+                    children: <Widget>[
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            colors: <Color>[
+                              palette.accent.withValues(alpha: 0.22),
+                              palette.mint.withValues(alpha: 0.18),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        child: Icon(icon, color: palette.accent, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 16.5,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.2,
+                                color: palette.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              summary,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: palette.textSecondary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        expanded
+                            ? Icons.expand_less_rounded
+                            : Icons.expand_more_rounded,
+                        color: palette.accent,
+                      ),
+                    ],
                   ),
                 ),
-                child: child,
+              ),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: expanded
+                    ? Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? palette.background.withValues(alpha: 0.68)
+                              : palette.surfaceRaised.withValues(alpha: 0.48),
+                          border: Border(
+                            top: BorderSide(color: palette.outline, width: 0.8),
+                            left: BorderSide(color: palette.accent, width: 3),
+                          ),
+                        ),
+                        child: child,
+                      )
+                    : const SizedBox(width: double.infinity),
               ),
             ],
           ),

@@ -23,6 +23,7 @@ import '../services/visualizer_service.dart';
 import '../theme/app_theme.dart';
 import 'animated_rhythm_icon.dart';
 import 'cover_art.dart';
+import 'song_tile.dart';
 import 'visualizer_bars.dart';
 
 class NowPlayingSheet extends StatefulWidget {
@@ -1357,53 +1358,35 @@ class _QueueSheet extends StatelessWidget {
                         return ReorderableDelayedDragStartListener(
                           key: ValueKey<String>('up-next-${song.id}'),
                           index: index,
-                          child: Material(
-                            color: Colors.transparent,
-                            child: ListTile(
-                              contentPadding:
-                                  const EdgeInsets.only(left: 12, right: 4),
-                              leading: CoverArt(song: song, size: 46, radius: 11),
-                              title: Text(
-                                song.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: Text(
-                                recommended
-                                    ? <String>[
-                                        song.artist,
-                                        'Recommended',
-                                        if (reason.isNotEmpty) reason,
-                                      ].join(' • ')
-                                    : song.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: recommended
-                                      ? palette.accent
-                                      : palette.textMuted,
-                                  fontWeight: recommended
-                                      ? FontWeight.w600
-                                      : FontWeight.w400,
-                                ),
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  if (recommended)
-                                    Padding(
-                                      padding: const EdgeInsets.only(right: 2),
-                                      child: Icon(
-                                        Icons.auto_awesome_rounded,
-                                        size: 16,
-                                        color: palette.accent,
-                                      ),
+                          child: SongTile(
+                            song: song,
+                            // Same rich card as search results: artwork,
+                            // artist, source, duration, quality/language
+                            // and play-count metadata. Recommendations
+                            // keep their badge/reason in the subtitle line.
+                            subtitleOverride: recommended
+                                ? <String>[
+                                    'Recommended',
+                                    if (reason.isNotEmpty) reason,
+                                  ].join(' • ')
+                                : null,
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                if (recommended)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 2),
+                                    child: Icon(
+                                      Icons.auto_awesome_rounded,
+                                      size: 16,
+                                      color: palette.accent,
                                     ),
-                                  const Icon(Icons.drag_handle_rounded),
-                                ],
-                              ),
-                              onTap: () => player.playAtQueueIndex(globalIndex),
+                                  ),
+                                const Icon(Icons.drag_handle_rounded),
+                              ],
                             ),
+                            onTap: () =>
+                                player.playAtQueueIndex(globalIndex),
                           ),
                         );
                       },

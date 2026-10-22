@@ -21,6 +21,9 @@ class AppSettingsService extends ChangeNotifier {
       'autoplay_recommendations';
   static const String _recommendationStyleKey = 'recommendation_style';
   static const String _liveVisualizerKey = 'live_visualizer_enabled';
+  static const String _downloadsFolderUriKey = 'downloads_folder_uri';
+  static const String _downloadsFolderNameKey = 'downloads_folder_name';
+  static const String _oneHandModeKey = 'one_hand_mode_enabled';
 
   late Box<dynamic> _settings;
   ThemeMode _themeMode = ThemeMode.dark;
@@ -39,6 +42,9 @@ class AppSettingsService extends ChangeNotifier {
   bool _autoplayRecommendations = true;
   String _recommendationStyle = 'balanced';
   bool _liveVisualizerEnabled = false;
+  String _downloadsFolderUri = '';
+  String _downloadsFolderName = '';
+  bool _oneHandModeEnabled = true;
 
   ThemeMode get themeMode => _themeMode;
 
@@ -77,6 +83,16 @@ class AppSettingsService extends ChangeNotifier {
   /// it on, it applies to every song until they turn it off again.
   bool get liveVisualizerEnabled => _liveVisualizerEnabled;
 
+  /// Optional user-chosen downloads folder (Android tree URI). Empty means
+  /// MuZic's default app storage, exactly as before.
+  String get downloadsFolderUri => _downloadsFolderUri;
+  String get downloadsFolderName => _downloadsFolderName;
+  bool get hasCustomDownloadsFolder => _downloadsFolderUri.isNotEmpty;
+
+  /// Samsung One UI-style reachability: key section controls move towards
+  /// the bottom/thumb area. On by default; users can turn it off here.
+  bool get oneHandModeEnabled => _oneHandModeEnabled;
+
   Future<void> init() async {
     _settings = await Hive.openBox<dynamic>(_boxName);
     final saved = _settings.get(_themeModeKey)?.toString();
@@ -105,6 +121,9 @@ class AppSettingsService extends ChangeNotifier {
     _languages = parsed.isEmpty ? const <String>['hindi', 'english'] : parsed;
     _sleepTimerEnabled = _settings.get(_sleepEnabledKey) == true;
     _liveVisualizerEnabled = _settings.get(_liveVisualizerKey) == true;
+    _downloadsFolderUri = _settings.get(_downloadsFolderUriKey)?.toString() ?? '';
+    _downloadsFolderName = _settings.get(_downloadsFolderNameKey)?.toString() ?? '';
+    _oneHandModeEnabled = _settings.get(_oneHandModeKey) != false;
     _autoplayRecommendations =
         _settings.get(_autoplayRecommendationsKey) != false;
     final savedStyle = _settings.get(_recommendationStyleKey)?.toString();
@@ -131,6 +150,23 @@ class AppSettingsService extends ChangeNotifier {
     if (value == _liveVisualizerEnabled) return;
     _liveVisualizerEnabled = value;
     await _settings.put(_liveVisualizerKey, value);
+    notifyListeners();
+  }
+
+  Future<void> setDownloadsFolder({required String uri, required String name}) async {
+    _downloadsFolderUri = uri.trim();
+    _downloadsFolderName = name.trim();
+    await _settings.put(_downloadsFolderUriKey, _downloadsFolderUri);
+    await _settings.put(_downloadsFolderNameKey, _downloadsFolderName);
+    notifyListeners();
+  }
+
+  Future<void> clearDownloadsFolder() => setDownloadsFolder(uri: '', name: '');
+
+  Future<void> setOneHandModeEnabled(bool value) async {
+    if (value == _oneHandModeEnabled) return;
+    _oneHandModeEnabled = value;
+    await _settings.put(_oneHandModeKey, value);
     notifyListeners();
   }
 

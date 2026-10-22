@@ -18,6 +18,42 @@ screenshots.
 
 ---
 
+## What's new in 1.5.37
+
+- **Lock-screen-style mini player:** the compact player at the bottom now
+  mirrors Android's system media card — artwork first, title/artist beneath
+  it, elapsed/total time with a draggable seek strip, and
+  previous/play-pause/next controls — while staying about the same height.
+- **One Settings drop-down at a time:** Settings is an accordion. Opening
+  Appearance, Lyrics, Playback, Diagnostics or any other section closes the
+  one that was open.
+- **Continuous Library swiping:** swipe left/right through **Liked →
+  Downloads · Songs → Downloads · Videos → Recent → Playlists → Local**.
+  Downloads no longer traps the swipe in its own inner tabs.
+- **One-hand mode (One UI style):** Library's section switcher moves down by
+  the thumb (above the mini player) and the bottom navigation gets larger
+  touch targets. Prefer the classic layout? Turn it off in
+  *Settings → Appearance → One-hand mode*.
+- **Diagnostics filters:** filter captured logs by **ERROR / WARN / INFO /
+  DEBUG** and by time — **All time, Last 15 min, Last hour, Today**, or
+  **Exact time…** to pick dates with exact start/end times.
+- **Optional downloads folder:** *Settings → Playback → Downloads folder*
+  lets you pick a device folder for **new** downloads. If you never pick
+  one, downloads keep using MuZic's app storage exactly as before. Existing
+  downloads do not move.
+- **Recommendation cap:** the same song can be recommended at most
+  **three times**; a fourth repeat is blocked even when the playable pool is
+  small.
+- **Fuller Up next rows:** Up next now uses the same song cards as search
+  results (artwork, artist and track metadata), keeping the playback order,
+  recommendation badges, drag-to-reorder, tap-to-play and Clear actions.
+- **Smoother, high-refresh scrolling:** MuZic asks Android for the panel's
+  fastest same-resolution refresh mode (90/120 Hz where supported), and song
+  rows now rebuild only when their own playback/download state changes, so
+  lists stay fluid while music plays.
+
+---
+
 ## 2. Discover home
 
 ![Discover home](img/home.svg)

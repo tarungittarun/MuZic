@@ -28,6 +28,10 @@ class AudioPlayerService {
       extras: <String, dynamic>{'source': song.source.name},
     );
     if (localPath != null) {
+      // Custom-folder downloads are Android content URIs, not file paths.
+      if (localPath.startsWith('content://')) {
+        return AudioSource.uri(Uri.parse(localPath), tag: tag);
+      }
       return AudioSource.file(localPath, tag: tag);
     }
     final url = remoteUrl ?? song.streamUrl;
