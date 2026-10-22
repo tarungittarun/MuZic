@@ -39,7 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _ExpandableSettingsSection(
             title: 'Appearance',
             icon: Icons.palette_outlined,
-            summary: 'Theme: ' + settings.themeMode.name,
+            summary: 'Theme: ${settings.themeMode.name}',
             initiallyExpanded: false,
             child: Column(
               children: <Widget>[
@@ -76,7 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _ExpandableSettingsSection(
             title: 'Lyrics',
             icon: Icons.lyrics_outlined,
-            summary: 'Default: ' + lyricsLanguageLabel(settings.lyricsLanguage),
+            summary: 'Default: ${lyricsLanguageLabel(settings.lyricsLanguage)}',
             initiallyExpanded: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(17, 12, 17, 6),
@@ -424,7 +424,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _ExpandableSettingsSection(
             title: 'Sleep timer',
             icon: Icons.bedtime_outlined,
-            summary: settings.sleepTimerEnabled ? _sleepLabel(settings.sleepTimerMinutes) + ' of inactivity' : 'Off',
+            summary: settings.sleepTimerEnabled ? '${_sleepLabel(settings.sleepTimerMinutes)} of inactivity' : 'Off',
             initiallyExpanded: false,
             child: Column(
               children: <Widget>[
@@ -478,7 +478,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _ExpandableSettingsSection(
             title: 'Discover',
             icon: Icons.explore_rounded,
-            summary: (kRegionOptions[settings.region] ?? settings.region) + ' • ' + settings.languages.map((code) => kDiscoverLanguageLabel[code] ?? code).join(', '),
+            summary: '${kRegionOptions[settings.region] ?? settings.region} • ${settings.languages.map((code) => kDiscoverLanguageLabel[code] ?? code).join(', ')}',
             initiallyExpanded: false,
             child: Column(
               children: <Widget>[
@@ -721,7 +721,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _ExpandableSettingsSection(
             title: 'About MuZic',
             icon: Icons.info_outline_rounded,
-            summary: 'Version ' + AppInfo.version + '+' + AppInfo.buildNumber,
+            summary: 'Version ${AppInfo.version}+${AppInfo.buildNumber}',
             initiallyExpanded: false,
             child: ListTile(
               leading: Icon(Icons.graphic_eq_rounded, color: palette.accent),

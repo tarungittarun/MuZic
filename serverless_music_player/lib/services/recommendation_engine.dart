@@ -121,7 +121,7 @@ class RecommendationEngine {
 
       final familiarMultiplier = switch (style) {
         'familiar' => 1.35,
-        'discovery' => 0.55,
+        'discovery' => 0.45,
         _ => 1.0,
       };
       final affinityPoints = (affinity * 2.4).clamp(0, 30).toDouble();
