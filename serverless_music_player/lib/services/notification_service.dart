@@ -39,6 +39,9 @@ class NotificationService {
   /// in exported diagnostics reports.
   static String lastStatus = 'not checked';
 
+  /// Most recent [healthReport] lines, reused by diagnostics exports.
+  static List<String> lastHealth = const <String>[];
+
   /// Asks the platform which notifications are currently visible. A media
   /// card that never appears shows up here as a missing notification.
   static Future<String> refreshStatus() async {
@@ -123,7 +126,8 @@ class NotificationService {
         '${enabled ? '✅' : '❌'} Notifications allowed for MuZic',
         '${permission ? '✅' : '❌'} Notification permission granted',
         '${channel ? '✅' : '❌'} Playback channel created'
-            '${channel ? ' (importance $importance)' : ''}',
+            '${channel ? ' (importance $importance, lockscreen '
+            'visibility ${raw['playbackChannelLockscreenVisibility']})' : ''}',
         '${service ? '✅' : '❌'} Playback service declared',
         '${icon ? '✅' : '❌'} Notification icon in build',
         '${posted is int && posted > 0 ? '✅' : '⚠️'} '
@@ -135,7 +139,7 @@ class NotificationService {
       final postedEntries = raw['posted'];
       final playerShowing = postedEntries is List &&
           postedEntries.any(
-              (entry) => entry.toString().contains('com.auralis.player.muzic.audio'));
+              (entry) => entry.toString().contains('com.auralis.player.muzic.audio.v2'));
       lines.add('${playerShowing ? '✅' : '⚠️'} System media notification '
           '${playerShowing ? 'posted for Android to render' : 'not posted — play a song, then check again'}');
       final activeSessions = raw['activeMediaSessions'];
@@ -151,6 +155,7 @@ class NotificationService {
         lines.add('This channel is turned off in Android settings — open '
             'notification settings and turn MuZic back on.');
       }
+      lastHealth = lines;
       return lines;
     } on MissingPluginException {
       return const <String>['Unavailable on this platform.'];

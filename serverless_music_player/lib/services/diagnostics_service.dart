@@ -187,6 +187,12 @@ class DiagnosticsService extends ChangeNotifier {
         'Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
     buffer.writeln('Processors: ${Platform.numberOfProcessors}');
     buffer.writeln('Notifications: ${NotificationService.lastStatus}');
+    if (NotificationService.lastHealth.isNotEmpty) {
+      buffer.writeln('--- Media notification health ---');
+      for (final line in NotificationService.lastHealth) {
+        buffer.writeln(line);
+      }
+    }
     buffer.writeln('Capture enabled: ${settings.diagnosticsEnabled}');
     buffer.writeln('Log entries: ${AppLog.entries.length}');
     buffer.writeln();
@@ -253,6 +259,8 @@ class DiagnosticsService extends ChangeNotifier {
   /// Writes the report to app storage and returns the file path.
   /// Opens the system share sheet with the report text (WhatsApp, Gmail...).
   Future<bool> shareReport() async {
+    await NotificationService.refreshStatus();
+    await NotificationService.healthReport();
     final report = buildReport();
     try {
       final shared = await const MethodChannel('music_player/local_files')
@@ -276,6 +284,8 @@ class DiagnosticsService extends ChangeNotifier {
   /// Writes the report into the shared Downloads/MuZic folder (visible in the
   /// Files app and to other apps) and returns the display path.
   Future<String> saveToDownloads() async {
+    await NotificationService.refreshStatus();
+    await NotificationService.healthReport();
     final report = buildReport();
     final stamp = DateTime.now()
         .toIso8601String()
@@ -307,6 +317,8 @@ class DiagnosticsService extends ChangeNotifier {
   String clipboardReport() => buildReport();
 
   Future<String> exportReport() async {
+    await NotificationService.refreshStatus();
+    await NotificationService.healthReport();
     final report = buildReport();
     final documents = await getApplicationDocumentsDirectory();
     final directory = Directory('${documents.path}/diagnostics');

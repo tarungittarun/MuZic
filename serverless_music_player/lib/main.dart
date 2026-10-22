@@ -27,9 +27,12 @@ Future<void> main() async {
   // audio source - the same setup as the main branch. Must be initialised
   // before the AudioPlayer is created.
   await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.auralis.player.muzic.audio',
+    androidNotificationChannelId: 'com.auralis.player.muzic.audio.v2',
     androidNotificationChannelName: 'MuZic playback',
     androidNotificationOngoing: true,
+    // A valid white status-bar icon, as in the pre-migration setup: an
+    // adaptive/mipmap icon can make SystemUI silently drop the player.
+    androidNotificationIcon: 'drawable/ic_stat_muzic',
   );
 
   // Capture framework and async errors into the diagnostics log so they can

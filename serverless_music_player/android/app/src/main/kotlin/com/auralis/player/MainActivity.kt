@@ -65,7 +65,7 @@ class MainActivity : AudioServiceActivity() {
          * just_audio_background with the same id passed to
          * JustAudioBackground.init in main.dart; diagnostics only reads it.
          */
-        const val AUDIO_CHANNEL_ID = "com.auralis.player.muzic.audio"
+        const val AUDIO_CHANNEL_ID = "com.auralis.player.muzic.audio.v2"
         const val AUDIO_SERVICE_CLASS = "com.ryanheise.audioservice.AudioService"
     }
 
@@ -327,6 +327,13 @@ class MainActivity : AudioServiceActivity() {
                 ),
             "playbackChannelExists" to (channel != null),
             "playbackChannelImportance" to channelImportance,
+            "playbackChannelLockscreenVisibility" to (
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    channel?.lockscreenVisibility ?: -1
+                } else {
+                    -2
+                }
+            ),
             "appChannelCount" to appChannelCount,
             "audioServiceDeclared" to serviceDeclared,
             "smallIconResolves" to smallIconValid,
