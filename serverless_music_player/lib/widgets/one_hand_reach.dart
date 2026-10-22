@@ -14,7 +14,7 @@ import 'cover_art.dart';
 /// thumb reach and reveal a simple last-played card in the space above.
 /// The page keeps its full-height viewport underneath: as the user scrolls
 /// up, the dropped amount shrinks in step with the scroll until the page
-/// is full-screen again and scrolling continues normally. Nothing is
+/// is full-screen again and ordinary scrolling continues normally. Nothing is
 /// trapped inside a permanent half-screen box, and the state belongs to
 /// this page only — switching tabs resets it.
 class OneHandReach extends StatefulWidget {
