@@ -273,8 +273,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             const SizedBox(height: 4),
                             Text(
-                              'Play a song, then check again. If the last line '
-                              'stays at zero, Android is not showing the system player.',
+                              'If the Session token line says state=playing, '
+                              'MuZic is publishing the standard Android media '
+                              'session; whether its card appears is then '
+                              'controlled by Android’s Media controls settings '
+                              '(Pin media player / Show media on lock screen).',
                               style: TextStyle(
                                 fontSize: 11.5,
                                 color: Theme.of(dialogContext)
