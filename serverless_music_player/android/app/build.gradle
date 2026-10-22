@@ -93,6 +93,4 @@ flutter {
 dependencies {
     // AndroidX media/core helpers used by the host app. Playback itself is
     // provided by audio_service + just_audio_background.
-    implementation "androidx.media:media:1.7.0"
-    implementation "androidx.core:core-ktx:1.13.1"
 }

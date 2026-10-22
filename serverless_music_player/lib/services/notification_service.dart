@@ -139,7 +139,7 @@ class NotificationService {
       final postedEntries = raw['posted'];
       final playerShowing = postedEntries is List &&
           postedEntries.any(
-              (entry) => entry.toString().contains('com.auralis.player.muzic.audio.v2'));
+              (entry) => entry.toString().contains('com.auralis.player.audio'));
       lines.add('${playerShowing ? '✅' : '⚠️'} System media notification '
           '${playerShowing ? 'posted for Android to render' : 'not posted — play a song, then check again'}');
       final tokenDetails = raw['sessionTokenDetails'];
