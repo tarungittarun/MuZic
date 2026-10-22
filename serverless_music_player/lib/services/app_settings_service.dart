@@ -17,6 +17,8 @@ class AppSettingsService extends ChangeNotifier {
   static const String _languagesKey = 'discover_languages';
   static const String _sleepEnabledKey = 'sleep_timer_enabled';
   static const String _sleepMinutesKey = 'sleep_timer_minutes';
+  static const String _autoplayRecommendationsKey =
+      'autoplay_recommendations';
 
   late Box<dynamic> _settings;
   ThemeMode _themeMode = ThemeMode.dark;
@@ -32,6 +34,7 @@ class AppSettingsService extends ChangeNotifier {
   List<String> _languages = const <String>['hindi', 'english'];
   bool _sleepTimerEnabled = false;
   int _sleepTimerMinutes = 60;
+  bool _autoplayRecommendations = true;
 
   ThemeMode get themeMode => _themeMode;
 
@@ -60,6 +63,9 @@ class AppSettingsService extends ChangeNotifier {
   bool get sleepTimerEnabled => _sleepTimerEnabled;
   int get sleepTimerMinutes => _sleepTimerMinutes;
 
+  /// Whether related songs are automatically lined up after the queue.
+  bool get autoplayRecommendations => _autoplayRecommendations;
+
   Future<void> init() async {
     _settings = await Hive.openBox<dynamic>(_boxName);
     final saved = _settings.get(_themeModeKey)?.toString();
@@ -87,9 +93,17 @@ class AppSettingsService extends ChangeNotifier {
         .toList(growable: false);
     _languages = parsed.isEmpty ? const <String>['hindi', 'english'] : parsed;
     _sleepTimerEnabled = _settings.get(_sleepEnabledKey) == true;
+    _autoplayRecommendations =
+        _settings.get(_autoplayRecommendationsKey) != false;
     final sleepMinutes = _settings.get(_sleepMinutesKey);
     _sleepTimerMinutes =
         sleepMinutes is num && sleepMinutes.toInt() >= 5 ? sleepMinutes.toInt() : 60;
+  }
+
+  Future<void> setAutoplayRecommendations(bool value) async {
+    _autoplayRecommendations = value;
+    await _settings.put(_autoplayRecommendationsKey, value);
+    notifyListeners();
   }
 
   Future<void> setSleepTimer({bool? enabled, int? minutes}) async {

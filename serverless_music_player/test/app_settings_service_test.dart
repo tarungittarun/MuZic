@@ -43,11 +43,15 @@ void main() {
       expect(first.sleepTimerMinutes, 60);
       expect(first.region, 'IN');
       expect(first.languages, containsAll(<String>['hindi', 'english']));
+      // YouTube-style autoplay is useful out of the box, but it is still a
+      // persisted user preference and can be turned off.
+      expect(first.autoplayRecommendations, isTrue);
 
       await first.setDiagnosticsEnabled(true);
       await first.setSleepTimer(enabled: true, minutes: 45);
       await first.setRegion('US');
       await first.setLanguages(<String>['english']);
+      await first.setAutoplayRecommendations(false);
       await Hive.box<dynamic>('app_settings').close();
 
       final restored = AppSettingsService();
@@ -57,6 +61,7 @@ void main() {
       expect(restored.sleepTimerMinutes, 45);
       expect(restored.region, 'US');
       expect(restored.languages, <String>['english']);
+      expect(restored.autoplayRecommendations, isFalse);
     } finally {
       await Hive.close();
       await directory.delete(recursive: true);

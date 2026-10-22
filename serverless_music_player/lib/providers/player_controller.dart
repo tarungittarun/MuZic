@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../models/song_model.dart';
 import '../services/app_log.dart';
+import '../services/app_settings_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/library_service.dart';
@@ -20,11 +21,13 @@ class PlayerController extends ChangeNotifier {
     required DownloadService downloads,
     required LibraryService library,
     required UsageService usage,
+    AppSettingsService? settings,
   })  : _audio = audio,
         _musicApi = musicApi,
         _downloads = downloads,
         _library = library,
-        _usage = usage {
+        _usage = usage,
+        _settings = settings {
     _subscriptions.add(_audio.player.playerStateStream.listen((_) {
       if (_audio.player.playing && _currentSong != null) {
         _recordPlaybackStart(_currentSong!);
@@ -78,6 +81,7 @@ class PlayerController extends ChangeNotifier {
   final DownloadService _downloads;
   final LibraryService _library;
   final UsageService _usage;
+  final AppSettingsService? _settings;
   final List<StreamSubscription<dynamic>> _subscriptions =
       <StreamSubscription<dynamic>>[];
 
@@ -94,6 +98,7 @@ class PlayerController extends ChangeNotifier {
   bool _permissionAsked = false;
   String? _downloadingId;
   double _downloadProgress = 0;
+  final List<SongModel> _recommendations = <SongModel>[];
   int _pendingListeningMs = 0;
   String? _lastUsageTrackId;
   int _playGeneration = 0;
@@ -101,6 +106,10 @@ class PlayerController extends ChangeNotifier {
 
   SongModel? get currentSong => _currentSong;
   List<SongModel> get queue => List<SongModel>.unmodifiable(_queue);
+
+  /// Related songs MuZic lined up automatically after the user's queue.
+  List<SongModel> get recommendations =>
+      List<SongModel>.unmodifiable(_recommendations);
   int? get currentIndex => _currentIndex;
   Duration get position => _position;
   Duration get duration => _duration;
@@ -163,6 +172,7 @@ class PlayerController extends ChangeNotifier {
       _lastUsageTrackId = null;
       _queue = <SongModel>[first.song];
       _sources = <AudioSource>[first.source];
+      _recommendations.clear();
       _currentIndex = 0;
       _currentSong = first.song;
       _position = Duration.zero;
@@ -177,12 +187,127 @@ class PlayerController extends ChangeNotifier {
         'song': first.song.title,
         'urlHost': Uri.tryParse(first.song.streamUrl ?? '')?.host ?? 'local',
       });
-      unawaited(_fillRemainingQueue(songs, requestedIndex, generation));
+      unawaited(
+        _fillQueueThenRecommendations(
+          songs,
+          requestedIndex,
+          generation,
+          first.song,
+        ),
+      );
     } finally {
       if (generation == _playGeneration) {
         _isResolving = false;
       }
       notifyListeners();
+    }
+  }
+
+  Future<void> _fillQueueThenRecommendations(
+    List<SongModel> songs,
+    int startIndex,
+    int generation,
+    SongModel seed,
+  ) async {
+    await _fillRemainingQueue(songs, startIndex, generation);
+    if (generation != _playGeneration) return;
+    await _appendRecommendations(seed, generation);
+  }
+
+  /// YouTube-style autoplay: after the user's own queue is safely in place,
+  /// line up a small set of related songs so playback can keep flowing.
+  ///
+  /// This is deliberately additive and best-effort. Search or stream failures
+  /// are logged and swallowed here; they must never interrupt the song that
+  /// is already playing or replace anything the user explicitly queued.
+  Future<void> _appendRecommendations(SongModel seed, int generation) async {
+    if (_settings?.autoplayRecommendations == false || seed.isLiveStream) {
+      return;
+    }
+
+    try {
+      final seenIds = _queue.map((song) => song.id).toSet();
+      final seenTitles = _queue.map(_recommendationKey).toSet();
+      final candidates = <SongModel>[];
+      final artist = seed.artist.trim();
+      final queries = <String>[
+        if (artist.isNotEmpty) '$artist songs',
+        '${seed.title} ${seed.artist}'.trim(),
+      ];
+
+      for (final query in queries) {
+        if (generation != _playGeneration || candidates.length >= 12) break;
+        if (query.isEmpty) continue;
+        final results = await _musicApi.search(query, limit: 14);
+        for (final result in results) {
+          if (result.isLiveStream) continue;
+          final key = _recommendationKey(result);
+          if (seenIds.contains(result.id) || seenTitles.contains(key)) {
+            continue;
+          }
+          seenIds.add(result.id);
+          seenTitles.add(key);
+          candidates.add(result);
+          if (candidates.length >= 12) break;
+        }
+      }
+
+      var appended = 0;
+      for (final candidate in candidates) {
+        if (generation != _playGeneration || appended >= 8) break;
+        final failures = <String>[];
+        final track = await _resolveTrack(candidate, failures: failures);
+        if (generation != _playGeneration) return;
+        if (track == null) {
+          logWarn('player', 'recommendation skipped', <String, Object?>{
+            'song': candidate.title,
+            'reasons': failures.join(' | '),
+          });
+          continue;
+        }
+        _queue.add(track.song);
+        _sources.add(track.source);
+        await _audio.append(track.source);
+        _recommendations.add(track.song);
+        appended++;
+        notifyListeners();
+      }
+
+      if (appended > 0) {
+        logInfo('player', 'autoplay recommendations added', <String, Object?>{
+          'seed': seed.title,
+          'count': appended,
+        });
+      }
+    } catch (error) {
+      // Recommendations are optional. Playback must continue unchanged.
+      logWarn('player', 'autoplay recommendations failed', <String, Object?>{
+        'seed': seed.title,
+        'error': '$error',
+      });
+    }
+  }
+
+  String _recommendationKey(SongModel song) {
+    String normalise(String value) => value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim();
+    return '${normalise(song.title)}|${normalise(song.artist)}';
+  }
+
+  /// Starts playback at an existing queue position (used by Up next and
+  /// the More like this section).
+  Future<void> playAtQueueIndex(int index) async {
+    if (index < 0 || index >= _queue.length) return;
+    try {
+      await _audio.player.seek(Duration.zero, index: index);
+      if (!_audio.player.playing) _startPlayback();
+      notifyListeners();
+    } on PlayerException {
+      // The queue may be changing while recommendations are being appended.
+    } on StateError {
+      // Ignore a transient empty/changing queue.
     }
   }
 
@@ -341,6 +466,9 @@ class PlayerController extends ChangeNotifier {
     final keepSource = _sources[index];
     _queue = <SongModel>[keepSong];
     _sources = <AudioSource>[keepSource];
+    // The user explicitly cleared what was coming next, including any
+    // autoplay recommendations MuZic had lined up.
+    _recommendations.clear();
     _currentSong = keepSong;
     _currentIndex = 0;
     await _audio.setQueue(

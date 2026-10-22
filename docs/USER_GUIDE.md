@@ -71,6 +71,12 @@ shelves reload automatically when you change the selection.
 - The **mini player** at the bottom opens the full now-playing sheet.
 - **Queue** (☰ in now playing): reorder, jump to a track, remove items.
 - **Shuffle / repeat** live in the mini player and the queue sheet.
+- **More like this**: when *Settings → Playback → Autoplay recommendations*
+  is on (it is on by default), MuZic quietly lines up to eight related songs
+  after your own queue. Open **Up next** to see the **More like this** row;
+  tap any card to jump to it. Songs MuZic added this way are marked
+  “Recommended” in the queue. Turn the setting off and MuZic will never add
+  songs you did not choose.
 - Playback continues in the background and survives screen-off.
 
 ### The quality badge
@@ -141,6 +147,8 @@ may place the same system player on additional surfaces.
 | **Show active notifications** | Lists what Android is currently showing for MuZic (including whether the media player exists). |
 | **Media notification health** | Step-by-step check of everything the media player needs (permission, channel, audio service, session). |
 | **Allow background playback** | Battery-optimisation exemption. Required on MIUI, ColorOS, FuntouchOS, MagicOS — otherwise the player gets killed a few minutes after you leave the app. |
+| **Autoplay recommendations** | On by default. Adds related songs after your queue and shows them under **More like this** in Up next. |
+| **Android media-card limits** | MuZic supplies Android with the best artwork and song details it has, plus previous / play-pause / next, seek, shuffle and repeat state. Motorola/Android draws the Quick Settings card itself, so MuZic cannot resize it, recolour it or force Android/Google to show extra recommendation cards there. MuZic does publish the standard browsable/resumable media hooks Android offers apps. |
 
 **If the system player does not appear**
 

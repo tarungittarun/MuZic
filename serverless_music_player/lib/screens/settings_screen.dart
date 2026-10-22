@@ -336,6 +336,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 Divider(height: 1, color: palette.outline),
+                SwitchListTile(
+                  value: settings.autoplayRecommendations,
+                  secondary: Icon(Icons.auto_awesome_motion_rounded,
+                      color: settings.autoplayRecommendations
+                          ? palette.accent
+                          : palette.textSecondary),
+                  title: const Text('Autoplay recommendations'),
+                  subtitle: Text(
+                    'When a song or queue finishes lining up, MuZic adds a '
+                    'few related songs after it — like YouTube autoplay. '
+                    'They appear under “More like this” in Up next.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  onChanged: settings.setAutoplayRecommendations,
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
+                  child: Text(
+                    'About the Android media card: MuZic sends Android the '
+                    'best available artwork, title, artist, album, duration '
+                    'and the standard controls (previous, play/pause, next, '
+                    'seek, shuffle and repeat state). Your phone draws the '
+                    'card itself, so its size, waveform, colours and whether '
+                    'Android shows extra recommendations are controlled by '
+                    'Motorola/Android and Google, not by MuZic.',
+                    style: TextStyle(
+                      color: palette.textMuted,
+                      fontSize: 11,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+                Divider(height: 1, color: palette.outline),
                 ListTile(
                   leading: Icon(Icons.battery_saver_rounded,
                       color: palette.textSecondary),

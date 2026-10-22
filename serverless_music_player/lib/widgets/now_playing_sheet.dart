@@ -1182,6 +1182,9 @@ class _QueueSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final player = context.watch<PlayerController>();
     final palette = context.palette;
+    final recommendations = player.recommendations;
+    final recommendationIds =
+        recommendations.map((song) => song.id).toSet();
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.72,
@@ -1203,6 +1206,92 @@ class _QueueSheet extends StatelessWidget {
                 ],
               ),
             ),
+            if (recommendations.isNotEmpty) ...<Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+                child: Row(
+                  children: <Widget>[
+                    Icon(Icons.auto_awesome_rounded,
+                        size: 17, color: palette.accent),
+                    const SizedBox(width: 7),
+                    const Text(
+                      'More like this',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Auto-added after your queue',
+                      style: TextStyle(color: palette.textMuted, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                height: 64,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: recommendations.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, recIndex) {
+                    final song = recommendations[recIndex];
+                    final queueIndex = player.queue
+                        .indexWhere((queued) => queued.id == song.id);
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: queueIndex < 0
+                          ? null
+                          : () => player.playAtQueueIndex(queueIndex),
+                      child: Container(
+                        width: 218,
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: palette.surfaceRaised,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: palette.outline),
+                        ),
+                        child: Row(
+                          children: <Widget>[
+                            CoverArt(song: song, size: 44, radius: 10),
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    song.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  Text(
+                                    song.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: palette.textMuted,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(Icons.play_arrow_rounded,
+                                size: 20, color: palette.accent),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             Expanded(
               child: player.queue.isEmpty
                   ? Center(child: Text('Queue is empty.', style: TextStyle(color: palette.textMuted)))
@@ -1217,9 +1306,16 @@ class _QueueSheet extends StatelessWidget {
                         final active = index == player.currentIndex;
                         return ListTile(
                           key: ValueKey<String>('$index-${song.id}'),
+                          onTap: () => player.playAtQueueIndex(index),
                           leading: CoverArt(song: song, size: 44, radius: 12),
                           title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(
+                            recommendationIds.contains(song.id)
+                                ? '${song.artist} • Recommended'
+                                : song.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           titleTextStyle: TextStyle(color: active ? palette.accent : palette.textPrimary, fontWeight: active ? FontWeight.w700 : FontWeight.w500),
                           trailing: ReorderableDragStartListener(
                             index: index,

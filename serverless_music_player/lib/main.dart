@@ -31,6 +31,14 @@ Future<void> main() async {
     androidNotificationChannelId: 'com.auralis.player.audio',
     androidNotificationChannelName: 'MuZic playback',
     androidNotificationOngoing: true,
+    // Lets Android treat MuZic as a browsable/resumable media source where
+    // the phone and Google media stack support Quick Settings resumption
+    // or recommendations. Android still decides whether to surface them.
+    androidBrowsableRootExtras: const <String, dynamic>{
+      'android.media.browse.CONTENT_STYLE_SUPPORTED': true,
+      'android.media.browse.CONTENT_STYLE_BROWSABLE_HINT': 1,
+      'android.media.browse.CONTENT_STYLE_PLAYABLE_HINT': 1,
+    },
   );
 
   // Capture framework and async errors into the diagnostics log so they can
@@ -73,6 +81,7 @@ Future<void> main() async {
     downloads: downloads,
     library: library,
     usage: usage,
+    settings: settings,
   );
   final diagnostics = DiagnosticsService(
     settings: settings,
