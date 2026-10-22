@@ -47,6 +47,7 @@ void main() {
       // persisted user preference and can be turned off.
       expect(first.autoplayRecommendations, isTrue);
       expect(first.recommendationStyle, 'balanced');
+      expect(first.liveVisualizerEnabled, isFalse);
 
       await first.setDiagnosticsEnabled(true);
       await first.setSleepTimer(enabled: true, minutes: 45);
@@ -54,6 +55,7 @@ void main() {
       await first.setLanguages(<String>['english']);
       await first.setAutoplayRecommendations(false);
       await first.setRecommendationStyle('discovery');
+      await first.setLiveVisualizerEnabled(true);
       await Hive.box<dynamic>('app_settings').close();
 
       final restored = AppSettingsService();
@@ -65,6 +67,7 @@ void main() {
       expect(restored.languages, <String>['english']);
       expect(restored.autoplayRecommendations, isFalse);
       expect(restored.recommendationStyle, 'discovery');
+      expect(restored.liveVisualizerEnabled, isTrue);
     } finally {
       await Hive.close();
       await directory.delete(recursive: true);

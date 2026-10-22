@@ -18,7 +18,10 @@ import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
 import android.media.audiofx.Visualizer
+import android.content.ClipData
 import android.net.Uri
+import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
@@ -113,6 +116,11 @@ class MainActivity : AudioServiceActivity() {
         localFilesChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "pickAudioFiles" -> pickAudioFiles(result)
+                "shareFile" -> shareFile(
+                    call.argument<String>("path"),
+                    call.argument<String>("fileName"),
+                    result,
+                )
                 "shareText" -> shareText(
                     call.argument<String>("subject") ?: "MuZic diagnostics",
                     call.argument<String>("text") ?: "",
@@ -652,6 +660,56 @@ class MainActivity : AudioServiceActivity() {
                 putExtra(Intent.EXTRA_TEXT, text)
             }
             startActivity(Intent.createChooser(intent, "Share diagnostics report"))
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("share_failed", e.message, null)
+        }
+    }
+
+    /**
+     * Shares a downloaded song without touching its bytes: the file is
+     * copied as-is into the share cache and handed to Android's chooser
+     * through FileProvider, so the receiver gets the original quality.
+     */
+    private fun shareFile(path: String?, fileName: String?, result: MethodChannel.Result) {
+        try {
+            if (path.isNullOrBlank()) {
+                result.error("missing_file", "The downloaded file is missing.", null)
+                return
+            }
+            val source = File(path)
+            if (!source.exists() || source.length() == 0L) {
+                result.error("missing_file", "The downloaded file is missing.", null)
+                return
+            }
+            val shareDirectory = File(cacheDir, "muzic_shares")
+            if (!shareDirectory.exists()) shareDirectory.mkdirs()
+            val safeName = (fileName?.takeIf { it.isNotBlank() } ?: source.name)
+                .replace(Regex("[\\/:*?\"<>|]"), "")
+                .trim()
+                .ifBlank { source.name }
+            val sharedFile = File(shareDirectory, safeName)
+            if (source.canonicalFile != sharedFile.canonicalFile) {
+                source.inputStream().use { input ->
+                    FileOutputStream(sharedFile).use { output -> input.copyTo(output) }
+                }
+            }
+            val uri = FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                sharedFile,
+            )
+            val extension = sharedFile.extension.lowercase()
+            val mime = MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(extension) ?: "audio/*"
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TITLE, safeName)
+                clipData = ClipData.newRawUri("", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Share song"))
             result.success(true)
         } catch (e: Exception) {
             result.error("share_failed", e.message, null)

@@ -199,111 +199,113 @@ class _LocalList extends StatelessWidget {
   }
 }
 
-/// Downloads, split by kind: offline audio you play in the app, and lyric
-/// videos you exported (which live in Movies/MuZic and are meant for sharing).
+/// Downloads with its own two tabs at the top: offline Songs you play in
+/// MuZic, and Lyric videos you exported (saved in Movies/MuZic for sharing).
 class _DownloadsTab extends StatelessWidget {
   const _DownloadsTab();
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     final songs = context.watch<LibraryService>().downloadedSongs;
     final videos = context.watch<VideoLibraryService>().videos;
-    if (songs.isEmpty && videos.isEmpty) {
-      return const EmptyState(
-        icon: Icons.download_for_offline_rounded,
-        title: 'Nothing saved offline',
-        message: 'Download a track and it will be available without a connection.',
-      );
-    }
-    return ListView(
-      padding: const EdgeInsets.only(top: 4, bottom: 18),
-      children: <Widget>[
-        _DownloadSectionHeader(
-          icon: Icons.audio_file_rounded,
-          title: 'Songs',
-          count: songs.length,
-          hint: 'Play offline in MuZic',
-        ),
-        if (songs.isEmpty)
-          const _SectionEmpty(text: 'No songs downloaded yet.')
-        else
-          for (var index = 0; index < songs.length; index++)
-            SongTile(
-              song: songs[index],
-              onTap: () => context
-                  .read<PlayerController>()
-                  .playQueue(songs, initialIndex: index),
-            ),
-        const SizedBox(height: 8),
-        _DownloadSectionHeader(
-          icon: Icons.movie_creation_outlined,
-          title: 'Lyric videos',
-          count: videos.length,
-          hint: 'Saved to Movies/MuZic',
-        ),
-        if (videos.isEmpty)
-          const _SectionEmpty(
-            text: 'Export one from the player: the movie icon next to the '
-                'visualizer button.',
-          )
-        else
-          for (final video in videos) _LyricVideoTile(video: video),
-      ],
-    );
-  }
-}
-
-class _DownloadSectionHeader extends StatelessWidget {
-  const _DownloadSectionHeader({
-    required this.icon,
-    required this.title,
-    required this.count,
-    required this.hint,
-  });
-
-  final IconData icon;
-  final String title;
-  final int count;
-  final String hint;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.palette;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
-      child: Row(
+    return DefaultTabController(
+      length: 2,
+      child: Column(
         children: <Widget>[
-          Icon(icon, size: 15, color: palette.accent),
-          const SizedBox(width: 7),
-          Text(
-            title.toUpperCase(),
-            style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.5,
-              color: palette.textMuted,
-            ),
-          ),
-          const SizedBox(width: 7),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
-            decoration: BoxDecoration(
-              color: palette.surfaceRaised,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: palette.textMuted,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            child: Container(
+              decoration: BoxDecoration(
+                color: palette.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: palette.outline, width: 0.7),
+              ),
+              padding: const EdgeInsets.all(4),
+              child: TabBar(
+                dividerColor: Colors.transparent,
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: BoxDecoration(
+                  color: palette.accent.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                labelColor: palette.accent,
+                unselectedLabelColor: palette.textMuted,
+                labelStyle: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                ),
+                tabs: <Widget>[
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Icon(Icons.audio_file_rounded, size: 16),
+                        const SizedBox(width: 6),
+                        const Text('Songs'),
+                        const SizedBox(width: 6),
+                        _CountChip(count: songs.length),
+                      ],
+                    ),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Icon(Icons.movie_creation_outlined, size: 16),
+                        const SizedBox(width: 6),
+                        const Text('Lyric videos'),
+                        const SizedBox(width: 6),
+                        _CountChip(count: videos.length),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          const Spacer(),
-          Text(
-            hint,
-            style: TextStyle(fontSize: 10, color: palette.textMuted),
+          Expanded(
+            child: TabBarView(
+              children: <Widget>[
+                if (songs.isEmpty)
+                  const EmptyState(
+                    icon: Icons.download_for_offline_rounded,
+                    title: 'No songs downloaded yet',
+                    message:
+                        'Download a track and it will be available without '
+                        'a connection. Use its 3-dot menu to share the '
+                        'original file.',
+                  )
+                else
+                  ListView.builder(
+                    padding: const EdgeInsets.only(top: 8, bottom: 18),
+                    itemCount: songs.length,
+                    itemBuilder: (context, index) => SongTile(
+                      song: songs[index],
+                      onTap: () => context
+                          .read<PlayerController>()
+                          .playQueue(songs, initialIndex: index),
+                    ),
+                  ),
+                if (videos.isEmpty)
+                  const EmptyState(
+                    icon: Icons.movie_creation_outlined,
+                    title: 'No lyric videos yet',
+                    message:
+                        'Export one from the player: the movie icon next '
+                        'to the waveform button. Videos are saved to '
+                        'Movies/MuZic.',
+                  )
+                else
+                  ListView(
+                    padding: const EdgeInsets.only(top: 8, bottom: 18),
+                    children: <Widget>[
+                      for (final video in videos)
+                        _LyricVideoTile(video: video),
+                    ],
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -311,19 +313,27 @@ class _DownloadSectionHeader extends StatelessWidget {
   }
 }
 
-class _SectionEmpty extends StatelessWidget {
-  const _SectionEmpty({required this.text});
+class _CountChip extends StatelessWidget {
+  const _CountChip({required this.count});
 
-  final String text;
+  final int count;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 2, 20, 10),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: palette.surfaceRaised,
+        borderRadius: BorderRadius.circular(20),
+      ),
       child: Text(
-        text,
-        style: TextStyle(fontSize: 12, color: palette.textMuted, height: 1.35),
+        '$count',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: palette.textMuted,
+        ),
       ),
     );
   }

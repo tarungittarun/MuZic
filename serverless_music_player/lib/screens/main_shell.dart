@@ -17,18 +17,45 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
+  static const double _destinationWidth = 94;
+
   int _tab = 0;
   int _searchFocusTick = 0;
   int _homeResetTick = 0;
+  final ScrollController _navScrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _navScrollController.dispose();
+    super.dispose();
+  }
+
+  /// The bottom row starts with Search centred and Library/Settings/Usage
+  /// running off to its right. Selecting (or swiping) scrolls the row left
+  /// until the chosen destination is the centred one.
+  void _centreDestination(int index) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_navScrollController.hasClients) return;
+      final target = (index * _destinationWidth)
+          .clamp(0.0, _navScrollController.position.maxScrollExtent);
+      _navScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
 
   void _selectTab(int index) {
     if (index == 0 && _tab == 0) {
       // A second tap on Search means “put me in the search box”, with the
       // keyboard open and the existing text selected for replacement.
       setState(() => _searchFocusTick++);
+      _centreDestination(0);
       return;
     }
     setState(() => _tab = index);
+    _centreDestination(index);
   }
 
   void _goHome() {
@@ -36,6 +63,7 @@ class _MainShellState extends State<MainShell> {
       _tab = 0;
       _homeResetTick++;
     });
+    _centreDestination(0);
   }
 
   @override
@@ -80,37 +108,49 @@ class _MainShellState extends State<MainShell> {
               const MiniPlayer(),
               SizedBox(
                 height: 64,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  child: Row(
-                    children: <Widget>[
-                      _BottomDestination(
-                        icon: Icons.search_rounded,
-                        label: 'Search',
-                        selected: _tab == 0,
-                        onTap: () => _selectTab(0),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Centre the first destination (Search) by padding
+                    // both ends by half the spare width; the remaining
+                    // destinations extend to the right and the row scrolls
+                    // left to bring each one to the centre.
+                    final sidePadding =
+                        (constraints.maxWidth - _destinationWidth) / 2;
+                    return SingleChildScrollView(
+                      controller: _navScrollController,
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      padding: EdgeInsets.symmetric(horizontal: sidePadding),
+                      child: Row(
+                        children: <Widget>[
+                          _BottomDestination(
+                            icon: Icons.search_rounded,
+                            label: 'Search',
+                            selected: _tab == 0,
+                            onTap: () => _selectTab(0),
+                          ),
+                          _BottomDestination(
+                            icon: Icons.library_music_rounded,
+                            label: 'Library',
+                            selected: _tab == 1,
+                            onTap: () => _selectTab(1),
+                          ),
+                          _BottomDestination(
+                            icon: Icons.settings_rounded,
+                            label: 'Settings',
+                            selected: _tab == 2,
+                            onTap: () => _selectTab(2),
+                          ),
+                          _BottomDestination(
+                            icon: Icons.insights_rounded,
+                            label: 'Usage',
+                            selected: _tab == 3,
+                            onTap: () => _selectTab(3),
+                          ),
+                        ],
                       ),
-                      _BottomDestination(
-                        icon: Icons.library_music_rounded,
-                        label: 'Library',
-                        selected: _tab == 1,
-                        onTap: () => _selectTab(1),
-                      ),
-                      _BottomDestination(
-                        icon: Icons.settings_rounded,
-                        label: 'Settings',
-                        selected: _tab == 2,
-                        onTap: () => _selectTab(2),
-                      ),
-                      _BottomDestination(
-                        icon: Icons.insights_rounded,
-                        label: 'Usage',
-                        selected: _tab == 3,
-                        onTap: () => _selectTab(3),
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -138,7 +178,7 @@ class _BottomDestination extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.palette;
     return SizedBox(
-      width: 94,
+      width: _MainShellState._destinationWidth,
       child: InkWell(
         onTap: onTap,
         child: Column(
@@ -148,10 +188,24 @@ class _BottomDestination extends StatelessWidget {
               duration: const Duration(milliseconds: 180),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               decoration: BoxDecoration(
-                color: selected
-                    ? palette.accent.withValues(alpha: 0.18)
-                    : Colors.transparent,
+                gradient: selected
+                    ? LinearGradient(
+                        colors: <Color>[
+                          palette.accent.withValues(alpha: 0.30),
+                          palette.mint.withValues(alpha: 0.22),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : null,
+                color: selected ? null : Colors.transparent,
                 borderRadius: BorderRadius.circular(18),
+                border: selected
+                    ? Border.all(
+                        color: palette.accent.withValues(alpha: 0.35),
+                        width: 0.7,
+                      )
+                    : null,
               ),
               child: Icon(
                 icon,

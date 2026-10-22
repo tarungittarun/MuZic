@@ -21,6 +21,7 @@ import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
 import '../services/visualizer_service.dart';
 import '../theme/app_theme.dart';
+import 'animated_rhythm_icon.dart';
 import 'cover_art.dart';
 import 'visualizer_bars.dart';
 
@@ -38,33 +39,63 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
   final VisualizerService _visualizer = VisualizerService();
 
   @override
+  void initState() {
+    super.initState();
+    // The waveform choice is remembered: if it was on for the last song it
+    // comes back on for this one (and every song after) until turned off.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (context.read<AppSettingsService>().liveVisualizerEnabled) {
+        setState(() => _showVisualizer = true);
+        unawaited(_startVisualizerCapture(requestPermission: false));
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _visualizer.dispose();
     super.dispose();
   }
 
+  Future<void> _startVisualizerCapture({required bool requestPermission}) async {
+    if (requestPermission) {
+      final granted = await _ensureMicrophonePermission();
+      if (!mounted) return;
+      if (!granted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Android only exposes the live waveform to apps with microphone '
+              'access. Grant it to see the visualizer.',
+            ),
+          ),
+        );
+        return;
+      }
+    } else {
+      final status = await Permission.microphone.status;
+      if (!mounted || !status.isGranted) return;
+    }
+    final sessionId =
+        context.read<AudioPlayerService>().player.androidAudioSessionId;
+    _visualizer.start(sessionId);
+  }
+
   Future<void> _toggleVisualizer(PlayerController player) async {
+    final settings = context.read<AppSettingsService>();
     if (_showVisualizer) {
       await _visualizer.stop();
+      await settings.setLiveVisualizerEnabled(false);
       if (mounted) setState(() => _showVisualizer = false);
       return;
     }
-    final granted = await _ensureMicrophonePermission();
+    await _startVisualizerCapture(requestPermission: true);
     if (!mounted) return;
-    if (!granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Android only exposes the live waveform to apps with microphone '
-            'access. Grant it to see the visualizer.',
-          ),
-        ),
-      );
-      return;
-    }
-    final sessionId = context.read<AudioPlayerService>().player.androidAudioSessionId;
-    _visualizer.start(sessionId);
-    setState(() => _showVisualizer = true);
+    final status = await Permission.microphone.status;
+    if (!status.isGranted) return;
+    await settings.setLiveVisualizerEnabled(true);
+    if (mounted) setState(() => _showVisualizer = true);
   }
 
   /// Starts (or stops) the lyric-video render.
@@ -275,76 +306,84 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                   ),
                   IconButton(
                     tooltip: _showVisualizer
-                        ? 'Hide visualizer'
-                        : 'Show live visualizer',
+                        ? 'Hide live waveform'
+                        : 'Show live waveform',
                     onPressed: () => _toggleVisualizer(player),
-                    icon: Icon(
-                      _showVisualizer
-                          ? Icons.bar_chart_rounded
-                          : Icons.graphic_eq_rounded,
-                      color: _showVisualizer ? palette.accent : null,
+                    icon: AnimatedRhythmIcon(
+                      active: _showVisualizer && player.isPlaying,
+                      color: _showVisualizer
+                          ? palette.accent
+                          : palette.textSecondary,
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Up next',
-                    onPressed: () => _showQueue(context),
-                    icon: const Icon(Icons.queue_music_rounded),
                   ),
                 ],
               ),
             ),
             Expanded(
-              child: Stack(
-                children: <Widget>[
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    child: _showLyrics
-                        ? _LyricsPanel(
-                            key: ValueKey<String>('lyrics-${song.id}'),
-                            song: song,
-                            position: player.position,
-                          )
-                        : _ArtworkPanel(
-                            key: ValueKey<String>('art-${song.id}'),
-                            song: song,
-                          ),
-                  ),
-                  if (_showVisualizer)
-                    Positioned(
-                      left: 24,
-                      right: 24,
-                      bottom: 12,
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                        decoration: BoxDecoration(
-                          color: palette.surface.withValues(alpha: 0.92),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: palette.outline.withValues(alpha: 0.6),
-                          ),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
-                              'LIVE WAVEFORM',
-                              style: TextStyle(
-                                fontSize: 9,
-                                letterSpacing: 1.6,
-                                fontWeight: FontWeight.w800,
-                                color: palette.textMuted,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            VisualizerBars(service: _visualizer),
-                          ],
-                        ),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                child: _showLyrics
+                    ? _LyricsPanel(
+                        key: ValueKey<String>('lyrics-${song.id}'),
+                        song: song,
+                        position: player.position,
+                      )
+                    : _ArtworkPanel(
+                        key: ValueKey<String>('art-${song.id}'),
+                        song: song,
                       ),
-                    ),
-                ],
               ),
             ),
+            if (_showVisualizer)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 10, 24, 2),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                  decoration: BoxDecoration(
+                    color: palette.surface.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: palette.outline.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          AnimatedRhythmIcon(
+                            active: player.isPlaying,
+                            color: palette.accent,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'LIVE WAVEFORM',
+                            style: TextStyle(
+                              fontSize: 9,
+                              letterSpacing: 1.6,
+                              fontWeight: FontWeight.w800,
+                              color: palette.textMuted,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            'On for every song',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: palette.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      VisualizerBars(service: _visualizer),
+                    ],
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
               child: Row(
@@ -485,17 +524,32 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
             ),
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: TextButton.icon(
-                onPressed: () {
-                  final showLyrics = !_showLyrics;
-                  if (showLyrics) {
-                    unawaited(context.read<UsageService>().recordSongEvent('lyrics_check', song));
-                  }
-                  setState(() => _showLyrics = showLyrics);
-                },
-                icon: Icon(_showLyrics ? Icons.album_rounded : Icons.lyrics_outlined, size: 18),
-                label: Text(_showLyrics ? 'Show artwork' : 'Lyrics'),
-                style: TextButton.styleFrom(foregroundColor: palette.accent),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  TextButton.icon(
+                    onPressed: () {
+                      final showLyrics = !_showLyrics;
+                      if (showLyrics) {
+                        unawaited(context.read<UsageService>().recordSongEvent('lyrics_check', song));
+                      }
+                      setState(() => _showLyrics = showLyrics);
+                    },
+                    icon: Icon(_showLyrics ? Icons.album_rounded : Icons.lyrics_outlined, size: 18),
+                    label: Text(_showLyrics ? 'Show artwork' : 'Lyrics'),
+                    style: TextButton.styleFrom(foregroundColor: palette.accent),
+                  ),
+                  const SizedBox(width: 10),
+                  FilledButton.tonalIcon(
+                    onPressed: () => _showQueue(context),
+                    icon: const Icon(Icons.queue_music_rounded, size: 18),
+                    label: const Text('Up next'),
+                    style: FilledButton.styleFrom(
+                      foregroundColor: palette.accent,
+                      backgroundColor: palette.accent.withValues(alpha: 0.14),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

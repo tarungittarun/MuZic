@@ -40,6 +40,31 @@ class LocalFilesService {
 
   /// Opens the system picker and copies the chosen files into app storage.
   /// Returns an empty list when the user cancels.
+  /// Shares a downloaded song's file exactly as saved (no re-encode or
+  /// quality change) through Android's share sheet. Returns false when the
+  /// file is missing or the share could not be started.
+  Future<bool> shareFile({
+    required String path,
+    required String fileName,
+  }) async {
+    if (path.isEmpty) return false;
+    try {
+      final shared = await _channel.invokeMethod<bool>(
+        'shareFile',
+        <String, String>{'path': path, 'fileName': fileName},
+      );
+      return shared ?? false;
+    } on MissingPluginException {
+      logWarn('local', 'file sharing is unavailable on this platform');
+      return false;
+    } on PlatformException catch (error) {
+      logWarn('local', 'file share failed', <String, Object?>{
+        'error': '$error',
+      });
+      return false;
+    }
+  }
+
   Future<List<ImportedLocalFile>> pickAudioFiles() async {
     try {
       final result = await _channel.invokeMethod<List<dynamic>>('pickAudioFiles');

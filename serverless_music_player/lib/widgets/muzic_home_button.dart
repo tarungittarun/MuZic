@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
 
-/// The MuZic note shown at the top-left of the main pages.
+/// The MuZic app icon shown at the top-left of the main pages.
 ///
-/// Tapping it acts as Home. The note gives a short vibration-like shake so
-/// the action feels alive without depending on device haptics being enabled.
+/// It redraws the exact launcher icon (dark disc, lavender + mint double
+/// note from `res/mipmap-anydpi/ic_launcher.xml`) so what you tap in-app is
+/// the same mark as on the home screen. Tapping it acts as Home; the icon
+/// gives a short vibration-like shake (plus a light haptic) when tapped.
 class MuZicHomeButton extends StatefulWidget {
   const MuZicHomeButton({required this.onPressed, super.key});
 
@@ -66,11 +68,6 @@ class _MuZicHomeButtonState extends State<MuZicHomeButton>
               height: 42,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: <Color>[palette.accent, palette.mint],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
                 boxShadow: <BoxShadow>[
                   BoxShadow(
                     color: palette.accent.withValues(alpha: 0.28),
@@ -79,10 +76,9 @@ class _MuZicHomeButtonState extends State<MuZicHomeButton>
                   ),
                 ],
               ),
-              child: Icon(
-                Icons.music_note_rounded,
-                color: palette.background,
-                size: 24,
+              child: const CustomPaint(
+                painter: _MuZicAppIconPainter(),
+                size: Size(42, 42),
               ),
             ),
           ),
@@ -90,4 +86,58 @@ class _MuZicHomeButtonState extends State<MuZicHomeButton>
       ),
     );
   }
+}
+
+/// Paints the shipped launcher icon: a #11121B disc with the lavender and
+/// mint double-note paths from the Android vector, scaled from its 48-unit
+/// viewport, so it reads as the app icon rather than a generic note glyph.
+class _MuZicAppIconPainter extends CustomPainter {
+  const _MuZicAppIconPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.shortestSide / 48;
+    canvas.save();
+    canvas.translate(
+      (size.width - 48 * scale) / 2,
+      (size.height - 48 * scale) / 2,
+    );
+    canvas.scale(scale, scale);
+    canvas.drawCircle(
+      const Offset(24, 24),
+      24,
+      Paint()..color = const Color(0xFF11121B),
+    );
+    final lavender = Path()
+      ..moveTo(29, 8)
+      ..lineTo(29, 30.5)
+      ..arcToPoint(
+        const Offset(25, 24.1),
+        radius: const Radius.elliptical(7, 7),
+        largeArc: true,
+        clockwise: true,
+      )
+      ..lineTo(25, 12)
+      ..lineTo(36, 9)
+      ..lineTo(36, 14)
+      ..lineTo(29, 16)
+      ..close();
+    canvas.drawPath(lavender, Paint()..color = const Color(0xFFB69CFF));
+    final mint = Path()
+      ..moveTo(35, 12)
+      ..lineTo(35, 29.5)
+      ..arcToPoint(
+        const Offset(31, 23.2),
+        radius: const Radius.elliptical(6.5, 6.5),
+        largeArc: true,
+        clockwise: true,
+      )
+      ..lineTo(31, 15)
+      ..close();
+    canvas.drawPath(mint, Paint()..color = const Color(0xFF7EE7D3));
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _MuZicAppIconPainter oldDelegate) => false;
 }

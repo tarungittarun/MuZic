@@ -20,6 +20,7 @@ class AppSettingsService extends ChangeNotifier {
   static const String _autoplayRecommendationsKey =
       'autoplay_recommendations';
   static const String _recommendationStyleKey = 'recommendation_style';
+  static const String _liveVisualizerKey = 'live_visualizer_enabled';
 
   late Box<dynamic> _settings;
   ThemeMode _themeMode = ThemeMode.dark;
@@ -37,6 +38,7 @@ class AppSettingsService extends ChangeNotifier {
   int _sleepTimerMinutes = 60;
   bool _autoplayRecommendations = true;
   String _recommendationStyle = 'balanced';
+  bool _liveVisualizerEnabled = false;
 
   ThemeMode get themeMode => _themeMode;
 
@@ -71,6 +73,10 @@ class AppSettingsService extends ChangeNotifier {
   /// Recommendation mix: 'familiar', 'balanced' or 'discovery'.
   String get recommendationStyle => _recommendationStyle;
 
+  /// Whether the Now Playing live waveform stays on. Once the user turns
+  /// it on, it applies to every song until they turn it off again.
+  bool get liveVisualizerEnabled => _liveVisualizerEnabled;
+
   Future<void> init() async {
     _settings = await Hive.openBox<dynamic>(_boxName);
     final saved = _settings.get(_themeModeKey)?.toString();
@@ -98,6 +104,7 @@ class AppSettingsService extends ChangeNotifier {
         .toList(growable: false);
     _languages = parsed.isEmpty ? const <String>['hindi', 'english'] : parsed;
     _sleepTimerEnabled = _settings.get(_sleepEnabledKey) == true;
+    _liveVisualizerEnabled = _settings.get(_liveVisualizerKey) == true;
     _autoplayRecommendations =
         _settings.get(_autoplayRecommendationsKey) != false;
     final savedStyle = _settings.get(_recommendationStyleKey)?.toString();
@@ -117,6 +124,13 @@ class AppSettingsService extends ChangeNotifier {
         : 'balanced';
     _recommendationStyle = clean;
     await _settings.put(_recommendationStyleKey, clean);
+    notifyListeners();
+  }
+
+  Future<void> setLiveVisualizerEnabled(bool value) async {
+    if (value == _liveVisualizerEnabled) return;
+    _liveVisualizerEnabled = value;
+    await _settings.put(_liveVisualizerKey, value);
     notifyListeners();
   }
 

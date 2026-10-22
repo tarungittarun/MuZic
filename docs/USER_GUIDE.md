@@ -24,10 +24,11 @@ screenshots.
 
 The home tab is a browsable feed, not just a search box.
 
-1. **MuZic note + greeting + search bar** at the top. The gradient music
-   note at the top-left is the Home button: tap it and it shakes/vibrates
-   briefly while returning you to the clean home feed. The same note appears
-   at the top-left of Library, Usage and Settings.
+1. **MuZic app icon + greeting + search bar** at the top. The top-left
+   mark is the exact MuZic launcher icon (dark disc with the lavender/mint
+   double note), and it is the Home button: tap it and it shakes/vibrates
+   briefly while returning you to the clean home feed. The same app icon
+   appears at the top-left of Library, Usage and Settings.
 2. **Greeting + search bar** at the top.
 2. **Recently played** — the last tracks you started, newest first.
 3. **Liked songs** — everything you hearted.
@@ -67,10 +68,12 @@ shelves reload automatically when you change the selection.
    the **artist library**: Play all / Shuffle, that artist's top songs and
    albums. Albums open through the normal album sheet and playback flow.
 5. The **✕** button clears the search and returns you to the home feed.
-6. **Bottom navigation** is **Search · Library · Settings (gear) · Usage**
-   and can be swiped sideways on narrow screens. Tapping **Search** once
-   opens Search; tapping it again while already there focuses the search
-   box, opens the keyboard and selects the current text.
+6. **Bottom navigation** starts with **Search centred first**, then
+   **Library · Settings (gear) · Usage** running to its right. Swipe/scroll
+   the row left (or tap a destination) and the row slides left until that
+   destination is centred. Tapping **Search** once opens Search; tapping it
+   again while already there focuses the search box, opens the keyboard
+   and selects the current text.
 7. **Light mode** uses a layered lavender background, tinted cards and
    deeper raised controls rather than a flat white page.
 
@@ -82,7 +85,8 @@ shelves reload automatically when you change the selection.
 
 - Tap any track, shelf card or album row to start playback.
 - The **mini player** at the bottom opens the full now-playing sheet.
-- **Queue** (☰ in now playing): reorder, jump to a track, remove items.
+- **Up next** is the labelled button beside **Lyrics** at the bottom of
+  Now Playing: reorder, jump to a track, or clear what is coming next.
 - **Shuffle / repeat** live in the mini player and the queue sheet.
 - **Up next (actual playback order)**: when *Settings → Playback &
   recommendations → Autoplay recommendations* is on (it is on by default),
@@ -255,8 +259,13 @@ Changes apply instantly; they are remembered across restarts.
 
 ## 9. Live visualizer
 
-In the now-playing sheet tap the **waveform icon** — an 18-band visualizer is
-drawn from the *actual* audio session (not a fake animation).
+In the now-playing sheet tap the **waveform icon** at the top right — an
+18-band visualizer is drawn from the *actual* audio session (not a fake
+animation). The top-right symbol itself dances like a rhythm equaliser
+while a song plays. The waveform strip sits between the artwork card and
+the song title, and once you turn it on it **stays on for every song**
+(across songs and player reopens) until you tap the symbol again to turn
+it off.
 
 Android only exposes the live waveform to apps with microphone access, so the
 first tap asks for that permission. If you decline, MuZic tells you instead of
@@ -293,6 +302,12 @@ shows `FLAC (local file)` etc.
 - Tap the **download** icon on a track to save it for offline playback.
 - Downloaded tracks play from local storage automatically (faster, works
   without a connection).
+- **Share a download at original quality**: in Library → Downloads (or any
+  list), open a downloaded song's **3-dot menu → Share original file**.
+  MuZic shares the saved file exactly as downloaded — no re-encoding — via
+  Android's share sheet.
+- **Downloads has two tabs at the top**: **Songs** and **Lyric videos**,
+  each with its own count and list.
 - Saved files live in app-private storage; remove the app and they go with it.
 - Downloads are shown in *Library → Downloads*.
 

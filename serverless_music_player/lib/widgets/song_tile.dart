@@ -8,6 +8,7 @@ import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
 import '../services/library_service.dart';
+import '../services/local_files_service.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
 import '../theme/app_theme.dart';
@@ -57,11 +58,25 @@ class _SongTileState extends State<SongTile> {
       if (_releaseLabel(song.releaseDate) != null) _releaseLabel(song.releaseDate)!,
     ];
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       decoration: BoxDecoration(
-        color: isCurrent ? palette.surfaceRaised : Colors.transparent,
+        color: isCurrent ? palette.surfaceRaised : palette.surface,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isCurrent
+              ? palette.accent.withValues(alpha: 0.55)
+              : palette.outline.withValues(alpha: 0.65),
+          width: 0.7,
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.16 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         children: <Widget>[
@@ -179,11 +194,16 @@ class _SongTileState extends State<SongTile> {
                             value: 'playlist',
                             child: _MenuLabel(icon: Icons.library_add_rounded, text: 'Add to playlist'),
                           ),
-                          if (downloaded)
+                          if (downloaded) ...<PopupMenuEntry<String>>[
+                            const PopupMenuItem(
+                              value: 'share',
+                              child: _MenuLabel(icon: Icons.share_rounded, text: 'Share original file'),
+                            ),
                             const PopupMenuItem(
                               value: 'remove',
                               child: _MenuLabel(icon: Icons.delete_outline_rounded, text: 'Remove download'),
                             ),
+                          ],
                         ],
                         icon: Icon(Icons.more_vert_rounded, color: palette.textMuted, size: 19),
                       ),
@@ -246,6 +266,8 @@ class _SongTileState extends State<SongTile> {
     try {
       if (action == 'queue') {
         await player.addToQueue(widget.song);
+      } else if (action == 'share') {
+        await _shareOriginalFile(context);
       } else if (action == 'remove') {
         await player.removeDownload(widget.song);
       } else if (action == 'playlist') {
@@ -257,6 +279,41 @@ class _SongTileState extends State<SongTile> {
           SnackBar(content: Text('Could not complete that action: $error')),
         );
       }
+    }
+  }
+
+  /// Shares the downloaded file byte-for-byte, so the receiver gets the
+  /// same quality MuZic downloaded (no transcoding happens here).
+  Future<void> _shareOriginalFile(BuildContext context) async {
+    final saved =
+        context.read<LibraryService>().downloadedSong(widget.song.id);
+    final path = saved?.localPath ?? widget.song.localPath;
+    if (path == null || path.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The downloaded file could not be found.')),
+      );
+      return;
+    }
+    final extension = path.contains('.')
+        ? path.substring(path.lastIndexOf('.'))
+        : '.m4a';
+    final cleanTitle = widget.song.title
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '')
+        .trim();
+    final cleanArtist = widget.song.artist
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '')
+        .trim();
+    final fileName = cleanArtist.isEmpty
+        ? '$cleanTitle$extension'
+        : '$cleanTitle - $cleanArtist$extension';
+    final shared = await LocalFilesService().shareFile(
+      path: path,
+      fileName: fileName.isEmpty ? 'MuZic track$extension' : fileName,
+    );
+    if (!shared && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not share this file.')),
+      );
     }
   }
 
