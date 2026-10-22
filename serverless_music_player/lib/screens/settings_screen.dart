@@ -213,7 +213,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'shuffle and repeat included. MuZic does not add a '
                     'separate MuZic-made card to the notification shade. '
                     'If Android’s card is hidden, tap this row to open '
-                    'Android’s media settings.',
+                    'Android’s Media controls settings (Pin media player / '
+                    'show on lock screen).',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   trailing: const Icon(Icons.open_in_new_rounded, size: 18),

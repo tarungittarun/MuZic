@@ -32,6 +32,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Register MuZic with Android as a music player app. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
         </activity>
 
         <!-- The system media player (notification shade, lock screen,

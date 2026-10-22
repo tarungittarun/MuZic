@@ -354,25 +354,30 @@ class MainActivity : AudioServiceActivity() {
         )
     }
 
-    /** Opens Android's sound settings, where media-player visibility lives. */
+    /**
+     * Opens Android's Media controls settings (Pin media player / show on
+     * lock screen), falling back to Sound settings, then Settings.
+     */
     private fun openSoundSettings(): Boolean {
-        return try {
-            val intent = Intent(Settings.ACTION_SOUND_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(intent)
-            true
-        } catch (e: Exception) {
+        val candidates = listOf(
+            Intent("android.settings.ACTION_MEDIA_CONTROLS_SETTINGS"),
+            Intent().setClassName(
+                "com.android.settings",
+                "com.android.settings.Settings\$MediaControlsSettingsActivity",
+            ),
+            Intent(Settings.ACTION_SOUND_SETTINGS),
+            Intent(Settings.ACTION_SETTINGS),
+        )
+        for (candidate in candidates) {
             try {
-                val intent = Intent(Settings.ACTION_SETTINGS).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                startActivity(intent)
-                true
+                candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(candidate)
+                return true
             } catch (ignored: Exception) {
-                false
+                // Try the next surface.
             }
         }
+        return false
     }
 
     /**
