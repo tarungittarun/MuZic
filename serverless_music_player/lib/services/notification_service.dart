@@ -59,7 +59,8 @@ class NotificationService {
         final map = Map<String, dynamic>.from(entry);
         parts.add(
           '#${map['id']} ch=${map['channelId']} ongoing=${map['ongoing']} '
-          'mediaSession=${map['mediaSession']} title=${map['title']}',
+          'mediaSession=${map['mediaSession']} title=${map['title']} '
+          'vis=${map['visibility']} cat=${map['category']}',
         );
       }
       lastStatus = '${raw.length} active: ${parts.join(' | ')}';
@@ -135,8 +136,17 @@ class NotificationService {
       final playerShowing = postedEntries is List &&
           postedEntries.any(
               (entry) => entry.toString().contains('com.auralis.player.muzic.audio'));
-      lines.add('${playerShowing ? '✅' : '⚠️'} System media player '
-          '${playerShowing ? 'showing' : 'not showing — play a song, then check the lock screen or Quick Settings'}');
+      lines.add('${playerShowing ? '✅' : '⚠️'} System media notification '
+          '${playerShowing ? 'posted for Android to render' : 'not posted — play a song, then check again'}');
+      final activeSessions = raw['activeMediaSessions'];
+      final sessionDetails = raw['mediaSessionDetails'];
+      if (activeSessions is int) {
+        lines.add('${activeSessions > 0 ? '✅' : '⚠️'} Android media session '
+            'visible to SystemUI: $activeSessions active');
+      }
+      if (sessionDetails is List && sessionDetails.isNotEmpty) {
+        lines.add('Session: ${sessionDetails.join(' | ')}');
+      }
       if (importance is int && importance == 0) {
         lines.add('This channel is turned off in Android settings — open '
             'notification settings and turn MuZic back on.');
@@ -185,6 +195,22 @@ class NotificationService {
     } catch (error) {
       logWarn('notification', 'could not open app settings',
           <String, Object?>{'error': '$error'});
+    }
+  }
+
+  /// Opens Android's sound/media settings, where Motorola keeps the
+  /// lock-screen and Quick Settings media-player visibility toggles.
+  static Future<void> openMediaSettings() async {
+    try {
+      final ok = await const MethodChannel('music_player/system')
+          .invokeMethod<bool>('openSoundSettings');
+      if (ok != true) await openSystemSettings();
+    } on MissingPluginException {
+      await openSystemSettings();
+    } on PlatformException catch (error) {
+      logWarn('notification', 'could not open sound settings',
+          <String, Object?>{'error': '$error'});
+      await openSystemSettings();
     }
   }
 }

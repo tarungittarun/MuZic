@@ -25,6 +25,7 @@ class AudioPlayerService {
       artist: song.artist,
       album: song.album,
       artUri: artUri,
+      duration: song.duration,
       extras: <String, dynamic>{'source': song.source.name},
     );
     if (localPath != null) {

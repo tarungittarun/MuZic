@@ -7,6 +7,11 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ContentValues
 import android.content.Intent
+import android.content.ComponentName
+import android.media.MediaMetadata
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
+import android.provider.Settings
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
@@ -137,6 +142,7 @@ class MainActivity : AudioServiceActivity() {
                     result.success(true)
                 }
                 "activeNotifications" -> result.success(activeNotifications())
+                "openSoundSettings" -> result.success(openSoundSettings())
                 "mediaNotificationDiagnostics" ->
                     result.success(mediaNotificationDiagnostics())
                 "saveText" -> result.success(
@@ -304,6 +310,8 @@ class MainActivity : AudioServiceActivity() {
             "${entry["channelId"]}#${entry["id"]}${if (entry["ongoing"] == true) " ongoing" else ""}"
         }
 
+        val mediaSessionsForDiagnostics = activeMediaSessionDetails()
+
         val smallIconValid = try {
             getDrawable(R.drawable.ic_stat_muzic) != null
         } catch (e: Exception) {
@@ -328,7 +336,65 @@ class MainActivity : AudioServiceActivity() {
                 ),
             "posted" to posted,
             "postedCount" to posted.size,
+            "activeMediaSessions" to mediaSessionsForDiagnostics.count {
+                !it.startsWith("error=")
+            },
+            "mediaSessionDetails" to mediaSessionsForDiagnostics,
         )
+    }
+
+    /** Opens Android's sound settings, where media-player visibility lives. */
+    private fun openSoundSettings(): Boolean {
+        return try {
+            val intent = Intent(Settings.ACTION_SOUND_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            true
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Settings.ACTION_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+                true
+            } catch (ignored: Exception) {
+                false
+            }
+        }
+    }
+
+    /**
+     * What Android's session manager can actually see. Unlike the posted
+     * notification check, this confirms whether SystemUI has an active
+     * media session it can render in Quick Settings / on the lock screen.
+     */
+    private fun activeMediaSessionDetails(): List<String> {
+        return try {
+            val manager = getSystemService(MediaSessionManager::class.java)
+                ?: return emptyList()
+            val component = ComponentName(this, MainActivity::class.java)
+            manager.getActiveSessions(component)
+                .filter { it.packageName == packageName }
+                .map { controller ->
+                    val metadata = controller.metadata
+                    val state = controller.playbackState?.state
+                    val stateName = when (state) {
+                        PlaybackState.STATE_PLAYING -> "playing"
+                        PlaybackState.STATE_PAUSED -> "paused"
+                        PlaybackState.STATE_BUFFERING -> "buffering"
+                        PlaybackState.STATE_NONE -> "none"
+                        null -> "unknown"
+                        else -> "state=$state"
+                    }
+                    val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+                    val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""
+                    val duration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: -1L
+                    "pkg=${controller.packageName} state=$stateName title=$title artist=$artist durationMs=$duration"
+                }
+        } catch (e: Exception) {
+            listOf("error=${e.javaClass.simpleName}:${e.message ?: ""}")
+        }
     }
 
     /** True when a service with this class name is currently started. */
@@ -366,6 +432,7 @@ class MainActivity : AudioServiceActivity() {
                         Notification.EXTRA_MEDIA_SESSION,
                     ),
                     "category" to status.notification.category,
+                    "visibility" to status.notification.visibility,
                     "title" to status.notification.extras.getCharSequence(
                         Notification.EXTRA_TITLE,
                     )?.toString(),

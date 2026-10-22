@@ -152,6 +152,13 @@ may place the same system player on additional surfaces.
    publishing the system player (send us a diagnostics report — the app
    version and icon are logged).
 3. Allow **background playback** and re-test after locking the screen once.
+4. On Motorola phones, also check **Settings → Sound & vibration → Media**:
+   turn on the lock-screen media player / pin the media player, and under
+   **Home & lock screen → Control center** allow control-center access on the
+   lock screen. MuZic's **System media player** row opens Android's sound
+   settings. The diagnostics report's `#1124 ... mediaSession=true` line means
+   MuZic has posted the standard Android playback notification; if Android's
+   card is still hidden after those toggles, SystemUI is hiding it.
 
 ---
 
