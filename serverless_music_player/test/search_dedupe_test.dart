@@ -20,6 +20,8 @@ void main() {
       copy('one', 'Sachin-Jigar, Arijit Singh, Amitabh Bhattacharya', 'Bhediya'),
       copy('two', 'Amitabh Bhattacharya, Sachin-Jigar, Arijit Singh', 'Bollywood Years'),
       copy('three', 'Sachin-Jigar, Arijit Singh, Amitabh Bhattacharya', 'Love Songs'),
+      copy('four', 'Arijit Singh, Sachin-Jigar', 'Bhediya (From "Bhediya")')
+          .copyWith(title: 'Apna Bana Le (From "Bhediya")'),
       const SongModel(
         id: 'different',
         sourceId: 'different',

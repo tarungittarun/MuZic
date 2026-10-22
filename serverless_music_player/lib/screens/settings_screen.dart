@@ -117,10 +117,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   title: const Text('One-hand mode'),
                   subtitle: Text(
-                    'One UI-style reachability: pull down firmly three '
-                    'times at the top of a page and the whole screen drops '
-                    'into thumb reach. Tap the empty area to restore it, '
-                    'or turn this off for the classic full-screen layout.',
+                    'One UI-style reachability on each page: pull down '
+                    'firmly three times at the top and that page drops '
+                    'into thumb reach under a last-played card. Scrolling '
+                    'up smoothly restores the full page. Turn this off '
+                    'for the classic full-screen layout.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   onChanged: settings.setOneHandModeEnabled,

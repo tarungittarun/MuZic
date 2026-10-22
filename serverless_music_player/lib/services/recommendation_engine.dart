@@ -346,6 +346,7 @@ class RecommendationEngine {
       (match) {
         final inside = (match.group(1) ?? match.group(2) ?? '').toLowerCase();
         const removable = <String>[
+          'from',
           'feat',
           'ft',
           'featuring',

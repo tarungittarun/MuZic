@@ -59,21 +59,38 @@ class MusicApiService {
       return searchYouTube(cleanQuery, limit: limit);
     }
     if (source == SearchSource.jioSaavn) {
-      return searchJioSaavn(cleanQuery, limit: limit);
+      return limit >= 30
+          ? _searchSaavnExpanded(cleanQuery, limit: limit)
+          : searchJioSaavn(cleanQuery, limit: limit);
     }
 
+    var merged = const <SongModel>[];
     try {
-      final saavnResults = await searchJioSaavn(cleanQuery, limit: limit);
-      if (saavnResults.isNotEmpty) return saavnResults;
+      merged = limit >= 30
+          ? await _searchSaavnExpanded(cleanQuery, limit: limit)
+          : await searchJioSaavn(cleanQuery, limit: limit);
     } catch (_) {
       // Automatic mode intentionally continues to the independent source.
     }
-    return searchYouTube(cleanQuery, limit: limit);
+    if (merged.length >= limit) return merged;
+    if (merged.isEmpty) return searchYouTube(cleanQuery, limit: limit);
+
+    // A catalogue search can know the artist but only return a handful of
+    // unique tracks. Fill the page from YouTube rather than showing six
+    // results for a mainstream artist, then collapse cross-provider copies.
+    try {
+      final youtubeResults = await searchYouTube(cleanQuery, limit: limit);
+      merged = dedupeSearchResults(<SongModel>[...merged, ...youtubeResults]);
+    } catch (_) {
+      // Keep the catalogue results if the supplement is unavailable.
+    }
+    return merged.take(limit).toList(growable: false);
   }
 
   Future<List<SongModel>> searchJioSaavn(
     String query, {
     int limit = 18,
+    int page = 1,
   }) async {
     final stopwatch = Stopwatch()..start();
     final uri = Uri.https(_saavnHost, '/api.php', <String, String>{
@@ -82,7 +99,7 @@ class MusicApiService {
       '_marker': '0',
       'api_version': '4',
       'ctx': 'web6dot0',
-      'p': '1',
+      'p': '$page',
       'n': '$limit',
       'q': query,
     });
@@ -123,6 +140,179 @@ class MusicApiService {
       });
       rethrow;
     }
+  }
+
+  Future<List<SongModel>> _searchSaavnOrEmpty(
+    String query, {
+    int limit = 40,
+    int page = 1,
+  }) async {
+    try {
+      return await searchJioSaavn(query, limit: limit, page: page);
+    } catch (_) {
+      return const <SongModel>[];
+    }
+  }
+
+  /// Deep catalogue search used by the results page (limit >= 30).
+  ///
+  /// One provider page is often mostly the same few recordings repeated
+  /// through compilations, so this keeps paging, resolves an artist-intent
+  /// query such as "arijith sing songs" to the canonical artist, searches
+  /// that artist directly, and mines the artist's albums until it has a
+  /// full page of *unique* songs (or the catalogue genuinely runs out).
+  Future<List<SongModel>> _searchSaavnExpanded(
+    String query, {
+    required int limit,
+  }) async {
+    var merged = await searchJioSaavn(query, limit: limit < 40 ? 40 : limit);
+
+    for (var page = 2; page <= 3 && merged.length < limit; page++) {
+      final pageSongs = await _searchSaavnOrEmpty(
+        query,
+        limit: 40,
+        page: page,
+      );
+      if (pageSongs.isEmpty) break;
+      merged = dedupeSearchResults(<SongModel>[...merged, ...pageSongs]);
+    }
+    if (merged.length >= limit) {
+      return merged.take(limit).toList(growable: false);
+    }
+
+    final artistName = await _canonicalArtistName(query);
+    if (artistName != null) {
+      final variantQueries = <String>{
+        artistName,
+        '$artistName songs',
+        '$artistName top songs',
+      }..removeWhere(
+          (value) =>
+              RecommendationEngine.normalise(value) ==
+              RecommendationEngine.normalise(query),
+        );
+      final variantResults = await Future.wait<List<SongModel>>(
+        <Future<List<SongModel>>>[
+          for (final variant in variantQueries)
+            _searchSaavnOrEmpty(variant, limit: 40),
+        ],
+      );
+      for (final songs in variantResults) {
+        merged = dedupeSearchResults(<SongModel>[...merged, ...songs]);
+        if (merged.length >= limit) break;
+      }
+
+      if (merged.length < limit) {
+        final albums = await searchAlbums(artistName, limit: 8);
+        final albumSongs = await Future.wait<List<SongModel>>(
+          <Future<List<SongModel>>>[
+            for (final album in albums.take(4))
+              fetchAlbumSongs(album.id, limit: 60),
+          ],
+        );
+        for (final songs in albumSongs) {
+          merged = dedupeSearchResults(<SongModel>[
+            ...merged,
+            ...songs.where((song) => _isArtistSong(song, artistName)),
+          ]);
+          if (merged.length >= limit) break;
+        }
+      }
+      merged = _rankArtistResults(merged, artistName);
+    } else {
+      final stripped = query
+          .replaceAll(
+            RegExp(r'[\s-]+(songs|song|tracks|track)\s*$',
+                caseSensitive: false),
+            '',
+          )
+          .trim();
+      if (stripped.isNotEmpty && stripped != query) {
+        final extra = await _searchSaavnOrEmpty(stripped, limit: 40);
+        merged = dedupeSearchResults(<SongModel>[...merged, ...extra]);
+      }
+    }
+    return merged.take(limit).toList(growable: false);
+  }
+
+  /// Resolves queries like "arijith sing songs" to the catalogue's
+  /// canonical artist ("Arijit Singh") so the deep search can use the
+  /// artist's real name instead of the user's spelling.
+  Future<String?> _canonicalArtistName(String query) async {
+    final base = query
+        .replaceAll(
+          RegExp(r'[\s-]+(songs|song|tracks|track)\s*$',
+              caseSensitive: false),
+          '',
+        )
+        .trim();
+    if (base.isEmpty) return null;
+    final artists = await searchArtists(base, limit: 6);
+    for (final artist in artists) {
+      if (_artistNameMatches(base, artist.name)) return artist.name;
+    }
+    return null;
+  }
+
+  static bool _artistNameMatches(String query, String artistName) {
+    final wanted = RecommendationEngine.normalise(query);
+    final candidate = RecommendationEngine.normalise(artistName);
+    if (wanted.isEmpty || candidate.isEmpty) return false;
+    if (wanted == candidate ||
+        wanted.contains(candidate) ||
+        candidate.contains(wanted)) {
+      return true;
+    }
+    final wantedTokens = wanted.split(' ');
+    final candidateTokens = candidate.split(' ');
+    if (wantedTokens.length != candidateTokens.length) return false;
+    var distance = 0;
+    for (var index = 0; index < wantedTokens.length; index++) {
+      distance += _editDistance(wantedTokens[index], candidateTokens[index]);
+      if (distance > 3) return false;
+    }
+    return distance <= 3;
+  }
+
+  static int _editDistance(String a, String b) {
+    if (a == b) return 0;
+    if (a.isEmpty) return b.length;
+    if (b.isEmpty) return a.length;
+    var previous = List<int>.generate(b.length + 1, (index) => index);
+    for (var i = 1; i <= a.length; i++) {
+      final current = List<int>.filled(b.length + 1, 0)..[0] = i;
+      for (var j = 1; j <= b.length; j++) {
+        final substitution = previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1);
+        var best = substitution;
+        if (previous[j] + 1 < best) best = previous[j] + 1;
+        if (current[j - 1] + 1 < best) best = current[j - 1] + 1;
+        current[j] = best;
+      }
+      previous = current;
+    }
+    return previous[b.length];
+  }
+
+  bool _isArtistSong(SongModel song, String artistName) {
+    final wanted = RecommendationEngine.normalise(artistName);
+    if (wanted.isEmpty) return false;
+    final credited = RecommendationEngine.artistsOf(song)
+        .map(RecommendationEngine.normalise)
+        .toSet();
+    return credited.contains(wanted) ||
+        RecommendationEngine.normalise(song.artist).contains(wanted);
+  }
+
+  List<SongModel> _rankArtistResults(
+    List<SongModel> songs,
+    String artistName,
+  ) {
+    final relevant = <SongModel>[];
+    final rest = <SongModel>[];
+    for (final song in songs) {
+      (_isArtistSong(song, artistName) ? relevant : rest).add(song);
+    }
+    return <SongModel>[...relevant, ...rest];
   }
 
   /// Trending songs from JioSaavn (used by the Discover home shelves).

@@ -18,6 +18,26 @@ screenshots.
 
 ---
 
+## What's new in 1.5.39
+
+- **One-hand reach, corrected:** reach mode is now **per page**, not
+  app-wide. Pull down firmly three times at the top of a page and *that
+  page* drops under a simple **Now playing / Last played** card. The page
+  keeps its full height underneath — scrolling up smoothly gives the
+  dropped space back until the page is full-screen again, then scrolling
+  continues normally. Switching pages restores full screen.
+- **Deeper artist search:** an artist search such as "arijith sing songs"
+  now resolves to the canonical artist, pages deeper into the catalogue,
+  searches the artist directly and mines the artist's albums, aiming for a
+  full page of at least 30 unique songs instead of a handful. Copies of
+  the same recording — including "(From …)" movie versions — collapse
+  into one result.
+- **Search double-tap from anywhere:** double-tap the bottom **Search**
+  destination on any page to jump into the search box with the keyboard
+  open and the current text selected.
+
+---
+
 ## What's new in 1.5.38
 
 - **No more walls of the same song in search:** if JioSaavn returns the

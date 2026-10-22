@@ -61,6 +61,15 @@ class _HomeScreenState extends State<HomeScreen> {
     if (oldWidget.searchFocusTick != widget.searchFocusTick) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        // Bring the search box itself back into view first, then open the
+        // keyboard with the current text selected for replacement.
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            0,
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+          );
+        }
         _searchFocusNode.requestFocus();
         _queryController.selection = TextSelection(
           baseOffset: 0,
