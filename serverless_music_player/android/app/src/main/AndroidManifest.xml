@@ -48,26 +48,6 @@
             </intent-filter>
         </service>
 
-        <!-- Shade-card foreground service. Some SystemUI builds divert
-             the system media player out of the notification shade (it
-             still shows on the lock screen); this service mirrors the
-             same playback state into a shade-visible card there. It is
-             NOT a media-button owner: headset/Bluetooth buttons and the
-             lock-screen player stay with audio_service's session above. -->
-        <service
-            android:name=".PlaybackService"
-            android:foregroundServiceType="mediaPlayback"
-            android:exported="false"
-            android:stopWithTask="false" />
-
-        <!-- Receives the shade card's button PendingIntents (explicit
-             component intents only; no MEDIA_BUTTON filter so media
-             buttons are never double-handled with audio_service's
-             receiver below). -->
-        <receiver
-            android:name=".TransportReceiver"
-            android:exported="true" />
-
         <receiver
             android:name="com.ryanheise.audioservice.MediaButtonReceiver"
             android:exported="true"

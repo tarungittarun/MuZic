@@ -10,7 +10,6 @@ import '../services/app_log.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/library_service.dart';
-import '../services/media_session_service.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
 
@@ -21,11 +20,7 @@ class PlayerController extends ChangeNotifier {
     required DownloadService downloads,
     required LibraryService library,
     required UsageService usage,
-    MediaSessionService? mediaSession,
-    bool shadeCardEnabled = true,
-  })  : _mediaSession = mediaSession,
-        _shadeCardEnabled = shadeCardEnabled,
-        _audio = audio,
+  })  : _audio = audio,
         _musicApi = musicApi,
         _downloads = downloads,
         _library = library,
@@ -37,7 +32,6 @@ class PlayerController extends ChangeNotifier {
         _flushListeningTime();
       }
       notifyListeners();
-      _publishMediaSession();
     }));
     _subscriptions.add(_audio.player.positionStream.listen((value) {
       final delta = value - _position;
@@ -50,14 +44,11 @@ class PlayerController extends ChangeNotifier {
       }
       _position = value;
       notifyListeners();
-      _publishMediaSession();
     }));
     _subscriptions.add(_audio.player.durationStream.listen((value) {
       _duration = value ?? Duration.zero;
       notifyListeners();
-      _publishMediaSession();
     }));
-    _mediaSession?.onCommand = _handleMediaCommand;
     _subscriptions.add(_audio.player.currentIndexStream.listen((value) {
       if (value == null || value < 0 || value >= _queue.length) return;
       _currentIndex = value;
@@ -74,17 +65,14 @@ class PlayerController extends ChangeNotifier {
     _subscriptions.add(_audio.player.loopModeStream.listen((value) {
       _loopMode = value;
       notifyListeners();
-      _publishMediaSession();
     }));
     _subscriptions.add(_audio.player.shuffleModeEnabledStream.listen((value) {
       _shuffleEnabled = value;
       notifyListeners();
-      _publishMediaSession();
     }));
     _subscriptions.add(_audio.player.errorStream.listen(_onPlayerError));
   }
 
-  final MediaSessionService? _mediaSession;
   final AudioPlayerService _audio;
   final MusicApiService _musicApi;
   final DownloadService _downloads;
@@ -101,10 +89,6 @@ class PlayerController extends ChangeNotifier {
   Duration _duration = Duration.zero;
   LoopMode _loopMode = LoopMode.off;
   bool _shuffleEnabled = false;
-
-  /// User's Settings -> Playback choice: post MuZic's own shade card
-  /// next to the system player. Seeded from the persisted setting.
-  bool _shadeCardEnabled;
   bool _isResolving = false;
   bool _isRecovering = false;
   bool _permissionAsked = false;
@@ -605,130 +589,6 @@ class PlayerController extends ChangeNotifier {
     _musicApi.dispose();
     unawaited(_audio.dispose());
     super.dispose();
-  }
-
-  /// Applies the Settings -> Playback shade-card switch and
-  /// republishes immediately, so the card appears or disappears at
-  /// once. Android's system player (lock screen / Quick Settings)
-  /// is not affected either way.
-  void setShadeCardEnabled(bool enabled) {
-    if (_shadeCardEnabled == enabled) return;
-    _shadeCardEnabled = enabled;
-    _publishMediaSession();
-  }
-
-  /// Mirrors the current track into MuZic's playback card.
-  void _publishMediaSession() {
-    final session = _mediaSession;
-    final song = _currentSong;
-    if (session == null) return;
-    if (song == null) {
-      unawaited(session.hide());
-      return;
-    }
-    unawaited(session.update(MediaSessionState(
-      title: song.title,
-      artist: song.artist,
-      album: song.album,
-      artworkUrl: song.artworkUrl,
-      artworkPath: song.localArtworkPath,
-      playing: _audio.player.playing,
-      positionMs: _position.inMilliseconds,
-      durationMs: _duration.inMilliseconds,
-      speed: _audio.player.speed,
-      hasNext: _currentIndex != null && _currentIndex! < _queue.length - 1,
-      hasPrevious: (_currentIndex ?? 0) > 0 || _position.inSeconds > 3,
-      shuffle: _shuffleEnabled,
-      repeatMode: _loopMode.index,
-      shadeEnabled: _shadeCardEnabled,
-    )));
-  }
-
-  /// Transport buttons on the playback card.
-  void _handleMediaCommand(String command, double? value) {
-    switch (command) {
-      case 'play':
-        if (!_audio.player.playing && _queue.isNotEmpty) _startPlayback();
-        break;
-      case 'pause':
-        unawaited(pause());
-        break;
-      case 'toggle':
-        unawaited(togglePlayback());
-        break;
-      case 'next':
-        unawaited(next());
-        break;
-      case 'previous':
-        unawaited(previous());
-        break;
-      case 'seek':
-        if (value != null) {
-          unawaited(seek(Duration(milliseconds: value.round())));
-        }
-        break;
-      case 'seekFraction':
-        // Waveform tap on the shade card: jump to that fraction of the
-        // song (RemoteViews has no drag/scrub, so the card seeks by tap).
-        if (value != null && _duration > Duration.zero) {
-          final targetMs =
-              (_duration.inMilliseconds * value.clamp(0.0, 1.0)).round();
-          unawaited(seek(Duration(milliseconds: targetMs)));
-        }
-        break;
-      case 'seekBack':
-        {
-          final target = _position - const Duration(seconds: 10);
-          unawaited(seek(target < Duration.zero ? Duration.zero : target));
-        }
-        break;
-      case 'seekForward':
-        {
-          final target = _position + const Duration(seconds: 10);
-          final clamped = _duration > Duration.zero && target > _duration
-              ? _duration
-              : target;
-          unawaited(seek(clamped));
-        }
-        break;
-      case 'shuffle':
-        // State fields flip synchronously inside toggleShuffle, so the
-        // card can be re-published immediately with the new icon state.
-        unawaited(toggleShuffle());
-        _publishMediaSession();
-        break;
-      case 'repeat':
-        unawaited(cycleRepeatMode());
-        _publishMediaSession();
-        break;
-      case 'shuffleOn':
-        if (!_shuffleEnabled) unawaited(toggleShuffle());
-        _publishMediaSession();
-        break;
-      case 'shuffleOff':
-        if (_shuffleEnabled) unawaited(toggleShuffle());
-        _publishMediaSession();
-        break;
-      case 'setRepeatMode':
-        {
-          // AndroidX modes: 0 = none, 1 = one, 2 = all (3 = group -> all),
-          // which line up with just_audio's LoopMode indices.
-          final mode = (value ?? 0).round().clamp(0, 2);
-          final target = LoopMode.values[mode];
-          if (target != _loopMode) {
-            _loopMode = target;
-            unawaited(_audio.player.setLoopMode(target));
-            notifyListeners();
-          }
-          _publishMediaSession();
-        }
-        break;
-      case 'stop':
-        unawaited(pause());
-        unawaited(_mediaSession?.hide() ?? Future<void>.value());
-      default:
-        break;
-    }
   }
 
 }

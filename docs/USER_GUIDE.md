@@ -125,47 +125,32 @@ including Bluetooth and Android Auto. The controller appears while a
 song plays and stays when you pause; swipe it away when paused to
 dismiss it.
 
-Some phones (including several Motorola builds) keep that system
-player **out of the notification shade** even while it shows on the
-lock screen. For those, MuZic also posts its own **shade player card**
-into the notification panel, styled after the lock-screen player:
-the track artwork fills the whole card, with the title, artist,
-big play/pause button and waveform overlaid on it over a dark
-gradient, and the full transport row (shuffle, previous, −10s,
-+10s, next, repeat) below, kept in sync with playback. Tap the
-waveform to jump to that part of the song (the notification system
-offers no drag-scrubbing to apps, so the card seeks by tap). Tap
-the card's expand arrow to open the full card; the collapsed strip
-is kept slim by Android itself. The card draws directly on the system
-notification surface rather than as a card inside a card — the slim
-header and margins around an expanded notification are drawn by
-Android itself, for every app. The two surfaces never fight: the lock screen and Quick
-Settings keep the exact system player, the shade shows the MuZic card — which the
-**MuZic card in notification shade** switch below can turn off
-completely, leaving only the system player.
-The card posts on its own notification slot, verifies that Android
-actually kept it, and steps down to a simpler big-artwork layout
-automatically if a device refuses the rich one — so a working card
-always lands.
+MuZic deliberately uses **only** that system player. It does not add a
+MuZic-made replacement card to the notification shade. Android and the
+phone maker decide where the system player appears: on the reference
+Motorola it is shown on the lock screen and in Quick Settings, while
+the first-pull notification shade has no MuZic player. Other phones
+may place the same system player on additional surfaces.
 
 *Settings → Playback*
 
 | Row | What it does |
 | --- | --- |
 | **Notification access** | Shows Allowed/Blocked. **Allow** asks for the permission; if it is still blocked it opens the system settings page for MuZic. The media player cannot appear without it. |
-| **MuZic card in notification shade** | On (default): MuZic's own player card appears in the notification shade. Off: MuZic posts no shade card at all — only Android's system player remains (lock screen and Quick Settings). Use Off to see exactly what your phone shows for MuZic with nothing added by the app. |
 | **Send a test notification** | Posts a plain notification. If this appears but the media player does not, the problem is playback, not the permission. |
 | **Show active notifications** | Lists what Android is currently showing for MuZic (including whether the media player exists). |
 | **Media notification health** | Step-by-step check of everything the media player needs (permission, channel, audio service, session). |
 | **Allow background playback** | Battery-optimisation exemption. Required on MIUI, ColorOS, FuntouchOS, MagicOS — otherwise the player gets killed a few minutes after you leave the app. |
 
-**If the card does not appear**
+**If the system player does not appear**
 
 1. Settings → Playback → **Send a test notification**. No notification? Fix
    the permission / OEM "hide notifications" setting first.
-2. Test notification appears but no card? Tap **Show active notifications**
-   while a song plays. No entry = Android dropped it (send us a diagnostics
-   report — the app version and icon are logged).
+2. Test notification appears but there is no system player on the lock
+   screen or in Quick Settings while a song plays? Tap **Show active
+   notifications**. No MuZic playback entry means Android is not
+   publishing the system player (send us a diagnostics report — the app
+   version and icon are logged).
 3. Allow **background playback** and re-test after locking the screen once.
 
 ---
@@ -331,9 +316,9 @@ stays in Movies/MuZic.
 
 | Symptom | Fix |
 | --- | --- |
-| No media card in the notification shade | Settings → Playback → **Send a test notification**; allow notifications; enable **Allow background playback**; check **Show active notifications**. |
-| Card disappears after a while | Battery optimisation (Settings → Playback → Allow background playback) — common on Xiaomi/OPPO/vivo. |
-| Card disappears when paused | **Keep notification when paused** is on by default; re-enable it in Settings → Playback. |
+| No system media player on the lock screen or in Quick Settings | Play a song; allow notifications; enable **Allow background playback**; check **Show active notifications** and **Media notification health** in Settings → Playback. |
+| System media player disappears after a while | Battery optimisation (Settings → Playback → Allow background playback) — common on Xiaomi/OPPO/vivo. |
+| System media player disappears when paused | Android normally keeps the paused player until it is swiped away; if it vanishes, disable battery optimisation for MuZic in Settings → Playback. |
 | "Could not start playback" | Try the other source (JioSaavn/YouTube) — some regional tracks are missing from one of them. |
 | A track will not play but others do | Long-press the row → details; if the stream host is `googlevideo.com` the cached URL expired — play the track again to refresh it. |
 | Lyrics missing | Not every track has a licensed lyric source. The language sheet shows what is available; Romanized is generated when the original script exists. |

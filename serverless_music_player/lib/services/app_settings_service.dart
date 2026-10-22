@@ -17,7 +17,6 @@ class AppSettingsService extends ChangeNotifier {
   static const String _languagesKey = 'discover_languages';
   static const String _sleepEnabledKey = 'sleep_timer_enabled';
   static const String _sleepMinutesKey = 'sleep_timer_minutes';
-  static const String _shadeCardKey = 'shade_card_enabled';
 
   late Box<dynamic> _settings;
   ThemeMode _themeMode = ThemeMode.dark;
@@ -33,7 +32,6 @@ class AppSettingsService extends ChangeNotifier {
   List<String> _languages = const <String>['hindi', 'english'];
   bool _sleepTimerEnabled = false;
   int _sleepTimerMinutes = 60;
-  bool _shadeCardEnabled = true;
 
   ThemeMode get themeMode => _themeMode;
 
@@ -62,11 +60,6 @@ class AppSettingsService extends ChangeNotifier {
   bool get sleepTimerEnabled => _sleepTimerEnabled;
   int get sleepTimerMinutes => _sleepTimerMinutes;
 
-  /// Whether MuZic posts its own player card into the notification
-  /// shade. Android's system player (lock screen / Quick Settings) is
-  /// separate and always available; this only controls MuZic's card.
-  bool get shadeCardEnabled => _shadeCardEnabled;
-
   Future<void> init() async {
     _settings = await Hive.openBox<dynamic>(_boxName);
     final saved = _settings.get(_themeModeKey)?.toString();
@@ -94,7 +87,6 @@ class AppSettingsService extends ChangeNotifier {
         .toList(growable: false);
     _languages = parsed.isEmpty ? const <String>['hindi', 'english'] : parsed;
     _sleepTimerEnabled = _settings.get(_sleepEnabledKey) == true;
-    _shadeCardEnabled = _settings.get(_shadeCardKey) != false;
     final sleepMinutes = _settings.get(_sleepMinutesKey);
     _sleepTimerMinutes =
         sleepMinutes is num && sleepMinutes.toInt() >= 5 ? sleepMinutes.toInt() : 60;
@@ -109,13 +101,6 @@ class AppSettingsService extends ChangeNotifier {
       _sleepTimerMinutes = minutes.clamp(5, 480).toInt();
       await _settings.put(_sleepMinutesKey, _sleepTimerMinutes);
     }
-    notifyListeners();
-  }
-
-  Future<void> setShadeCardEnabled(bool value) async {
-    if (value == _shadeCardEnabled) return;
-    _shadeCardEnabled = value;
-    await _settings.put(_shadeCardKey, value);
     notifyListeners();
   }
 

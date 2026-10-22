@@ -77,15 +77,15 @@ class NotificationService {
   }
 
   /// Posts a plain test notification so the user can confirm MuZic is able to
-  /// display notifications at all (separate from the media card).
+  /// display notifications at all (separate from the system media player).
   static Future<bool> sendTest() async {
     try {
       final ok = await const MethodChannel('music_player/system')
           .invokeMethod<bool>('notify', <String, Object?>{
         'id': 2001,
         'title': 'MuZic notifications work',
-        'body': 'If you can read this in the shade, playback controls can show '
-            'up here too while music plays.',
+        'body': 'If you can read this, MuZic notifications are working. '
+            'Play a song to check the system media player.',
         'channelId': 'muzic_test',
         'channelName': 'MuZic test',
       });
@@ -102,10 +102,10 @@ class NotificationService {
     }
   }
 
-  /// Full chain report for the media card, straight from Android.
+  /// Full chain report for the system media player, straight from Android.
   ///
   /// Returns human-readable lines so the Settings screen can show exactly
-  /// which link is broken when no playback card appears.
+  /// which link is broken when the system player does not appear.
   static Future<List<String>> healthReport() async {
     try {
       final raw = await const MethodChannel('music_player/system')
@@ -136,12 +136,7 @@ class NotificationService {
           postedEntries.any(
               (entry) => entry.toString().contains('com.auralis.player.muzic.audio'));
       lines.add('${playerShowing ? '✅' : '⚠️'} System media player '
-          '${playerShowing ? 'showing' : 'not showing — play a song, then pull down the shade'}');
-      final shadeShowing = postedEntries is List &&
-          postedEntries.any(
-              (entry) => entry.toString().startsWith('com.music.player.playback.v2#'));
-      lines.add('${shadeShowing ? '✅' : '⚠️'} Shade player card '
-          '${shadeShowing ? 'showing in notification panel' : 'not showing — play a song, then pull down the shade'}');
+          '${playerShowing ? 'showing' : 'not showing — play a song, then check the lock screen or Quick Settings'}');
       if (importance is int && importance == 0) {
         lines.add('This channel is turned off in Android settings — open '
             'notification settings and turn MuZic back on.');

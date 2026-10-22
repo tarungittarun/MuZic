@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../app_info.dart';
 import '../services/app_log.dart';
-import '../providers/player_controller.dart';
 import '../services/app_settings_service.dart';
 import '../services/audio_effects_service.dart';
 import '../services/discover_options.dart';
@@ -170,7 +169,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         pending
                             ? 'Checking…'
                             : granted
-                                ? 'Allowed — playback controls can appear in the shade.'
+                                ? 'Allowed — the system media player can appear on the lock screen and in Quick Settings.'
                                 : 'Blocked — Android hides the media controls. Allow it here.',
                         style: TextStyle(
                           color: granted ? palette.textMuted : palette.accent,
@@ -191,7 +190,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     SnackBar(
                                       content: Text(
                                         ok
-                                            ? 'Notifications allowed — the media card can now appear.'
+                                            ? 'Notifications allowed — the system media player can now appear.'
                                             : 'Still blocked. Enable notifications for MuZic in system settings.',
                                       ),
                                     ),
@@ -211,10 +210,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: Text(
                     'The lock-screen and Quick Settings player is provided '
                     'by Android while a song plays — artwork, seek, '
-                    'shuffle and repeat included. On phones whose '
-                    'software keeps that player out of the notification '
-                    'shade, MuZic also posts its own shade card with the '
-                    'same controls, synced to playback.',
+                    'shuffle and repeat included. MuZic does not add a '
+                    'separate MuZic-made card to the notification shade; '
+                    'where Android places its system player is decided '
+                    'by the phone.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                 ),
@@ -243,8 +242,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: palette.textSecondary),
                   title: const Text('Media notification health'),
                   subtitle: Text(
-                    'Checks every step between MuZic and the playback card in '
-                    'your notification shade.',
+                    'Checks every step between MuZic and the system media '
+                    'player on the lock screen and in Quick Settings.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded, size: 18),
@@ -272,7 +271,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const SizedBox(height: 4),
                             Text(
                               'Play a song, then check again. If the last line '
-                              'stays at zero, Android is blocking the card.',
+                              'stays at zero, Android is not showing the system player.',
                               style: TextStyle(
                                 fontSize: 11.5,
                                 color: Theme.of(dialogContext)
@@ -301,31 +300,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     } else {
                       messenger.hideCurrentSnackBar();
                     }
-                  },
-                ),
-                Divider(height: 1, color: palette.outline),
-                SwitchListTile(
-                  value: settings.shadeCardEnabled,
-                  secondary: Icon(
-                    Icons.view_agenda_rounded,
-                    color: settings.shadeCardEnabled
-                        ? palette.accent
-                        : palette.textSecondary,
-                  ),
-                  title: const Text('MuZic card in notification shade'),
-                  subtitle: Text(
-                    'MuZic’s own player card in the pull-down shade. Turn '
-                    'it off to use only Android’s system player (lock '
-                    'screen and Quick Settings): the shade then shows no '
-                    'MuZic card at all, so you can see exactly what your '
-                    'phone does with the plain system player.',
-                    style: TextStyle(color: palette.textMuted, fontSize: 12),
-                  ),
-                  onChanged: (value) {
-                    settings.setShadeCardEnabled(value);
-                    context
-                        .read<PlayerController>()
-                        .setShadeCardEnabled(value);
                   },
                 ),
                 Divider(height: 1, color: palette.outline),
@@ -361,7 +335,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: palette.textSecondary),
                   title: const Text('Allow background playback'),
                   subtitle: Text(
-                    'Exempt MuZic from battery optimisation so the media card '
+                    'Exempt MuZic from battery optimisation so playback '
                     'is not killed (needed on MIUI, ColorOS, FuntouchOS).',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
@@ -373,7 +347,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SnackBar(
                           content: Text(
                             'Allow MuZic to run in the background in the '
-                            'system dialog to keep the media card alive.',
+                            'system dialog to keep playback alive.',
                           ),
                         ),
                       );
