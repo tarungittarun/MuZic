@@ -314,8 +314,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   title: const Text('MuZic card in notification shade'),
                   subtitle: Text(
-                    'MuZic's own player card in the pull-down shade. Turn '
-                    'it off to use only Android's system player (lock '
+                    'MuZic’s own player card in the pull-down shade. Turn '
+                    'it off to use only Android’s system player (lock '
                     'screen and Quick Settings): the shade then shows no '
                     'MuZic card at all, so you can see exactly what your '
                     'phone does with the plain system player.',
