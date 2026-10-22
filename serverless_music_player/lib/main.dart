@@ -69,7 +69,7 @@ Future<void> main() async {
   final musicApi = MusicApiService();
   final audio = AudioPlayerService();
 
-  final downloads = DownloadService(library: library, settings: appSettings);
+  final downloads = DownloadService(library: library, settings: settings);
   final videoLibrary = VideoLibraryService();
   await videoLibrary.init();
   final videoExports = VideoExportManager();
