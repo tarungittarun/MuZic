@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_info.dart';
 import '../services/app_log.dart';
+import '../providers/player_controller.dart';
 import '../services/app_settings_service.dart';
 import '../services/audio_effects_service.dart';
 import '../services/discover_options.dart';
@@ -300,6 +301,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     } else {
                       messenger.hideCurrentSnackBar();
                     }
+                  },
+                ),
+                Divider(height: 1, color: palette.outline),
+                SwitchListTile(
+                  value: settings.shadeCardEnabled,
+                  secondary: Icon(
+                    Icons.view_agenda_rounded,
+                    color: settings.shadeCardEnabled
+                        ? palette.accent
+                        : palette.textSecondary,
+                  ),
+                  title: const Text('MuZic card in notification shade'),
+                  subtitle: Text(
+                    'MuZic's own player card in the pull-down shade. Turn '
+                    'it off to use only Android's system player (lock '
+                    'screen and Quick Settings): the shade then shows no '
+                    'MuZic card at all, so you can see exactly what your '
+                    'phone does with the plain system player.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  ),
+                  onChanged: (value) {
+                    settings.setShadeCardEnabled(value);
+                    context
+                        .read<PlayerController>()
+                        .setShadeCardEnabled(value);
                   },
                 ),
                 Divider(height: 1, color: palette.outline),

@@ -67,8 +67,9 @@ Future<void> main() async {
   final videoExports = VideoExportManager();
   // Shade-card bridge: on devices whose SystemUI keeps the system media
   // player out of the notification shade (this user's phone renders it on
-  // the lock screen only), PlaybackService mirrors the same playback state
-  // into a shade-visible card. The system player above stays untouched.
+  // the lock screen and in Quick Settings), PlaybackService mirrors the
+  // same playback state into a shade-visible card. The system player
+  // above stays untouched, and Settings can switch the card off.
   final mediaSession = MediaSessionService();
   final player = PlayerController(
     audio: audio,
@@ -77,6 +78,7 @@ Future<void> main() async {
     library: library,
     usage: usage,
     mediaSession: mediaSession,
+    shadeCardEnabled: settings.shadeCardEnabled,
   );
   final diagnostics = DiagnosticsService(
     settings: settings,

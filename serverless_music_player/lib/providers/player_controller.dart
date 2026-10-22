@@ -22,7 +22,9 @@ class PlayerController extends ChangeNotifier {
     required LibraryService library,
     required UsageService usage,
     MediaSessionService? mediaSession,
+    bool shadeCardEnabled = true,
   })  : _mediaSession = mediaSession,
+        _shadeCardEnabled = shadeCardEnabled,
         _audio = audio,
         _musicApi = musicApi,
         _downloads = downloads,
@@ -99,6 +101,10 @@ class PlayerController extends ChangeNotifier {
   Duration _duration = Duration.zero;
   LoopMode _loopMode = LoopMode.off;
   bool _shuffleEnabled = false;
+
+  /// User's Settings -> Playback choice: post MuZic's own shade card
+  /// next to the system player. Seeded from the persisted setting.
+  bool _shadeCardEnabled;
   bool _isResolving = false;
   bool _isRecovering = false;
   bool _permissionAsked = false;
@@ -601,6 +607,16 @@ class PlayerController extends ChangeNotifier {
     super.dispose();
   }
 
+  /// Applies the Settings -> Playback shade-card switch and
+  /// republishes immediately, so the card appears or disappears at
+  /// once. Android's system player (lock screen / Quick Settings)
+  /// is not affected either way.
+  void setShadeCardEnabled(bool enabled) {
+    if (_shadeCardEnabled == enabled) return;
+    _shadeCardEnabled = enabled;
+    _publishMediaSession();
+  }
+
   /// Mirrors the current track into MuZic's playback card.
   void _publishMediaSession() {
     final session = _mediaSession;
@@ -624,6 +640,7 @@ class PlayerController extends ChangeNotifier {
       hasPrevious: (_currentIndex ?? 0) > 0 || _position.inSeconds > 3,
       shuffle: _shuffleEnabled,
       repeatMode: _loopMode.index,
+      shadeEnabled: _shadeCardEnabled,
     )));
   }
 

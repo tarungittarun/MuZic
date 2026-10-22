@@ -153,12 +153,12 @@ class MainActivity : AudioServiceActivity() {
                         putExtra("hasPrevious", call.argument<Boolean>("hasPrevious") ?: true)
                         putExtra("shuffle", call.argument<Boolean>("shuffle") ?: false)
                         putExtra("repeatMode", call.argument<Int>("repeatMode") ?: 0)
-                        // The shade card is always on with the full control
-                        // set; the user's phone diverts the system media
-                        // player out of the shade, so this card is the
-                        // shade presence (the lock screen keeps the exact
-                        // system player from audio_service).
-                        putExtra("shadeEnabled", true)
+                        // Settings -> Playback decides whether MuZic's
+                        // own card joins the shade. With it off,
+                        // PlaybackService posts no card at all and only
+                        // Android's system player remains (lock screen
+                        // and Quick Settings, untouched either way).
+                        putExtra("shadeEnabled", call.argument<Boolean>("shadeEnabled") ?: true)
                         putExtra("shadeStyle", "rich")
                         putExtra("shadeTheme", "system")
                         putExtra("shadeArtwork", true)

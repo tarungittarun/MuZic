@@ -140,7 +140,9 @@ is kept slim by Android itself. The card draws directly on the system
 notification surface rather than as a card inside a card — the slim
 header and margins around an expanded notification are drawn by
 Android itself, for every app. The two surfaces never fight: the lock screen and Quick
-Settings keep the exact system player, the shade shows the MuZic card.
+Settings keep the exact system player, the shade shows the MuZic card — which the
+**MuZic card in notification shade** switch below can turn off
+completely, leaving only the system player.
 The card posts on its own notification slot, verifies that Android
 actually kept it, and steps down to a simpler big-artwork layout
 automatically if a device refuses the rich one — so a working card
@@ -151,6 +153,7 @@ always lands.
 | Row | What it does |
 | --- | --- |
 | **Notification access** | Shows Allowed/Blocked. **Allow** asks for the permission; if it is still blocked it opens the system settings page for MuZic. The media player cannot appear without it. |
+| **MuZic card in notification shade** | On (default): MuZic's own player card appears in the notification shade. Off: MuZic posts no shade card at all — only Android's system player remains (lock screen and Quick Settings). Use Off to see exactly what your phone shows for MuZic with nothing added by the app. |
 | **Send a test notification** | Posts a plain notification. If this appears but the media player does not, the problem is playback, not the permission. |
 | **Show active notifications** | Lists what Android is currently showing for MuZic (including whether the media player exists). |
 | **Media notification health** | Step-by-step check of everything the media player needs (permission, channel, audio service, session). |
