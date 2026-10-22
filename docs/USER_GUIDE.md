@@ -155,15 +155,25 @@ may place the same system player on additional surfaces.
 4. On Motorola phones, also check **Settings → Sound & vibration → Media**:
    turn on the lock-screen media player / pin the media player, and under
    **Home & lock screen → Control center** allow control-center access on the
-   lock screen. MuZic's **System media player** row opens Android's sound
-   settings. The    settings. The diagnostics report's `#1124 ... mediaSession=true` line means
-   MuZic has posted everything Android asks for; the exported report also
-   includes a "Media notification health" section (channel importance and
-   lock-screen visibility). Since 1.5.27 the playback notification uses a
-   valid status-bar icon and a fresh notification channel (Android keeps the
-   first version of a channel forever, so a channel created by an old broken
-   build could not be repaired by updates). If the card is still hidden after
-   those toggles, SystemUI is hiding it.
+   lock screen. MuZic's **System media player** row opens Android's Media
+   controls settings directly. The diagnostics report's
+   `#1124 ... mediaSession=true` line means MuZic has posted everything
+   Android asks for; the exported report also includes a "Media notification
+   health" section whose "Session token" line shows the live session state,
+   metadata and style that Motorola/Samsung SystemUI renders from.
+
+   **Motorola (Hello UI) specifics.** Motorola places the player in Quick
+   Settings and on the lock screen only when its own switches allow it:
+   *Sound & vibration → Media → Pin media player* ON; *Home & lock
+   screen → Control center → Allow control center access on lock screen*
+   ON; *Lock screen → Privacy → show all notification content*; *Lock
+   screen → Sleep display → Interact with notifications and music* ON;
+   and face-unlock **Skip lock screen** OFF (it hides lock-screen media
+   players). Edge Neo models on Android 15 also have a known Motorola bug
+   where the music-card area renders blank: switch *Control center* style
+   (Modern ↔ Classic) once and the panel redraws the card. MuZic detects
+   Motorola devices and lists these checks inside **Media notification
+   health** automatically.
 
 ---
 

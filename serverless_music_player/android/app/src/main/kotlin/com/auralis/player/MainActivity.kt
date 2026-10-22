@@ -323,6 +323,8 @@ class MainActivity : AudioServiceActivity() {
 
         return mapOf(
             "sdkInt" to Build.VERSION.SDK_INT,
+            "manufacturer" to (Build.MANUFACTURER ?: ""),
+            "model" to (Build.MODEL ?: ""),
             "notificationsEnabled" to notificationsEnabled,
             "postPermission" to (
                 checkSelfPermission("android.permission.POST_NOTIFICATIONS") ==

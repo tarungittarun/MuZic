@@ -155,6 +155,23 @@ class NotificationService {
         lines.add('This channel is turned off in Android settings — open '
             'notification settings and turn MuZic back on.');
       }
+      final manufacturer =
+          (raw['manufacturer'] ?? '').toString().toLowerCase();
+      if (manufacturer.contains('motorola')) {
+        lines.add('Motorola checks if the player is missing:');
+        lines.add('• Sound & vibration → Media → Pin media player: ON');
+        lines.add('• Home & lock screen → Control center → Allow control '
+            'center access on lock screen: ON');
+        lines.add('• Home & lock screen → Lock screen → Privacy → show all '
+            'notification content');
+        lines.add('• Lock screen → Sleep display → “Interact with '
+            'notifications and music”: ON');
+        lines.add('• Face unlock → turn OFF “Skip lock screen” (it hides '
+            'lock-screen media players)');
+        lines.add('• Known Edge Neo bug: if the music card area is blank, '
+            'switch Control center style (Modern ↔ Classic) once — '
+            'Motorola’s panel then redraws the card');
+      }
       lastHealth = lines;
       return lines;
     } on MissingPluginException {
