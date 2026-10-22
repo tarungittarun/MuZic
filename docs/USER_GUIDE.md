@@ -156,9 +156,14 @@ may place the same system player on additional surfaces.
    turn on the lock-screen media player / pin the media player, and under
    **Home & lock screen → Control center** allow control-center access on the
    lock screen. MuZic's **System media player** row opens Android's sound
-   settings. The diagnostics report's `#1124 ... mediaSession=true` line means
-   MuZic has posted the standard Android playback notification; if Android's
-   card is still hidden after those toggles, SystemUI is hiding it.
+   settings. The    settings. The diagnostics report's `#1124 ... mediaSession=true` line means
+   MuZic has posted everything Android asks for; the exported report also
+   includes a "Media notification health" section (channel importance and
+   lock-screen visibility). Since 1.5.27 the playback notification uses a
+   valid status-bar icon and a fresh notification channel (Android keeps the
+   first version of a channel forever, so a channel created by an old broken
+   build could not be repaired by updates). If the card is still hidden after
+   those toggles, SystemUI is hiding it.
 
 ---
 
