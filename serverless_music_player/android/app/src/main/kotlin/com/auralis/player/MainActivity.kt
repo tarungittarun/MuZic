@@ -9,6 +9,8 @@ import android.content.ContentValues
 import android.content.Intent
 import android.content.ComponentName
 import android.media.MediaMetadata
+import android.media.session.MediaController
+import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.provider.Settings
@@ -311,6 +313,7 @@ class MainActivity : AudioServiceActivity() {
         }
 
         val mediaSessionsForDiagnostics = activeMediaSessionDetails()
+        val tokenSessionForDiagnostics = mediaSessionTokenDetails()
 
         val smallIconValid = try {
             getDrawable(R.drawable.ic_stat_muzic) != null
@@ -347,6 +350,7 @@ class MainActivity : AudioServiceActivity() {
                 !it.startsWith("error=")
             },
             "mediaSessionDetails" to mediaSessionsForDiagnostics,
+            "sessionTokenDetails" to tokenSessionForDiagnostics,
         )
     }
 
@@ -399,6 +403,58 @@ class MainActivity : AudioServiceActivity() {
                     val duration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: -1L
                     "pkg=${controller.packageName} state=$stateName title=$title artist=$artist durationMs=$duration"
                 }
+        } catch (e: Exception) {
+            listOf("error=${e.javaClass.simpleName}:${e.message ?: ""}")
+        }
+    }
+
+    /**
+     * Reads MuZic's own media session through the token carried by its
+     * posted notification. Unlike getActiveSessions(), this needs no
+     * notification-listener permission, so it can prove whether Android
+     * can read playing state and metadata from the exact session that
+     * SystemUI would render.
+     */
+    private fun mediaSessionTokenDetails(): List<String> {
+        val manager = getSystemService(NotificationManager::class.java)
+            ?: return listOf("error=no NotificationManager")
+        return try {
+            val status = manager.activeNotifications.firstOrNull {
+                it.notification.extras.containsKey(Notification.EXTRA_MEDIA_SESSION)
+            } ?: return listOf("error=no media notification posted")
+            val extras = status.notification.extras
+            val token = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                extras.getParcelable(
+                    Notification.EXTRA_MEDIA_SESSION,
+                    MediaSession.Token::class.java,
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                extras.getParcelable(Notification.EXTRA_MEDIA_SESSION)
+            } ?: return listOf("error=media session token missing")
+            val controller = MediaController(this, token)
+            val metadata = controller.metadata
+            val playbackState = controller.playbackState
+            val stateName = when (playbackState?.state) {
+                PlaybackState.STATE_PLAYING -> "playing"
+                PlaybackState.STATE_PAUSED -> "paused"
+                PlaybackState.STATE_BUFFERING -> "buffering"
+                PlaybackState.STATE_CONNECTING -> "connecting"
+                PlaybackState.STATE_NONE -> "none"
+                null -> "unknown"
+                else -> "state=${playbackState?.state}"
+            }
+            val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+            val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""
+            val duration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: -1L
+            val style = status.notification.notificationStyle?.name ?: "none"
+            listOf(
+                "pkg=${controller.packageName} state=$stateName " +
+                    "actions=${playbackState?.actions ?: -1L} " +
+                    "flags=${controller.flags} " +
+                    "sessionActivity=${controller.sessionActivity != null} " +
+                    "style=$style title=$title artist=$artist durationMs=$duration",
+            )
         } catch (e: Exception) {
             listOf("error=${e.javaClass.simpleName}:${e.message ?: ""}")
         }

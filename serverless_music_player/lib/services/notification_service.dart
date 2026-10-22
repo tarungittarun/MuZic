@@ -142,14 +142,14 @@ class NotificationService {
               (entry) => entry.toString().contains('com.auralis.player.muzic.audio.v2'));
       lines.add('${playerShowing ? '✅' : '⚠️'} System media notification '
           '${playerShowing ? 'posted for Android to render' : 'not posted — play a song, then check again'}');
-      final activeSessions = raw['activeMediaSessions'];
-      final sessionDetails = raw['mediaSessionDetails'];
-      if (activeSessions is int) {
-        lines.add('${activeSessions > 0 ? '✅' : '⚠️'} Android media session '
-            'visible to SystemUI: $activeSessions active');
-      }
-      if (sessionDetails is List && sessionDetails.isNotEmpty) {
-        lines.add('Session: ${sessionDetails.join(' | ')}');
+      final tokenDetails = raw['sessionTokenDetails'];
+      if (tokenDetails is List && tokenDetails.isNotEmpty) {
+        final tokenLine = tokenDetails.join(' | ');
+        final readable = tokenLine.contains('state=playing') ||
+            tokenLine.contains('state=paused');
+        lines.add('${readable ? '✅' : '⚠️'} Media session token '
+            '${readable ? 'readable by Android' : 'not readable'}');
+        lines.add('Session token: $tokenLine');
       }
       if (importance is int && importance == 0) {
         lines.add('This channel is turned off in Android settings — open '
