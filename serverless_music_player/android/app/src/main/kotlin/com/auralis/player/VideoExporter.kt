@@ -591,7 +591,7 @@ class VideoExporter(private val context: Context) {
         // ENOENT. Keep the visible name useful but bounded.
         val safe = name
             .replace(Regex("[^A-Za-z0-9._ -]"), "_")
-            .replace(Regex("\s+"), " ")
+            .replace(Regex("""\s+"""), " ")
             .trim()
             .take(82)
             .trim()
