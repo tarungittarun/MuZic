@@ -372,6 +372,7 @@ class WavySliderTrackShape extends SliderTrackShape {
     required SliderThemeData sliderTheme,
     required Animation<double> enableAnimation,
     required Offset thumbCenter,
+    Offset? secondaryOffset,
     bool isDiscrete = false,
     bool isEnabled = false,
     required TextDirection textDirection,

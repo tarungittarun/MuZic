@@ -23,7 +23,6 @@ import '../services/visualizer_service.dart';
 import '../theme/app_theme.dart';
 import 'animated_rhythm_icon.dart';
 import 'media_controller_card.dart';
-import 'cover_art.dart';
 import 'song_tile.dart';
 import 'visualizer_bars.dart';
 
