@@ -80,8 +80,8 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           tail -5 test.err
           if [ $status -ne 0 ]; then
-            # Surface the reason: a compile error in a test file otherwise just
-            # shows up as "0 tests".
+            # Surface compile failures and name the exact failing test in the
+            # check annotations, not only in a log archive.
             head -40 test.err | while IFS= read -r line; do
               [ -n "$line" ] && echo "::error title=tests::$(echo "$line" | cut -c1-300)"
             done
@@ -89,6 +89,35 @@ jobs:
               | head -20 | while IFS= read -r line; do
               echo "::error title=test-compile::$(echo "$line" | cut -c1-300)"
             done
+            python3 - <<'PY'
+          import json, re
+          names = {}
+          errors = {}
+          failed = []
+          for line in open('test.json', errors='ignore'):
+              try:
+                  event = json.loads(line)
+              except Exception:
+                  continue
+              kind = event.get('type')
+              if kind == 'testStart':
+                  test = event.get('test', {})
+                  names[test.get('id')] = test.get('name', 'unnamed test')
+              elif kind == 'error':
+                  test_id = event.get('testID')
+                  text = event.get('error') or event.get('message') or 'test error'
+                  stack = event.get('stackTrace') or ''
+                  errors.setdefault(test_id, []).append(f'{text} {stack}')
+              elif kind == 'testDone' and event.get('result') != 'success':
+                  failed.append(event.get('testID'))
+          for test_id in failed:
+              name = names.get(test_id, f'test id {test_id}')
+              detail = ' '.join(errors.get(test_id, ['No failure detail in JSON output']))
+              detail = re.sub(r'\s+', ' ', detail).strip()[:2500]
+              print(f'::error title=failed-test::{name}: {detail}')
+          if not failed:
+              print('::error title=failed-test::No test failure event found; inspect the uploaded static-report artifact.')
+          PY
           fi
           exit $status
 
