@@ -1,13 +1,13 @@
 import 'dart:io';
 
-import 'package:auralis_player/models/song_model.dart';
-import 'package:auralis_player/services/usage_service.dart';
+import 'package:music_player/models/song_model.dart';
+import 'package:music_player/services/usage_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
 void main() {
   test('persists local activity, serializes counters, and clears history', () async {
-    final directory = await Directory.systemTemp.createTemp('auralis-usage-test-');
+    final directory = await Directory.systemTemp.createTemp('music-usage-test-');
     Hive.init(directory.path);
     final usage = UsageService();
     await usage.init();

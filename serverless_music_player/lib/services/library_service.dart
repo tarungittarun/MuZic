@@ -10,6 +10,7 @@ class LibraryService extends ChangeNotifier {
   late Box<dynamic> _downloads;
   late Box<dynamic> _recents;
   late Box<dynamic> _playlists;
+  late Box<dynamic> _localTracks;
 
   Future<void> init() async {
     await Hive.initFlutter();
@@ -17,13 +18,47 @@ class LibraryService extends ChangeNotifier {
     _downloads = await Hive.openBox<dynamic>('downloads');
     _recents = await Hive.openBox<dynamic>('recently_played');
     _playlists = await Hive.openBox<dynamic>('playlists');
+    _localTracks = await Hive.openBox<dynamic>('local_tracks');
+  }
+
+  /// Songs imported from the device as local files (FLAC/WAV/AIFF/MP3...).
+  List<SongModel> get localSongs => _songsFrom(_localTracks.values)
+      .where((song) =>
+          song.localPath != null && File(song.localPath!).existsSync())
+      .toList(growable: false);
+
+  Future<void> saveLocalSong(SongModel song) async {
+    await _localTracks.put(song.id, song.toMap());
+    notifyListeners();
+  }
+
+  Future<void> removeLocalSong(String songId) async {
+    final song = _localTracks.get(songId);
+    await _localTracks.delete(songId);
+    if (song is Map) {
+      final path = SongModel.fromMap(song).localPath;
+      if (path != null) {
+        final file = File(path);
+        if (file.existsSync()) {
+          try {
+            await file.delete();
+          } on FileSystemException {
+            // Ignore: the file may be locked by the player.
+          }
+        }
+      }
+    }
+    notifyListeners();
   }
 
   bool isFavorite(String songId) => _favorites.containsKey(songId);
 
   bool isDownloaded(String songId) {
     final path = downloadedSong(songId)?.localPath;
-    return path != null && path.isNotEmpty && File(path).existsSync();
+    if (path == null || path.isEmpty) return false;
+    // Downloads in a user-picked folder use Android content URIs.
+    if (path.startsWith('content://')) return true;
+    return File(path).existsSync();
   }
 
   SongModel? downloadedSong(String songId) {
@@ -39,8 +74,11 @@ class LibraryService extends ChangeNotifier {
   List<SongModel> get favoriteSongs => _songsFrom(_favorites.values);
 
   List<SongModel> get downloadedSongs => _songsFrom(_downloads.values)
-      .where((song) =>
-          song.localPath != null && File(song.localPath!).existsSync())
+      .where((song) {
+        final path = song.localPath;
+        if (path == null || path.isEmpty) return false;
+        return path.startsWith('content://') || File(path).existsSync();
+      })
       .toList(growable: false);
 
   List<SongModel> get recentSongs {

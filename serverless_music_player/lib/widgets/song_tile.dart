@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/audio_quality.dart';
 import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
 import '../services/library_service.dart';
+import '../services/local_files_service.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
 import '../theme/app_theme.dart';
@@ -18,6 +20,8 @@ class SongTile extends StatefulWidget {
     required this.onTap,
     this.showActions = true,
     this.showDetails = false,
+    this.subtitleOverride,
+    this.trailing,
     super.key,
   });
 
@@ -25,6 +29,13 @@ class SongTile extends StatefulWidget {
   final VoidCallback onTap;
   final bool showActions;
   final bool showDetails;
+
+  /// Optional line shown under the artist (e.g. a recommendation reason).
+  final String? subtitleOverride;
+
+  /// Optional trailing widget that replaces the usual action buttons
+  /// (e.g. the drag handle in Up next).
+  final Widget? trailing;
 
   @override
   State<SongTile> createState() => _SongTileState();
@@ -45,22 +56,48 @@ class _SongTileState extends State<SongTile> {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<PlayerController>();
-    final palette = context.palette;
     final song = widget.song;
-    final downloaded = player.isDownloaded(song);
-    final progress = player.downloadProgressFor(song);
-    final isCurrent = player.currentSong?.id == song.id;
+    // Rebuild this row only when *its* playback/download state changes.
+    // Watching the whole controller here rebuilt every visible row on each
+    // position tick, which made long lists feel capped and juddery.
+    final isCurrent = context.select<PlayerController, bool>(
+      (player) => player.currentSong?.id == song.id,
+    );
+    final downloaded = context.select<PlayerController, bool>(
+      (player) => player.isDownloaded(song),
+    );
+    final progress = context.select<PlayerController, double?>(
+      (player) => player.downloadProgressFor(song),
+    );
+    final isFavorite = context.select<PlayerController, bool>(
+      (player) => player.isFavorite(song),
+    );
+    final player = context.read<PlayerController>();
+    final palette = context.palette;
     final quickMeta = <String>[
       if (song.duration != null) _formatDuration(song.duration!),
       if (_releaseLabel(song.releaseDate) != null) _releaseLabel(song.releaseDate)!,
     ];
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       decoration: BoxDecoration(
-        color: isCurrent ? palette.surfaceRaised : Colors.transparent,
+        color: isCurrent ? palette.surfaceRaised : palette.surface,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isCurrent
+              ? palette.accent.withValues(alpha: 0.55)
+              : palette.outline.withValues(alpha: 0.65),
+          width: 0.7,
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.16 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         children: <Widget>[
@@ -96,6 +133,19 @@ class _SongTileState extends State<SongTile> {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(fontSize: 11, color: palette.textSecondary),
                           ),
+                          if (widget.subtitleOverride != null) ...<Widget>[
+                            const SizedBox(height: 3),
+                            Text(
+                              widget.subtitleOverride!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: palette.accent,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                           if (quickMeta.isNotEmpty) ...<Widget>[
                             const SizedBox(height: 3),
                             Text(
@@ -120,18 +170,20 @@ class _SongTileState extends State<SongTile> {
                           color: palette.textMuted,
                         ),
                       ),
-                    if (widget.showActions) ...<Widget>[
+                    if (widget.trailing != null)
+                      widget.trailing!
+                    else if (widget.showActions) ...<Widget>[
                       IconButton(
                         visualDensity: VisualDensity.compact,
                         constraints: const BoxConstraints.tightFor(width: 36, height: 38),
                         padding: EdgeInsets.zero,
-                        tooltip: player.isFavorite(song) ? 'Unlike' : 'Like',
+                        tooltip: isFavorite ? 'Unlike' : 'Like',
                         onPressed: () => player.toggleFavorite(song),
                         icon: Icon(
-                          player.isFavorite(song)
+                          isFavorite
                               ? Icons.favorite_rounded
                               : Icons.favorite_border_rounded,
-                          color: player.isFavorite(song) ? palette.accent : palette.textMuted,
+                          color: isFavorite ? palette.accent : palette.textMuted,
                           size: 19,
                         ),
                       ),
@@ -139,8 +191,12 @@ class _SongTileState extends State<SongTile> {
                         visualDensity: VisualDensity.compact,
                         constraints: const BoxConstraints.tightFor(width: 36, height: 38),
                         padding: EdgeInsets.zero,
-                        tooltip: downloaded ? 'Saved offline' : 'Download',
-                        onPressed: downloaded || progress != null
+                        tooltip: song.isLiveStream
+                            ? 'Live stream'
+                            : downloaded
+                                ? 'Saved offline'
+                                : 'Download',
+                        onPressed: downloaded || progress != null || song.isLiveStream
                             ? null
                             : () => _download(context),
                         icon: progress != null
@@ -174,11 +230,16 @@ class _SongTileState extends State<SongTile> {
                             value: 'playlist',
                             child: _MenuLabel(icon: Icons.library_add_rounded, text: 'Add to playlist'),
                           ),
-                          if (downloaded)
+                          if (downloaded) ...<PopupMenuEntry<String>>[
+                            const PopupMenuItem(
+                              value: 'share',
+                              child: _MenuLabel(icon: Icons.share_rounded, text: 'Share original file'),
+                            ),
                             const PopupMenuItem(
                               value: 'remove',
                               child: _MenuLabel(icon: Icons.delete_outline_rounded, text: 'Remove download'),
                             ),
+                          ],
                         ],
                         icon: Icon(Icons.more_vert_rounded, color: palette.textMuted, size: 19),
                       ),
@@ -227,10 +288,10 @@ class _SongTileState extends State<SongTile> {
           SnackBar(content: Text('Saved “${widget.song.title}” for offline listening.')),
         );
       }
-    } catch (error) {
+    } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $error')),
+          const SnackBar(content: Text('Download failed. Please try again.')),
         );
       }
     }
@@ -241,17 +302,54 @@ class _SongTileState extends State<SongTile> {
     try {
       if (action == 'queue') {
         await player.addToQueue(widget.song);
+      } else if (action == 'share') {
+        await _shareOriginalFile(context);
       } else if (action == 'remove') {
         await player.removeDownload(widget.song);
       } else if (action == 'playlist') {
         await _choosePlaylist(context);
       }
-    } catch (error) {
+    } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not complete that action: $error')),
+          const SnackBar(content: Text('Could not complete that action.')),
         );
       }
+    }
+  }
+
+  /// Shares the downloaded file byte-for-byte, so the receiver gets the
+  /// same quality MuZic downloaded (no transcoding happens here).
+  Future<void> _shareOriginalFile(BuildContext context) async {
+    final saved =
+        context.read<LibraryService>().downloadedSong(widget.song.id);
+    final path = saved?.localPath ?? widget.song.localPath;
+    if (path == null || path.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The downloaded file could not be found.')),
+      );
+      return;
+    }
+    final extension = path.contains('.')
+        ? path.substring(path.lastIndexOf('.'))
+        : '.m4a';
+    final cleanTitle = widget.song.title
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '')
+        .trim();
+    final cleanArtist = widget.song.artist
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '')
+        .trim();
+    final fileName = cleanArtist.isEmpty
+        ? '$cleanTitle$extension'
+        : '$cleanTitle - $cleanArtist$extension';
+    final shared = await LocalFilesService().shareFile(
+      path: path,
+      fileName: fileName.isEmpty ? 'MuZic track$extension' : fileName,
+    );
+    if (!shared && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not share this file.')),
+      );
     }
   }
 
@@ -337,10 +435,11 @@ class _TrackDetails extends StatelessWidget {
         _InfoRow(label: 'Play count', value: song.playCount == null ? null : _formatCount(song.playCount!)),
         _InfoRow(label: 'Copyright', value: song.copyright),
         _InfoRow(label: 'Source', value: _sourceLabel(song.source)),
+        _InfoRow(label: 'Audio quality', value: describeAudio(song).toString()),
         if (song.isExplicit != null)
           _InfoRow(label: 'Content', value: song.isExplicit! ? 'Explicit' : 'Clean'),
         if (song.hasLyrics != null)
-          _InfoRow(label: 'JioSaavn lyrics flag', value: song.hasLyrics! ? 'Listed' : 'Not listed'),
+          _InfoRow(label: 'Catalog lyrics flag', value: song.hasLyrics! ? 'Listed' : 'Not listed'),
         _LyricsAvailability(future: lyricsFuture, onRetry: onRetryLyrics),
       ],
     );
@@ -363,7 +462,7 @@ class _LyricsAvailability extends StatelessWidget {
         final String value;
         final Color color;
         if (snapshot.connectionState == ConnectionState.waiting) {
-          value = 'Checking LRCLIB…';
+          value = 'Checking lyrics…';
           color = palette.textMuted;
         } else if (snapshot.hasError) {
           return Padding(
@@ -385,10 +484,10 @@ class _LyricsAvailability extends StatelessWidget {
             ),
           );
         } else if (snapshot.data?.isEmpty == false) {
-          value = 'Available on LRCLIB';
+          value = 'Available';
           color = palette.mint;
         } else {
-          value = 'Not found on LRCLIB';
+          value = 'Not found';
           color = palette.textMuted;
         }
         return _InfoRow(label: 'Lyrics', value: value, valueColor: color);
@@ -470,6 +569,8 @@ String _formatCount(int value) {
 }
 
 String _sourceLabel(SongSource source) => switch (source) {
-      SongSource.jioSaavn => 'JioSaavn',
-      SongSource.youtube => 'YouTube',
+      SongSource.jioSaavn => 'Source A',
+      SongSource.youtube => 'Source B',
+      SongSource.radio => 'Lossless radio',
+      SongSource.local => 'Local file',
     };

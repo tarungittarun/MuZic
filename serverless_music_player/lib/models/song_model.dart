@@ -1,4 +1,4 @@
-enum SongSource { jioSaavn, youtube }
+enum SongSource { jioSaavn, youtube, radio, local }
 
 enum SearchSource { automatic, jioSaavn, youtube }
 
@@ -51,6 +51,13 @@ class SongModel {
 
   Duration? get duration =>
       durationMs == null ? null : Duration(milliseconds: durationMs!);
+
+  /// Live radio streams never end; they cannot be downloaded and have no
+  /// natural duration.
+  bool get isLiveStream => source == SongSource.radio;
+
+  /// Imported local files play from app storage and never need resolving.
+  bool get isLocalFile => source == SongSource.local;
 
   SongModel copyWith({
     String? id,

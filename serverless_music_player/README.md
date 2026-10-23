@@ -1,6 +1,6 @@
-# Auralis — serverless Flutter music player
+# MuZic — serverless Flutter music player
 
-Auralis is an Android-first Flutter source project. Playback, queues, downloads, favorites, playlists, and recents are handled on-device; the app has no backend service or paid API key.
+MuZic is an Android-first Flutter source project. Playback, queues, downloads, favorites, playlists, and recents are handled on-device; the app has no backend service or paid API key.
 
 ## Build locally
 

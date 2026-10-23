@@ -1,13 +1,13 @@
 import 'dart:io';
 
-import 'package:auralis_player/services/app_settings_service.dart';
+import 'package:music_player/services/app_settings_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
 void main() {
   test('persists the selected theme mode on device', () async {
-    final directory = await Directory.systemTemp.createTemp('auralis-settings-test-');
+    final directory = await Directory.systemTemp.createTemp('music-settings-test-');
     Hive.init(directory.path);
 
     try {
@@ -22,6 +22,59 @@ void main() {
       expect(restoredSettings.themeMode, ThemeMode.light);
       await restoredSettings.setThemeMode(ThemeMode.system);
       expect(restoredSettings.themeMode, ThemeMode.system);
+    } finally {
+      await Hive.close();
+      await directory.delete(recursive: true);
+    }
+  });
+
+  test('diagnostics stays off by default and sleep timer persists',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('music-prefs-test-');
+    Hive.init(directory.path);
+
+    try {
+      final first = AppSettingsService();
+      await first.init();
+      // Diagnostics capture is opt-in and must default to off.
+      expect(first.diagnosticsEnabled, isFalse);
+      expect(first.sleepTimerEnabled, isFalse);
+      expect(first.sleepTimerMinutes, 60);
+      expect(first.region, 'IN');
+      expect(first.languages, containsAll(<String>['hindi', 'english']));
+      // YouTube-style autoplay is useful out of the box, but it is still a
+      // persisted user preference and can be turned off.
+      expect(first.autoplayRecommendations, isTrue);
+      expect(first.recommendationStyle, 'balanced');
+      expect(first.liveVisualizerEnabled, isFalse);
+      expect(first.hasCustomDownloadsFolder, isFalse);
+      expect(first.oneHandModeEnabled, isTrue);
+
+      await first.setDiagnosticsEnabled(true);
+      await first.setSleepTimer(enabled: true, minutes: 45);
+      await first.setRegion('US');
+      await first.setLanguages(<String>['english']);
+      await first.setAutoplayRecommendations(false);
+      await first.setRecommendationStyle('discovery');
+      await first.setLiveVisualizerEnabled(true);
+      await first.setDownloadsFolder(uri: 'content://tree/test', name: 'My music');
+      await first.setOneHandModeEnabled(false);
+      await Hive.box<dynamic>('app_settings').close();
+
+      final restored = AppSettingsService();
+      await restored.init();
+      expect(restored.diagnosticsEnabled, isTrue);
+      expect(restored.sleepTimerEnabled, isTrue);
+      expect(restored.sleepTimerMinutes, 45);
+      expect(restored.region, 'US');
+      expect(restored.languages, <String>['english']);
+      expect(restored.autoplayRecommendations, isFalse);
+      expect(restored.recommendationStyle, 'discovery');
+      expect(restored.liveVisualizerEnabled, isTrue);
+      expect(restored.downloadsFolderUri, 'content://tree/test');
+      expect(restored.downloadsFolderName, 'My music');
+      expect(restored.oneHandModeEnabled, isFalse);
     } finally {
       await Hive.close();
       await directory.delete(recursive: true);

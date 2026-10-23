@@ -1,18 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'app_info.dart';
 import 'providers/player_controller.dart';
-import 'screens/main_shell.dart';
 import 'services/app_settings_service.dart';
+import 'services/audio_effects_service.dart';
+import 'services/sleep_timer_service.dart';
 import 'services/audio_player_service.dart';
+import 'services/diagnostics_service.dart';
 import 'services/download_service.dart';
 import 'services/library_service.dart';
 import 'services/music_api_service.dart';
 import 'services/usage_service.dart';
+import 'services/video_export_manager.dart';
+import 'services/video_library_service.dart';
 import 'theme/app_theme.dart';
+import 'screens/main_shell.dart';
 
-class AuralisApp extends StatelessWidget {
-  const AuralisApp({
+class MusicApp extends StatelessWidget {
+  const MusicApp({
     required this.library,
     required this.musicApi,
     required this.audio,
@@ -20,6 +26,11 @@ class AuralisApp extends StatelessWidget {
     required this.player,
     required this.settings,
     required this.usage,
+    required this.diagnostics,
+    required this.effects,
+    required this.sleepTimer,
+    required this.videoExports,
+    required this.videoLibrary,
     super.key,
   });
 
@@ -30,6 +41,11 @@ class AuralisApp extends StatelessWidget {
   final PlayerController player;
   final AppSettingsService settings;
   final UsageService usage;
+  final DiagnosticsService diagnostics;
+  final AudioEffectsService effects;
+  final SleepTimerService sleepTimer;
+  final VideoExportManager videoExports;
+  final VideoLibraryService videoLibrary;
 
   @override
   Widget build(BuildContext context) {
@@ -42,10 +58,15 @@ class AuralisApp extends StatelessWidget {
         ChangeNotifierProvider<PlayerController>.value(value: player),
         ChangeNotifierProvider<AppSettingsService>.value(value: settings),
         ChangeNotifierProvider<UsageService>.value(value: usage),
+        ChangeNotifierProvider<DiagnosticsService>.value(value: diagnostics),
+        Provider<AudioEffectsService>.value(value: effects),
+        ChangeNotifierProvider<SleepTimerService>.value(value: sleepTimer),
+        ChangeNotifierProvider<VideoExportManager>.value(value: videoExports),
+        ChangeNotifierProvider<VideoLibraryService>.value(value: videoLibrary),
       ],
       child: Consumer<AppSettingsService>(
         builder: (context, appSettings, _) => MaterialApp(
-          title: 'Auralis',
+          title: AppInfo.displayName,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,

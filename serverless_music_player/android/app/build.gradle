@@ -28,8 +28,11 @@ android {
         applicationId = "com.auralis.player"
         minSdk = 23
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // Take the version from pubspec.yaml (`version: 1.4.2+7`) through the
+        // Flutter Gradle extension. Hard-coding 1/1.0.0 here silently overrode
+        // the pubspec, so every earlier APK installed as 1.0.0 (code 1).
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
     }
 
     splits {
@@ -41,6 +44,18 @@ android {
         }
     }
 
+    // Install-over guarantee: Flutter/AGP auto-offsets the versionCode per
+    // ABI, and the offset varied with how the build was invoked (a build
+    // once shipped arm64=2011, the next arm64=1012, which Android rejects
+    // as a downgrade). Pin every split output to 3000 + the pubspec build
+    // number instead: always higher than any earlier release (max 2011)
+    // and strictly increasing with every version bump, for both ABIs.
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            output.versionCodeOverride = 3000 + flutter.versionCode
+        }
+    }
+
     signingConfigs {
         release {
             if (keystorePropertiesFile.exists()) {
@@ -48,6 +63,7 @@ android {
                 keyPassword = keystoreProperties['keyPassword']
                 storeFile = file(keystoreProperties['storeFile'])
                 storePassword = keystoreProperties['storePassword']
+                storeType = keystoreProperties['storeType'] ?: 'PKCS12'
             }
         }
     }
@@ -72,4 +88,10 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // AndroidX media/core helpers used by the host app. Playback itself is
+    // provided by audio_service + just_audio_background.
+    implementation "androidx.documentfile:documentfile:1.0.1"
 }

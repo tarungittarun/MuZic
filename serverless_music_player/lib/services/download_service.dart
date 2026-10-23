@@ -5,11 +5,19 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/song_model.dart';
+import 'app_settings_service.dart';
 import 'library_service.dart';
+import 'local_files_service.dart';
 
 class DownloadService {
-  DownloadService({required LibraryService library, Dio? dio})
-      : _library = library,
+  DownloadService({
+    required LibraryService library,
+    Dio? dio,
+    AppSettingsService? settings,
+    LocalFilesService? localFiles,
+  })  : _library = library,
+        _settings = settings,
+        _localFiles = localFiles ?? LocalFilesService(),
         _dio = dio ?? Dio(BaseOptions(
           connectTimeout: const Duration(seconds: 20),
           receiveTimeout: const Duration(minutes: 12),
@@ -19,13 +27,24 @@ class DownloadService {
         ));
 
   final LibraryService _library;
+  final AppSettingsService? _settings;
+  final LocalFilesService _localFiles;
   final Dio _dio;
+
+  Future<bool> _localPathExists(String path) {
+    if (path.startsWith('content://')) {
+      // Android owns this file through scoped storage; its content URI is
+      // the durable address, so there is no backing File to stat.
+      return Future<bool>.value(true);
+    }
+    return File(path).exists();
+  }
 
   Future<String?> localPathFor(String songId) async {
     final song = _library.downloadedSong(songId);
     final path = song?.localPath;
     if (path == null || path.isEmpty) return null;
-    return await File(path).exists() ? path : null;
+    return await _localPathExists(path) ? path : null;
   }
 
   Future<SongModel> downloadSong(
@@ -35,7 +54,7 @@ class DownloadService {
   }) async {
     final existing = _library.downloadedSong(song.id);
     if (existing?.localPath != null &&
-        await File(existing!.localPath!).exists()) {
+        await _localPathExists(existing!.localPath!)) {
       return existing;
     }
 
@@ -102,8 +121,26 @@ class DownloadService {
         }
       }
 
+      var storedAudioPath = savedAudio.path;
+      final customFolder = _settings;
+      if (customFolder != null && customFolder.hasCustomDownloadsFolder) {
+        // Copy the finished, original bytes into the user's folder. If the
+        // folder grant is unavailable, keep the working app-storage copy
+        // rather than failing a download that already succeeded.
+        final copiedPath = await _localFiles.copyFileToDownloadsFolder(
+          folderUri: customFolder.downloadsFolderUri,
+          sourcePath: savedAudio.path,
+          fileName: p.basename(savedAudio.path),
+          mimeType: _mimeTypeForExtension(extension),
+        );
+        if (copiedPath != null) {
+          storedAudioPath = copiedPath;
+          if (await savedAudio.exists()) await savedAudio.delete();
+        }
+      }
+
       final savedSong = song.copyWith(
-        localPath: savedAudio.path,
+        localPath: storedAudioPath,
         localArtworkPath: artworkPath,
       );
       await _library.saveDownload(savedSong);
@@ -119,6 +156,10 @@ class DownloadService {
     final saved = _library.downloadedSong(song.id);
     for (final path in <String?>[saved?.localPath, saved?.localArtworkPath]) {
       if (path == null || path.isEmpty) continue;
+      if (path.startsWith('content://')) {
+        await _localFiles.deleteSharedFile(path);
+        continue;
+      }
       final file = File(path);
       if (await file.exists()) await file.delete();
     }
@@ -137,6 +178,17 @@ class DownloadService {
     if (mime.contains('ogg')) return '.ogg';
     if (mime.contains('mpeg')) return '.mp3';
     return '.m4a';
+  }
+
+  String _mimeTypeForExtension(String extension) {
+    return switch (extension) {
+      '.mp3' => 'audio/mpeg',
+      '.m4a' || '.mp4' => 'audio/mp4',
+      '.ogg' => 'audio/ogg',
+      '.opus' => 'audio/opus',
+      '.webm' => 'audio/webm',
+      _ => 'audio/*',
+    };
   }
 
   String _imageExtension(String url) {
