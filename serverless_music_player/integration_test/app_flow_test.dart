@@ -200,13 +200,38 @@ void main() {
         await tester.enterText(find.byType(TextField).first, 'Arijit Singh');
         await tester.testTextInput.receiveAction(TextInputAction.search);
         final deadline = DateTime.now().add(const Duration(seconds: 35));
-        var rows = 0;
+        var hasTopResult = false;
         while (DateTime.now().isBefore(deadline)) {
           await tester.pump(const Duration(milliseconds: 400));
-          rows = find.byType(SongTile).evaluate().length;
-          if (rows > 0) break;
+          hasTopResult = find.text('TOP RESULT').evaluate().isNotEmpty;
+          if (hasTopResult) break;
         }
-        expect(rows, greaterThan(0), reason: 'artist search returned no songs');
+        expect(hasTopResult, isTrue,
+            reason: 'artist search returned no playable song results');
+        final searchList = find
+            .descendant(
+              of: find.byType(HomeScreen),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        await tester.scrollUntilVisible(
+          find.text('Songs'),
+          220,
+          scrollable: searchList,
+        );
+        final songRows = find.byType(SongTile);
+        await tester.scrollUntilVisible(
+          songRows.first,
+          180,
+          scrollable: searchList,
+        );
+        final resultLabel = tester.widget<Text>(find.textContaining('results').first);
+        final count = int.tryParse(
+              RegExp(r'\d+').firstMatch(resultLabel.data ?? '')?.group(0) ?? '',
+            ) ??
+            0;
+        expect(count, greaterThanOrEqualTo(30),
+            reason: 'mainstream artist search returned fewer than 30 songs');
       });
 
       await step('search_results_structure', () async {
