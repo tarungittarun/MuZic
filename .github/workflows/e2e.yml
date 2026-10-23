@@ -19,7 +19,7 @@ permissions:
 concurrency:
   # Push and pull_request events for the same PR branch share one expensive
   # emulator run instead of racing two identical matrices.
-  group: e2e-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: e2e-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
