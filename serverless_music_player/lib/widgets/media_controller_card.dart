@@ -5,7 +5,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/song_model.dart';
-import '../theme/app_theme.dart';
 import 'muzic_home_button.dart';
 
 /// The in-app twin of Android's lock-screen media player.
@@ -259,7 +258,6 @@ class ArtworkBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.palette;
     final localPath = song.localArtworkPath;
     if (localPath != null && localPath.isNotEmpty && File(localPath).existsSync()) {
       return Image.file(File(localPath), fit: BoxFit.cover);
@@ -268,21 +266,20 @@ class ArtworkBackdrop extends StatelessWidget {
       return CachedNetworkImage(
         imageUrl: song.artworkUrl,
         fit: BoxFit.cover,
-        placeholder: (_, __) => _fallback(palette),
-        errorWidget: (_, __, ___) => _fallback(palette),
+        placeholder: (_, __) => _fallback(),
+        errorWidget: (_, __, ___) => _fallback(),
       );
     }
-    return _fallback(palette);
+    return _fallback();
   }
 
-  Widget _fallback(AppPalette palette) {
+  // Fixed brand colours (not theme lookups) so the backdrop is safe in any
+  // host — dialogs, tests, or themes without the MuZic extension.
+  Widget _fallback() {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: <Color>[
-            Color.alphaBlend(palette.accent.withValues(alpha: 0.55), palette.surface),
-            Color.alphaBlend(palette.mint.withValues(alpha: 0.4), palette.surfaceRaised),
-          ],
+          colors: <Color>[Color(0xFF3A2E5C), Color(0xFF173F3A)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
