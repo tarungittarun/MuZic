@@ -38,7 +38,9 @@ class _OneHandReachState extends State<OneHandReach>
   double _maxDrop = 0;
   int _pullDownCount = 0;
   DateTime? _pullWindowStart;
-  bool _pullCountedThisDrag = false;
+  bool _atTop = true;
+  Offset? _pointerStart;
+  bool _pullCountedThisPointer = false;
   bool? _wasEnabled;
 
   @override
@@ -71,55 +73,33 @@ class _OneHandReachState extends State<OneHandReach>
     _offset = 0;
     _pullDownCount = 0;
     _pullWindowStart = null;
-    _pullCountedThisDrag = false;
+    _pointerStart = null;
+    _pullCountedThisPointer = false;
     _dropController.stop();
     _dropController.value = 0;
   }
 
-  bool _handleScrollNotification(ScrollNotification notification) {
+  void _handlePointerDown(PointerDownEvent event) {
+    _pointerStart = event.position;
+    _pullCountedThisPointer = false;
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
     if (!widget.visible ||
+        _active ||
+        !_atTop ||
+        _pointerStart == null ||
+        _pullCountedThisPointer ||
         !context.read<AppSettingsService>().oneHandModeEnabled) {
-      return false;
+      return;
     }
-    final metrics = notification.metrics;
-    if (metrics.axis != Axis.vertical) return false;
+    final delta = event.position - _pointerStart!;
+    if (delta.dy < 64 || delta.dy < delta.dx.abs() * 1.25) return;
+    _pullCountedThisPointer = true;
+    _recordPullDown();
+  }
 
-    if (notification is ScrollStartNotification) {
-      _pullCountedThisDrag = false;
-      return false;
-    }
-
-    if (_active) {
-      // Ignore the tiny scroll gesture used to trigger reach while its entry
-      // animation is still running. After that, the page follows the finger
-      // directly and is translated in a compositor layer, not relaid out.
-      if (_dropAnimating) return false;
-      if (notification is ScrollUpdateNotification) {
-        final delta = notification.scrollDelta ?? 0;
-        if (delta == 0) return false;
-        final next = (_offset - delta).clamp(0.0, _maxDrop).toDouble();
-        if (next != _offset) {
-          setState(() {
-            _offset = next;
-            if (_offset <= 0) {
-              _active = false;
-              _pullDownCount = 0;
-              _pullWindowStart = null;
-            }
-          });
-        }
-      }
-      return false;
-    }
-
-    if (notification is! OverscrollNotification ||
-        _pullCountedThisDrag ||
-        metrics.extentBefore != 0 ||
-        notification.overscroll >= -14) {
-      return false;
-    }
-
-    _pullCountedThisDrag = true;
+  void _recordPullDown() {
     final now = DateTime.now();
     if (_pullWindowStart == null ||
         now.difference(_pullWindowStart!) > _pullWindow) {
@@ -138,6 +118,35 @@ class _OneHandReachState extends State<OneHandReach>
       _dropController.forward(from: 0);
       setState(() {});
     }
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (!widget.visible ||
+        !context.read<AppSettingsService>().oneHandModeEnabled) {
+      return false;
+    }
+    final metrics = notification.metrics;
+    if (metrics.axis != Axis.vertical) return false;
+    _atTop = metrics.extentBefore <= 0.5;
+
+    if (_active && notification is ScrollUpdateNotification) {
+      // Scrolling up hands the dropped space back smoothly: the offset
+      // shrinks with the scroll delta, then ordinary scrolling continues.
+      if (_dropAnimating) return false;
+      final delta = notification.scrollDelta ?? 0;
+      if (delta == 0) return false;
+      final next = (_offset - delta).clamp(0.0, _maxDrop).toDouble();
+      if (next != _offset) {
+        setState(() {
+          _offset = next;
+          if (_offset <= 0) {
+            _active = false;
+            _pullDownCount = 0;
+            _pullWindowStart = null;
+          }
+        });
+      }
+    }
     return false;
   }
 
@@ -152,32 +161,39 @@ class _OneHandReachState extends State<OneHandReach>
     final enabled = context.select<AppSettingsService, bool>(
       (settings) => settings.oneHandModeEnabled,
     );
-    return NotificationListener<ScrollNotification>(
-      onNotification: _handleScrollNotification,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          _maxDrop = constraints.maxHeight * 0.42;
-          return ClipRect(
-            child: AnimatedBuilder(
-              animation: _dropController,
-              child: widget.child,
-              builder: (context, child) {
-                final offset = !enabled || !widget.visible || !_active
-                    ? 0.0
-                    : _dropAnimating
-                        ? _maxDrop * Curves.easeOutCubic.transform(
-                            _dropController.value,
-                          )
-                        : _offset.clamp(0.0, _maxDrop).toDouble();
-                return Transform.translate(
-                  key: const ValueKey<String>('one-hand-page-transform'),
-                  offset: Offset(0, offset),
-                  child: child,
-                );
-              },
-            ),
-          );
-        },
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _handlePointerDown,
+      onPointerMove: _handlePointerMove,
+      onPointerUp: (_) => _pointerStart = null,
+      onPointerCancel: (_) => _pointerStart = null,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            _maxDrop = constraints.maxHeight * 0.42;
+            return ClipRect(
+              child: AnimatedBuilder(
+                animation: _dropController,
+                child: widget.child,
+                builder: (context, child) {
+                  final offset = !enabled || !widget.visible || !_active
+                      ? 0.0
+                      : _dropAnimating
+                          ? _maxDrop * Curves.easeOutCubic.transform(
+                              _dropController.value,
+                            )
+                          : _offset.clamp(0.0, _maxDrop).toDouble();
+                  return Transform.translate(
+                    key: const ValueKey<String>('one-hand-page-transform'),
+                    offset: Offset(0, offset),
+                    child: child,
+                  );
+                },
+              ),
+            );
+          },
+        ),
       ),
     );
   }

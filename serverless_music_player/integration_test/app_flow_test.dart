@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:music_player/main.dart' as app;
+import 'package:music_player/screens/home_screen.dart';
 import 'package:music_player/widgets/media_controller_card.dart';
 import 'package:music_player/widgets/mini_player.dart';
 import 'package:music_player/widgets/muzic_home_button.dart';
@@ -126,7 +127,12 @@ void main() {
       });
 
       await step('one_hand_reach_transition', () async {
-        final list = find.byType(ListView).first;
+        final list = find
+            .descendant(
+              of: find.byType(HomeScreen),
+              matching: find.byType(ListView),
+            )
+            .first;
         // The page starts at its top. Three firm pulls should smoothly move
         // the page into thumb reach, without the old Last played overlay.
         for (var pull = 0; pull < 3; pull++) {
