@@ -153,8 +153,11 @@ void main() {
             reason: 'one-hand reach must not place a music card in the open area');
 
         for (var attempt = 0; attempt < 5; attempt++) {
-          await tester.timedDrag(
-            list,
+          // After the page drops, the center of its full-height viewport can
+          // sit beneath the bottom bar. Pull in the visible upper part instead.
+          final pageTop = tester.getTopLeft(list);
+          await tester.timedDragFrom(
+            Offset(pageTop.dx + 80, pageTop.dy + 80),
             const Offset(0, -500),
             const Duration(milliseconds: 160),
           );
