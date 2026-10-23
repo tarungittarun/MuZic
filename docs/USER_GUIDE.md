@@ -25,11 +25,13 @@ screenshots.
   the content underneath and hides the home header.
 - **A clearer mini player:** a slim electric-blue trace circles the artwork
   card only during playback and becomes still when paused.
-- **More balanced full player:** the artwork card is about 20% smaller, the
-  live waveform sits above it, and the seek line remains with the controls.
-  Repeat, shuffle, download, like, lyrics and Up next share a roomy horizontal
-  action rail. After a swipe, it glides back over 2.5 seconds if no action is
-  tapped for four seconds.
+- **More balanced full player:** the artwork card is about 20% smaller,
+  followed by the live waveform and then the transport controls and seek line.
+  Lyrics is the fifth action at the artwork's bottom-right (not duplicated
+  in the lower rail), which keeps shuffle, repeat, like and Up next. Download
+  sits left of lyric-video export, while Quality sits left of Previous. After
+  a swipe, the rail glides back over
+  2.5 seconds if no action is tapped for 2.5 seconds.
 - **Snapping sheets:** Up next opens at 80%, settles at 30%, and dismisses on a
   further downward swipe. The full player similarly settles at 50% before a
   second downward swipe closes it. Both stops provide a light haptic cue.
@@ -415,8 +417,8 @@ Changes apply instantly; they are remembered across restarts.
 In the now-playing sheet tap the **waveform icon** at the top right — an
 18-band visualizer is drawn from the *actual* audio session (not a fake
 animation). The top-right symbol itself dances like a rhythm equaliser
-while a song plays. The waveform strip sits between the artwork card and
-the song title, and once you turn it on it **stays on for every song**
+while a song plays. The waveform strip sits between the artwork card and the
+transport controls, and once you turn it on it **stays on for every song**
 (across songs and player reopens) until you tap the symbol again to turn
 it off.
 

@@ -179,9 +179,14 @@ class MediaControllerCard extends StatelessWidget {
 
 /// The artwork-only card used when transport controls sit below the art.
 class MediaArtworkCard extends StatelessWidget {
-  const MediaArtworkCard({required this.song, super.key});
+  const MediaArtworkCard({
+    required this.song,
+    this.onLyricsTap,
+    super.key,
+  });
 
   final SongModel song;
+  final VoidCallback? onLyricsTap;
 
   @override
   Widget build(BuildContext context) {
@@ -219,30 +224,61 @@ class MediaArtworkCard extends StatelessWidget {
                   ],
                 ),
                 const Spacer(),
-                Text(
-                  song.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    height: 1.15,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  song.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xD9FFFFFF),
-                    fontSize: 14,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(
+                            song.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              height: 1.15,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            song.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xD9FFFFFF),
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 56),
+                  ],
                 ),
               ],
             ),
           ),
+          if (onLyricsTap != null)
+            Positioned(
+              right: 14,
+              bottom: 14,
+              child: Material(
+                color: Colors.white.withValues(alpha: 0.92),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  tooltip: 'Lyrics',
+                  onPressed: onLyricsTap,
+                  icon: const Icon(
+                    Icons.lyrics_outlined,
+                    color: Color(0xFF2A2438),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -260,6 +296,7 @@ class MediaTransportControls extends StatelessWidget {
     required this.onNext,
     required this.onPrevious,
     required this.onSeek,
+    this.leadingControl,
     super.key,
   });
 
@@ -271,6 +308,7 @@ class MediaTransportControls extends StatelessWidget {
   final VoidCallback onNext;
   final VoidCallback onPrevious;
   final ValueChanged<Duration> onSeek;
+  final Widget? leadingControl;
 
   @override
   Widget build(BuildContext context) {
@@ -289,6 +327,10 @@ class MediaTransportControls extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
+              if (leadingControl != null) ...<Widget>[
+                leadingControl!,
+                const SizedBox(width: 8),
+              ],
               IconButton(
                 tooltip: 'Previous track',
                 onPressed: onPrevious,

@@ -72,6 +72,9 @@ class _OneHandReachState extends State<OneHandReach>
 
   bool _active = false;
   bool _dropAnimating = false;
+  bool _restoring = false;
+  bool _restoreGestureStarted = false;
+  double _restoreStartOffset = 0;
   double _offset = 0;
   double _maxDrop = 0;
   int _pullDownCount = 0;
@@ -98,17 +101,32 @@ class _OneHandReachState extends State<OneHandReach>
   }
 
   void _onDropStatusChanged(AnimationStatus status) {
-    if (status != AnimationStatus.completed || !mounted || !_dropAnimating) {
+    if (status != AnimationStatus.completed || !mounted) return;
+    if (_dropAnimating) {
+      setState(() {
+        _dropAnimating = false;
+        _offset = _maxDrop;
+      });
       return;
     }
-    setState(() {
-      _dropAnimating = false;
-      _offset = _maxDrop;
-    });
+    if (_restoring) {
+      setState(() {
+        _restoring = false;
+        _active = false;
+        _offset = 0;
+        _restoreStartOffset = 0;
+        _restoreScrollLockUntilPointerUp = false;
+        _pullDownCount = 0;
+        _pullWindowStart = null;
+      });
+    }
   }
 
   void _resetReach() {
     _dropAnimating = false;
+    _restoring = false;
+    _restoreGestureStarted = false;
+    _restoreStartOffset = 0;
     _active = false;
     _offset = 0;
     _pullDownCount = 0;
@@ -125,14 +143,29 @@ class _OneHandReachState extends State<OneHandReach>
     _pointerStart = event.position;
     _pointerLast = event.position;
     _pullCountedThisPointer = false;
+    _restoreGestureStarted = false;
   }
 
   void _handlePointerEnd(PointerEvent event) {
+    final shouldSnapBack =
+        _active && _restoreGestureStarted && _offset > 0 && mounted;
     _pointerStart = null;
     _pointerLast = null;
-    if (_restoreScrollLockUntilPointerUp && mounted) {
+    _restoreGestureStarted = false;
+    if (shouldSnapBack) {
+      _animateRestoreToTop();
+    } else if (_restoreScrollLockUntilPointerUp && mounted) {
       setState(() => _restoreScrollLockUntilPointerUp = false);
     }
+  }
+
+  void _animateRestoreToTop() {
+    if (!_active || _offset <= 0 || !mounted) return;
+    setState(() {
+      _restoring = true;
+      _restoreStartOffset = _offset;
+    });
+    _dropController.forward(from: 0);
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
@@ -149,23 +182,31 @@ class _OneHandReachState extends State<OneHandReach>
     if (_active) {
       // Follow upward finger movement directly in a transform layer. This is
       // independent of scroll-physics overscroll thresholds on each device.
-      if (_dropAnimating || movement.dy >= 0) return;
-      final next = (_offset + movement.dy).clamp(0.0, _maxDrop).toDouble();
-      if (next != _offset) {
-        setState(() {
-          _offset = next;
-          if (_offset <= 0) {
-            _active = false;
-            // Keep vertical scrolling locked for the remainder of this finger
-            // gesture. Otherwise the same upward swipe first removes the
-            // reach offset and then scrolls the page underneath it, making the
-            // header disappear behind the newly exposed blank area.
-            _restoreScrollLockUntilPointerUp = true;
-            _pullDownCount = 0;
-            _pullWindowStart = null;
-          }
-        });
+      if (movement.dy >= 0) return;
+      _restoreGestureStarted = true;
+      if (_dropAnimating) {
+        // A quick return swipe must be allowed to interrupt the drop-in
+        // animation; otherwise the page appears stuck until that animation
+        // finishes, leaving a temporary black gap above it.
+        _offset =
+            _maxDrop * Curves.easeOutCubic.transform(_dropController.value);
+        _dropController.stop();
+        _dropAnimating = false;
       }
+      final next = (_offset + movement.dy).clamp(0.0, _maxDrop).toDouble();
+      setState(() {
+        _offset = next;
+        if (_offset <= 0) {
+          _active = false;
+          // Keep vertical scrolling locked for the remainder of this finger
+          // gesture. Otherwise the same upward swipe first removes the
+          // reach offset and then scrolls the page underneath it, making the
+          // header disappear behind the newly exposed blank area.
+          _restoreScrollLockUntilPointerUp = true;
+          _pullDownCount = 0;
+          _pullWindowStart = null;
+        }
+      });
       return;
     }
 
@@ -206,6 +247,28 @@ class _OneHandReachState extends State<OneHandReach>
     if (metrics.axis != Axis.vertical) return false;
     _atTop = metrics.extentBefore <= 0.5;
 
+    // Physics is the first line of defence. This also rolls back any position
+    // change that slipped through while the transformed page was being
+    // restored, so the app header cannot remain scrolled behind the exposed
+    // blank area on devices with different scroll/gesture arbitration.
+    if ((_active || _restoreScrollLockUntilPointerUp) &&
+        notification is ScrollUpdateNotification &&
+        metrics.extentBefore > 0.5) {
+      final scrollContext = notification.context;
+      final scrollable = scrollContext == null
+          ? null
+          : Scrollable.maybeOf(scrollContext);
+      final position = scrollable?.position;
+      if (position != null && position.hasContentDimensions) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !position.hasContentDimensions) return;
+          final top = position.minScrollExtent;
+          if (position.pixels > top + 0.5) position.jumpTo(top);
+          _atTop = true;
+        });
+      }
+    }
+
     return false;
   }
 
@@ -241,6 +304,12 @@ class _OneHandReachState extends State<OneHandReach>
                       : _dropAnimating
                       ? _maxDrop *
                             Curves.easeOutCubic.transform(_dropController.value)
+                      : _restoring
+                      ? _restoreStartOffset *
+                            (1 -
+                                Curves.easeInOutCubic.transform(
+                                  _dropController.value,
+                                ))
                       : _offset.clamp(0.0, _maxDrop).toDouble();
                   final lockVerticalScroll =
                       enabled &&

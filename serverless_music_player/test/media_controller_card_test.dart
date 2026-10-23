@@ -60,6 +60,7 @@ void main() {
 
   testWidgets('full-player artwork keeps transport controls below the art',
       (tester) async {
+    var lyricTaps = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -71,9 +72,17 @@ void main() {
                 children: <Widget>[
                   SizedBox(
                     height: 220,
-                    child: MediaArtworkCard(song: _song),
+                    child: MediaArtworkCard(
+                      song: _song,
+                      onLyricsTap: () => lyricTaps++,
+                    ),
                   ),
                   MediaTransportControls(
+                    leadingControl: const SizedBox(
+                      key: ValueKey<String>('quality-control'),
+                      width: 44,
+                      height: 44,
+                    ),
                     isPlaying: true,
                     isBusy: false,
                     position: const Duration(seconds: 71),
@@ -95,6 +104,14 @@ void main() {
     expect(find.text('Arijit Singh'), findsOneWidget);
     expect(find.byType(WavySeekBar), findsOneWidget);
     expect(find.byIcon(Icons.pause_rounded), findsOneWidget);
+    expect(find.byTooltip('Lyrics'), findsOneWidget);
+    await tester.tap(find.byTooltip('Lyrics'));
+    expect(lyricTaps, 1);
+    final qualityRect = tester.getRect(
+      find.byKey(const ValueKey<String>('quality-control')),
+    );
+    final previousRect = tester.getRect(find.byTooltip('Previous track'));
+    expect(qualityRect.right, lessThan(previousRect.left));
     expect(
       tester.getRect(find.byType(MediaTransportControls)).top,
       greaterThanOrEqualTo(tester.getRect(find.byType(MediaArtworkCard)).bottom),

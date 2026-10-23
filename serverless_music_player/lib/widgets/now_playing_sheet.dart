@@ -153,17 +153,21 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
   void _scheduleControlStripReset() {
     _controlResetTimer?.cancel();
     _controlActionTapped = false;
-    _controlResetTimer = Timer(const Duration(seconds: 4), () {
+    _controlResetTimer = Timer(const Duration(milliseconds: 2500), () {
       if (!mounted ||
           _controlActionTapped ||
-          !_controlStripController.hasClients ||
-          _controlStripController.offset.abs() < 1) {
+          !_controlStripController.hasClients) {
         return;
       }
+      final position = _controlStripController.position;
+      final restingOffset = position.minScrollExtent;
+      // Always return to the actual leading edge. Using the current pixel
+      // offset as the target made the return work only from one side.
+      if ((position.pixels - restingOffset).abs() < 1) return;
       unawaited(_controlReturnAnimation.forward(from: 0));
       unawaited(
         _controlStripController.animateTo(
-          0,
+          restingOffset,
           duration: const Duration(milliseconds: 2500),
           curve: Curves.easeInOutCubic,
         ),
@@ -340,11 +344,11 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
 
     final screenHeight = MediaQuery.sizeOf(context).height;
     final estimatedNonCardHeight =
-        78.0 + (_showVisualizer ? 100.0 : 0.0) + 92.0 + 72.0 + 8.0;
+        78.0 + (_showVisualizer ? 100.0 : 0.0) + 100.0 + 80.0 + 8.0;
     final availableCardHeight = screenHeight * 0.94 - estimatedNonCardHeight;
     // The artwork card used to consume every remaining pixel. Keep it about
     // one fifth smaller while reserving room for the controls below it.
-    final cardHeight = (availableCardHeight * 0.92)
+    final cardHeight = (availableCardHeight * 0.80)
         .clamp(screenHeight * 0.30, screenHeight * 0.64)
         .toDouble();
 
@@ -444,6 +448,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                       ],
                                     ),
                                   ),
+                                  _buildDownloadButton(context, player, song),
                                   Consumer<VideoExportManager>(
                                     builder: (context, export, _) {
                                       if (!export.isBusy) {
@@ -518,63 +523,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                           ],
                         ),
                       ),
-                      if (_showVisualizer)
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(24, 4, 24, 6),
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.fromLTRB(
-                                14,
-                                10,
-                                14,
-                                10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: palette.surface.withValues(alpha: 0.92),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: palette.outline.withValues(alpha: 0.6),
-                                ),
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Row(
-                                    children: <Widget>[
-                                      AnimatedRhythmIcon(
-                                        active: player.isPlaying,
-                                        color: palette.accent,
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'LIVE WAVEFORM',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          letterSpacing: 1.6,
-                                          fontWeight: FontWeight.w800,
-                                          color: palette.textMuted,
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      Text(
-                                        'On for every song',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          color: palette.textMuted,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  VisualizerBars(bands: _visualizer.bands),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
                       SliverFillRemaining(
                         hasScrollBody: false,
                         child: Column(
@@ -589,18 +537,45 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                       ? available
                                       : cardHeight;
                                   final artworkOrLyrics = _showLyrics
-                                      ? _LyricsPanel(
-                                          key: ValueKey<String>(
-                                            'lyrics-${song.id}',
-                                          ),
-                                          song: song,
-                                          position: player.position,
+                                      ? Stack(
+                                          fit: StackFit.expand,
+                                          children: <Widget>[
+                                            _LyricsPanel(
+                                              key: ValueKey<String>(
+                                                'lyrics-${song.id}',
+                                              ),
+                                              song: song,
+                                              position: player.position,
+                                            ),
+                                            Positioned(
+                                              top: 8,
+                                              left: 12,
+                                              child: IconButton(
+                                                tooltip: 'Show artwork',
+                                                onPressed: () => setState(
+                                                  () => _showLyrics = false,
+                                                ),
+                                                style: IconButton.styleFrom(
+                                                  foregroundColor:
+                                                      palette.accent,
+                                                  backgroundColor: palette
+                                                      .surface
+                                                      .withValues(alpha: 0.88),
+                                                ),
+                                                icon: const Icon(
+                                                  Icons.album_rounded,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         )
                                       : MediaArtworkCard(
                                           key: ValueKey<String>(
                                             'card-${song.id}',
                                           ),
                                           song: song,
+                                          onLyricsTap: () =>
+                                              _toggleLyrics(song),
                                         );
                                   return Center(
                                     child: SizedBox(
@@ -632,7 +607,78 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                 },
                               ),
                             ),
+                            if (_showVisualizer)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  24,
+                                  4,
+                                  24,
+                                  6,
+                                ),
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.fromLTRB(
+                                    14,
+                                    10,
+                                    14,
+                                    10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: palette.surface.withValues(
+                                      alpha: 0.92,
+                                    ),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(
+                                      color: palette.outline.withValues(
+                                        alpha: 0.6,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Row(
+                                        children: <Widget>[
+                                          AnimatedRhythmIcon(
+                                            active: player.isPlaying,
+                                            color: palette.accent,
+                                            size: 16,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'LIVE WAVEFORM',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              letterSpacing: 1.6,
+                                              fontWeight: FontWeight.w800,
+                                              color: palette.textMuted,
+                                            ),
+                                          ),
+                                          const Spacer(),
+                                          Text(
+                                            'On for every song',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              color: palette.textMuted,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      VisualizerBars(
+                                        bands: _visualizer.bands,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             MediaTransportControls(
+                              leadingControl: _QualityChip(
+                                song: song,
+                                onBeforeTap: _markControlActionTapped,
+                              ),
                               isPlaying: player.isPlaying,
                               isBusy:
                                   player.isBuffering || player.isResolving,
@@ -671,8 +717,8 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
       ).transform(_controlReturnAnimation.value);
       final pulse = 1 - (progress * 2 - 1).abs();
       return Transform.translate(
-        offset: Offset(0, -5 * pulse),
-        child: Transform.scale(scale: 1 + 0.035 * pulse, child: child),
+        offset: Offset(0, -4 * pulse),
+        child: Transform.scale(scale: 1 + 0.03 * pulse, child: child),
       );
     },
   );
@@ -684,13 +730,11 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     AppPalette palette,
   ) {
     final favorite = player.isFavorite(song);
-    final downloaded = player.isDownloaded(song);
     final repeatEnabled = player.repeatMode != LoopMode.off;
     final repeatTooltip = 'Repeat mode: ${_repeatLabel(player.repeatMode)}';
-    final downloadProgress = player.downloadProgressFor(song);
 
     return SizedBox(
-      height: 72,
+      height: 80,
       child: NotificationListener<ScrollNotification>(
         onNotification: _handleControlStripScroll,
         child: SingleChildScrollView(
@@ -738,42 +782,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
               const SizedBox(width: 6),
               _staggerControl(
                 _PlayerActionButton(
-                  icon: downloadProgress != null
-                      ? Icons.downloading_rounded
-                      : downloaded
-                      ? Icons.download_done_rounded
-                      : Icons.download_rounded,
-                  label: downloaded ? 'Saved' : 'Download',
-                  tooltip: downloaded ? 'Saved offline' : 'Download track',
-                  color: downloaded ? palette.mint : palette.textSecondary,
-                  enabled:
-                      !downloaded &&
-                      !player.isDownloading &&
-                      !song.isLiveStream,
-                  onTap: () {
-                    _markControlActionTapped();
-                    if (downloadProgress == null) {
-                      unawaited(_download(context, song));
-                    }
-                  },
-                  trailing: downloadProgress == null
-                      ? null
-                      : SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            value: downloadProgress == 0
-                                ? null
-                                : downloadProgress,
-                            strokeWidth: 2,
-                          ),
-                        ),
-                ),
-                2,
-              ),
-              const SizedBox(width: 6),
-              _staggerControl(
-                _PlayerActionButton(
                   icon: favorite
                       ? Icons.favorite_rounded
                       : Icons.favorite_border_rounded,
@@ -786,38 +794,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                     player.toggleFavorite(song);
                   },
                 ),
-                3,
-              ),
-              const SizedBox(width: 6),
-              _staggerControl(
-                _QualityChip(song: song, onBeforeTap: _markControlActionTapped),
-                4,
-              ),
-              const SizedBox(width: 6),
-              _staggerControl(
-                _PlayerActionButton(
-                  icon: _showLyrics
-                      ? Icons.album_rounded
-                      : Icons.lyrics_outlined,
-                  label: _showLyrics ? 'Artwork' : 'Lyrics',
-                  tooltip: _showLyrics ? 'Show artwork' : 'Show lyrics',
-                  selected: _showLyrics,
-                  color: _showLyrics ? palette.accent : palette.textSecondary,
-                  onTap: () {
-                    _markControlActionTapped();
-                    final showLyrics = !_showLyrics;
-                    if (showLyrics) {
-                      unawaited(
-                        context.read<UsageService>().recordSongEvent(
-                          'lyrics_check',
-                          song,
-                        ),
-                      );
-                    }
-                    setState(() => _showLyrics = showLyrics);
-                  },
-                ),
-                5,
+                2,
               ),
               const SizedBox(width: 6),
               _staggerControl(
@@ -832,13 +809,59 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                     _showQueue(context);
                   },
                 ),
-                6,
+                3,
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Widget _buildDownloadButton(
+    BuildContext context,
+    PlayerController player,
+    SongModel song,
+  ) {
+    final downloaded = player.isDownloaded(song);
+    final progress = player.downloadProgressFor(song);
+    final isDownloadingThisSong = progress != null;
+    final canDownload =
+        !downloaded && !player.isDownloading && !song.isLiveStream;
+    final tooltip = downloaded
+        ? 'Saved offline'
+        : isDownloadingThisSong
+        ? 'Downloading'
+        : player.isDownloading
+        ? 'Another download is in progress'
+        : 'Download track';
+
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: canDownload
+          ? () => unawaited(_download(context, song))
+          : null,
+      icon: progress == null
+          ? Icon(
+              downloaded ? Icons.download_done_rounded : Icons.download_rounded,
+              color: downloaded ? context.palette.mint : null,
+            )
+          : SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                value: progress == 0 ? null : progress,
+                strokeWidth: 2,
+              ),
+            ),
+    );
+  }
+
+  void _toggleLyrics(SongModel song) {
+    unawaited(
+      context.read<UsageService>().recordSongEvent('lyrics_check', song),
+    );
+    setState(() => _showLyrics = true);
   }
 
   Future<void> _download(BuildContext context, SongModel song) async {
@@ -896,7 +919,7 @@ class _PlayerActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final tint = enabled ? color : color.withValues(alpha: 0.42);
     return SizedBox(
-      width: 68,
+      width: 84,
       height: 68,
       child: Tooltip(
         message: tooltip,
