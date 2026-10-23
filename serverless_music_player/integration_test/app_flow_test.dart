@@ -121,7 +121,7 @@ void main() {
       await step('home_discover_feed', () async {
         expect(find.text('Listen your way'), findsOneWidget);
         expect(find.byType(TextField), findsOneWidget);
-        expect(find.text('Discover'), findsWidgets);
+        expect(find.text('Auto'), findsOneWidget);
         expect(find.text('Search'), findsWidgets);
       });
 

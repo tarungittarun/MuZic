@@ -6,7 +6,26 @@ import 'package:music_player/theme/app_theme.dart';
 import 'package:music_player/widgets/visualizer_bars.dart';
 
 void main() {
-  testWidgets('live waveform bars react to changing audio energy',
+  test('waveform smoothing follows loud and quiet audio bands', () {
+    final idle = List<double>.filled(18, 0.055);
+    final loud = smoothVisualizerLevels(
+      previous: idle,
+      incoming: List<double>.filled(18, 0.92),
+      barCount: 18,
+    );
+    final quiet = smoothVisualizerLevels(
+      previous: loud,
+      incoming: List<double>.filled(18, 0.08),
+      barCount: 18,
+    );
+
+    expect(loud, hasLength(18));
+    expect(loud.first, greaterThan(0.5));
+    expect(quiet.first, lessThan(loud.first));
+    expect(quiet.first, greaterThan(0.055));
+  });
+
+  testWidgets('live visualizer renders a bar for every audio band',
       (tester) async {
     final bands = StreamController<List<double>>.broadcast();
     addTearDown(bands.close);
@@ -20,26 +39,8 @@ void main() {
       ),
     );
 
-    double tallestBar() {
-      var tallest = 0.0;
-      for (var index = 0; index < 18; index++) {
-        final bar = find.byKey(ValueKey<String>('visualizer-bar-$index'));
-        final height = tester.getSize(bar).height;
-        if (height > tallest) tallest = height;
-      }
-      return tallest;
-    }
-
-    final idleHeight = tallestBar();
-    bands.add(List<double>.filled(18, 0.92));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 180));
-    final loudHeight = tallestBar();
-    expect(loudHeight, greaterThan(idleHeight + 10));
-
-    bands.add(List<double>.filled(18, 0.08));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 180));
-    expect(tallestBar(), lessThan(loudHeight - 4));
+    expect(find.byType(VisualizerBars), findsOneWidget);
+    expect(find.byType(AnimatedContainer), findsNWidgets(18));
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }

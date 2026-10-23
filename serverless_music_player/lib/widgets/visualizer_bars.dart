@@ -2,6 +2,24 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
+
+/// Low-pass smooths incoming (0..1) audio bands while retaining their
+/// differences, so changes in the captured music stay visible in the bars.
+List<double> smoothVisualizerLevels({
+  required List<double> previous,
+  required List<double> incoming,
+  required int barCount,
+}) {
+  final levels = List<double>.filled(barCount, 0.055);
+  if (incoming.isEmpty) return levels;
+  for (var index = 0; index < barCount; index++) {
+    final prior = index < previous.length ? previous[index] : 0.055;
+    final source = incoming[index % incoming.length].clamp(0.0, 1.0).toDouble();
+    levels[index] = (prior * 0.42) + (source * 0.58);
+  }
+  return levels;
+}
+
 /// Animated bars driven by measured waveform bands from the active playback
 /// session. The caller owns the capture lifecycle and supplies the live stream.
 class VisualizerBars extends StatefulWidget {
@@ -40,15 +58,11 @@ class _VisualizerBarsState extends State<VisualizerBars> {
       builder: (context, snapshot) {
         final incoming = snapshot.data;
         if (incoming != null && incoming.isNotEmpty) {
-          final buffer = List<double>.filled(widget.barCount, 0.055);
-          for (var index = 0; index < widget.barCount; index++) {
-            final source = incoming[index % incoming.length]
-                .clamp(0.0, 1.0)
-                .toDouble();
-            // Smooth peaks without pinning the display at a single value.
-            buffer[index] = (_levels[index] * 0.42) + (source * 0.58);
-          }
-          _levels = buffer;
+          _levels = smoothVisualizerLevels(
+            previous: _levels,
+            incoming: incoming,
+            barCount: widget.barCount,
+          );
         }
         return SizedBox(
           height: widget.height,
