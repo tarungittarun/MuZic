@@ -105,6 +105,10 @@ void main() {
     expect(find.byType(WavySeekBar), findsOneWidget);
     expect(find.byIcon(Icons.pause_rounded), findsOneWidget);
     expect(find.byTooltip('Lyrics'), findsOneWidget);
+    final artworkRect = tester.getRect(find.byType(MediaArtworkCard));
+    final lyricsRect = tester.getRect(find.byTooltip('Lyrics'));
+    expect(lyricsRect.right, closeTo(artworkRect.right - 14, 1));
+    expect(lyricsRect.bottom, closeTo(artworkRect.bottom - 14, 1));
     await tester.tap(find.byTooltip('Lyrics'));
     expect(lyricTaps, 1);
     final qualityRect = tester.getRect(
@@ -112,8 +116,11 @@ void main() {
     );
     final previousRect = tester.getRect(find.byTooltip('Previous track'));
     expect(qualityRect.right, lessThan(previousRect.left));
+    final transportRect = tester.getRect(find.byType(MediaTransportControls));
+    final playRect = tester.getRect(find.byIcon(Icons.pause_rounded));
+    expect(playRect.center.dx, closeTo(transportRect.center.dx, 1));
     expect(
-      tester.getRect(find.byType(MediaTransportControls)).top,
+      transportRect.top,
       greaterThanOrEqualTo(tester.getRect(find.byType(MediaArtworkCard)).bottom),
     );
     await tester.pumpWidget(const SizedBox.shrink());

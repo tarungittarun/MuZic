@@ -119,9 +119,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: Text(
                     'One-hand reachability on each page: pull down '
                     'firmly three times at the top and that page drops '
-                    'into thumb reach. The open area stays clear; scrolling '
-                    'up smoothly restores the full page. Turn this off '
-                    'for the classic full-screen layout.',
+                    'into thumb reach. Player and Up next sheets also use '
+                    'compact reach stops. Turn this off for normal, direct '
+                    'sheet dismissal.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   onChanged: settings.setOneHandModeEnabled,

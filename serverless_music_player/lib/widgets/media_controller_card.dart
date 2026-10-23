@@ -324,31 +324,40 @@ class MediaTransportControls extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              if (leadingControl != null) ...<Widget>[
-                leadingControl!,
-                const SizedBox(width: 8),
+          SizedBox(
+            height: 68,
+            child: Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                if (leadingControl != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: leadingControl!,
+                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    IconButton(
+                      tooltip: 'Previous track',
+                      onPressed: onPrevious,
+                      icon: const Icon(Icons.skip_previous_rounded, size: 29),
+                    ),
+                    const SizedBox(width: 12),
+                    _PlayPauseButton(
+                      isPlaying: isPlaying,
+                      isBusy: isBusy,
+                      onPressed: onPlayPause,
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      tooltip: 'Next track',
+                      onPressed: onNext,
+                      icon: const Icon(Icons.skip_next_rounded, size: 29),
+                    ),
+                  ],
+                ),
               ],
-              IconButton(
-                tooltip: 'Previous track',
-                onPressed: onPrevious,
-                icon: const Icon(Icons.skip_previous_rounded, size: 29),
-              ),
-              const SizedBox(width: 12),
-              _PlayPauseButton(
-                isPlaying: isPlaying,
-                isBusy: isBusy,
-                onPressed: onPlayPause,
-              ),
-              const SizedBox(width: 12),
-              IconButton(
-                tooltip: 'Next track',
-                onPressed: onNext,
-                icon: const Icon(Icons.skip_next_rounded, size: 29),
-              ),
-            ],
+            ),
           ),
           const SizedBox(height: 2),
           Row(

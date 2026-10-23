@@ -14,7 +14,19 @@ screenshots.
 | **Older 32-bit phone** | Use `app-armeabi-v7a-release.apk` instead. |
 | **Update** | Download the newest APK and install it over the old one. Every MuZic build is signed with the same key (`04d6c78f…`) and bumps the version code, so it updates in place — **no uninstall needed**. |
 | **If you ever see "package conflicts"** | You are installing over an old build from before the signing fix. Uninstall MuZic once, then install the new APK. This will not happen again. |
-| **Version** | Settings → About shows the version (for example, `1.5.42+51`). |
+| **Version** | Settings → About shows the version (for example, `1.5.43+52`). |
+
+---
+
+## What's new in 1.5.43
+
+- **Player actions are aligned:** Lyrics and Show artwork share the artwork's
+  bottom-right corner. Quality stays at the far left while Previous, Play/Pause
+  and Next remain centered. The mini-player now leaves a small gap between the
+  time labels and seek line.
+- **One-hand sheet stops respect the setting:** Up next's 30% stop and the
+  player's 50% stop (with haptics) are active only when One-hand mode is on.
+  Turn it off for normal drag-to-dismiss sheets.
 
 ---
 
@@ -29,12 +41,14 @@ screenshots.
   followed by the live waveform and then the transport controls and seek line.
   Lyrics is the fifth action at the artwork's bottom-right (not duplicated
   in the lower rail), which keeps shuffle, repeat, like and Up next. Download
-  sits left of lyric-video export, while Quality sits left of Previous. After
-  a swipe, the rail glides back over
+  sits left of lyric-video export; Quality stays at the far left while
+  Previous/play/Next remain centered. After a swipe, the rail glides back over
   2.5 seconds if no action is tapped for 2.5 seconds.
-- **Snapping sheets:** Up next opens at 80%, settles at 30%, and dismisses on a
-  further downward swipe. The full player similarly settles at 50% before a
-  second downward swipe closes it. Both stops provide a light haptic cue.
+- **One-hand sheet stops:** with One-hand mode enabled, Up next opens at 80%,
+  settles at 30%, and dismisses on a further downward swipe. The full player
+  similarly settles at 50% before a second downward swipe closes it. Both
+  stops provide a light haptic cue. With One-hand mode off, the sheets dismiss
+  normally without a halfway stop.
 - **Source-neutral labels:** song search and diagnostics use Source A / Source
   B labels instead of displaying third-party catalog names.
 

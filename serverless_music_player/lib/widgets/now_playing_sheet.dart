@@ -99,7 +99,11 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
   }
 
   void _handleSheetPointerMove(PointerMoveEvent event) {
-    if (_sheetPointer != event.pointer || _sheetDismissRequested) return;
+    if (!context.read<AppSettingsService>().oneHandModeEnabled ||
+        _sheetPointer != event.pointer ||
+        _sheetDismissRequested) {
+      return;
+    }
     final start = _sheetPointerStartPosition;
     final startExtent = _sheetPointerStartExtent;
     if (start == null || startExtent == null) return;
@@ -338,6 +342,10 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerController>();
+    final oneHandModeEnabled = context
+        .watch<AppSettingsService>()
+        .oneHandModeEnabled;
+    final playerMinExtent = oneHandModeEnabled ? _playerMinExtent : 0.10;
     final palette = context.palette;
     final song = player.currentSong;
     if (song == null) return const SizedBox.shrink();
@@ -359,14 +367,16 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
       onPointerUp: _handleSheetPointerEnd,
       onPointerCancel: _handleSheetPointerEnd,
       child: _SheetSnapHaptics(
-        stopExtents: const <double>[_playerMinExtent],
+        stopExtents: oneHandModeEnabled
+            ? const <double>[_playerMinExtent]
+            : const <double>[],
         child: DraggableScrollableSheet(
           controller: _sheetController,
           initialChildSize: 0.94,
-          minChildSize: _playerMinExtent,
+          minChildSize: playerMinExtent,
           maxChildSize: 0.94,
-          snap: true,
-          shouldCloseOnMinExtent: false,
+          snap: oneHandModeEnabled,
+          shouldCloseOnMinExtent: !oneHandModeEnabled,
           expand: false,
           builder: (context, scrollController) {
             _sheetScrollController = scrollController;
@@ -548,8 +558,8 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                               position: player.position,
                                             ),
                                             Positioned(
-                                              top: 8,
-                                              left: 12,
+                                              right: 14,
+                                              bottom: 14,
                                               child: IconButton(
                                                 tooltip: 'Show artwork',
                                                 onPressed: () => setState(
@@ -965,70 +975,25 @@ class _QualityChip extends StatelessWidget {
     final quality = describeAudio(song);
     final qualityColor = quality.isLossless ? palette.mint : palette.accent;
     return SizedBox(
-      width: 82,
-      height: 68,
+      width: 48,
+      height: 48,
       child: Tooltip(
-        message: '${quality.label} · ${quality.detail}',
+        message: 'Quality: ${quality.label} · ${quality.detail}',
         child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () {
+          color: qualityColor.withValues(alpha: 0.12),
+          shape: const CircleBorder(),
+          child: IconButton(
+            visualDensity: VisualDensity.compact,
+            onPressed: () {
               onBeforeTap();
               _showQualitySheet(context, song, quality);
             },
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: qualityColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: qualityColor.withValues(alpha: 0.35),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Icon(
-                        quality.isLossless
-                            ? Icons.workspace_premium_rounded
-                            : Icons.graphic_eq_rounded,
-                        size: 11,
-                        color: qualityColor,
-                      ),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(
-                          quality.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: qualityColor,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'Quality',
-                  style: TextStyle(
-                    color: palette.textSecondary,
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+            icon: Icon(
+              quality.isLossless
+                  ? Icons.workspace_premium_rounded
+                  : Icons.graphic_eq_rounded,
+              size: 22,
+              color: qualityColor,
             ),
           ),
         ),
@@ -1712,7 +1677,11 @@ class _QueueSheetState extends State<_QueueSheet> {
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
-    if (_pointerId != event.pointer || _dismissRequested) return;
+    if (!context.read<AppSettingsService>().oneHandModeEnabled ||
+        _pointerId != event.pointer ||
+        _dismissRequested) {
+      return;
+    }
     final start = _pointerStart;
     final startExtent = _pointerStartExtent;
     if (start == null || startExtent == null || !_sheetController.isAttached) {
@@ -1751,8 +1720,11 @@ class _QueueSheetState extends State<_QueueSheet> {
     if (!_sheetController.isAttached) return;
     _headerDragDistance += details.delta.dy;
     final screenHeight = MediaQuery.sizeOf(context).height;
+    final minExtent = context.read<AppSettingsService>().oneHandModeEnabled
+        ? _minExtent
+        : 0.10;
     final next = (_sheetController.size - details.delta.dy / screenHeight)
-        .clamp(_minExtent, _maxExtent)
+        .clamp(minExtent, _maxExtent)
         .toDouble();
     _sheetController.jumpTo(next);
   }
@@ -1766,14 +1738,17 @@ class _QueueSheetState extends State<_QueueSheet> {
     }
     final velocity = details.primaryVelocity ?? 0;
     final current = _sheetController.size;
+    final minExtent = context.read<AppSettingsService>().oneHandModeEnabled
+        ? _minExtent
+        : 0.10;
     final double target;
     if (velocity > 520 || _headerDragDistance > 38) {
-      target = _minExtent;
+      target = minExtent;
     } else if (velocity < -520 || _headerDragDistance < -38) {
       target = _maxExtent;
     } else {
-      target = current < (_minExtent + _maxExtent) / 2
-          ? _minExtent
+      target = current < (minExtent + _maxExtent) / 2
+          ? minExtent
           : _maxExtent;
     }
     unawaited(
@@ -1789,6 +1764,10 @@ class _QueueSheetState extends State<_QueueSheet> {
   Widget build(BuildContext context) {
     final palette = context.palette;
     final player = context.watch<PlayerController>();
+    final oneHandModeEnabled = context
+        .watch<AppSettingsService>()
+        .oneHandModeEnabled;
+    final queueMinExtent = oneHandModeEnabled ? _minExtent : 0.10;
     final queue = player.queue;
     final currentIndex = player.currentIndex ?? -1;
     final upcomingStart = (currentIndex + 1).clamp(0, queue.length).toInt();
@@ -1803,14 +1782,16 @@ class _QueueSheetState extends State<_QueueSheet> {
       onPointerUp: _handlePointerEnd,
       onPointerCancel: _handlePointerEnd,
       child: _SheetSnapHaptics(
-        stopExtents: const <double>[_minExtent],
+        stopExtents: oneHandModeEnabled
+            ? const <double>[_minExtent]
+            : const <double>[],
         child: DraggableScrollableSheet(
           controller: _sheetController,
           initialChildSize: _maxExtent,
-          minChildSize: _minExtent,
+          minChildSize: queueMinExtent,
           maxChildSize: _maxExtent,
-          snap: true,
-          shouldCloseOnMinExtent: false,
+          snap: oneHandModeEnabled,
+          shouldCloseOnMinExtent: !oneHandModeEnabled,
           expand: false,
           builder: (context, scrollController) {
             _queueScrollController = scrollController;
