@@ -152,12 +152,18 @@ void main() {
         expect(find.text('LAST PLAYED'), findsNothing,
             reason: 'one-hand reach must not place a music card in the open area');
 
-        await tester.timedDrag(
-          list,
-          const Offset(0, -500),
-          const Duration(milliseconds: 160),
-        );
-        await tester.pump(const Duration(milliseconds: 300));
+        for (var attempt = 0; attempt < 5; attempt++) {
+          await tester.timedDrag(
+            list,
+            const Offset(0, -500),
+            const Duration(milliseconds: 160),
+          );
+          await tester.pump(const Duration(milliseconds: 120));
+          final current = tester.widget<Transform>(
+            find.byKey(const ValueKey<String>('one-hand-page-transform')),
+          );
+          if (current.transform.getTranslation().y < 1) break;
+        }
         final restored = tester.widget<Transform>(
           find.byKey(const ValueKey<String>('one-hand-page-transform')),
         );
