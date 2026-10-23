@@ -1,6 +1,7 @@
 package com.auralis.player
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -38,8 +39,8 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.sqrt
 
 /**
  * Hosts the audio-effects channel. Attaches Android's Equalizer, BassBoost and
@@ -201,6 +202,10 @@ class MainActivity : AudioServiceActivity() {
                 "openSoundSettings" -> result.success(openSoundSettings())
                 "mediaNotificationDiagnostics" ->
                     result.success(mediaNotificationDiagnostics())
+                "appTaskCount" -> {
+                    val manager = getSystemService(ActivityManager::class.java)
+                    result.success(manager?.appTasks?.size ?: 0)
+                }
                 "saveText" -> result.success(
                     saveTextToDownloads(
                         call.argument<String>("fileName") ?: "muzic_report.txt",
@@ -281,7 +286,7 @@ class MainActivity : AudioServiceActivity() {
                         val perBand = max(1, waveform.size / bands)
                         val values = ArrayList<Double>(bands)
                         for (band in 0 until bands) {
-                            var total = 0L
+                            var squaredTotal = 0.0
                             val start = band * perBand
                             val end = minOf(waveform.size, start + perBand)
                             if (start >= end) {
@@ -289,10 +294,17 @@ class MainActivity : AudioServiceActivity() {
                                 continue
                             }
                             for (index in start until end) {
-                                total += abs(waveform[index].toInt())
+                                // Visualizer waveform samples are unsigned
+                                // bytes centred on 128 (silence), not signed
+                                // Kotlin bytes. RMS keeps each band responsive
+                                // to actual musical energy instead of making
+                                // near-silence look full-scale.
+                                val centred = (waveform[index].toInt() and 0xFF) - 128
+                                squaredTotal += centred * centred.toDouble()
                             }
-                            val average = total.toDouble() / (end - start)
-                            values.add((average / 128.0).coerceIn(0.0, 1.0))
+                            val rms = sqrt(squaredTotal / (end - start))
+                            val level = ((rms - 3.0) / 76.0).coerceIn(0.0, 1.0)
+                            values.add(level)
                         }
                         handler.post { visualizerSink?.success(values) }
                     }
@@ -303,7 +315,7 @@ class MainActivity : AudioServiceActivity() {
                         samplingRate: Int,
                     ) = Unit
                 },
-                Visualizer.getMaxCaptureRate() / 3,
+                Visualizer.getMaxCaptureRate() / 2,
                 true,
                 false,
             )

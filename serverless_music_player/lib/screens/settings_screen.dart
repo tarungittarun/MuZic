@@ -119,7 +119,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: Text(
                     'One UI-style reachability on each page: pull down '
                     'firmly three times at the top and that page drops '
-                    'into thumb reach under a last-played card. Scrolling '
+                    'into thumb reach. The open area stays clear; scrolling '
                     'up smoothly restores the full page. Turn this off '
                     'for the classic full-screen layout.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
@@ -522,27 +522,135 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 14),
           _ExpandableSettingsSection(
-            title: 'Audio effects',
+            title: 'Sound Studio',
             icon: Icons.graphic_eq_rounded,
-            summary: 'Virtualizer, bass boost and equalizer',
-            expanded: _openSectionTitle == 'Audio effects',
+            summary: _soundSummary(settings),
+            expanded: _openSectionTitle == 'Sound Studio',
             onExpansionChanged: (value) =>
-                _handleSectionChanged('Audio effects', value),
+                _handleSectionChanged('Sound Studio', value),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  SwitchListTile(
-                    secondary: Icon(Icons.surround_sound_rounded,
-                        color: settings.virtualizerEnabled
-                            ? palette.accent
-                            : palette.textSecondary),
-                    title: const Text('Virtualizer (surround)'),
-                    subtitle: Text(
-                      'Widens the sound stage — closest thing to spatial '
-                      'audio on this device.',
-                      style: TextStyle(color: palette.textMuted, fontSize: 12),
+                  Container(
+                    padding: const EdgeInsets.all(15),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: <Color>[
+                          palette.accent.withValues(alpha: 0.22),
+                          palette.mint.withValues(alpha: 0.10),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: palette.accent.withValues(alpha: 0.24),
+                      ),
                     ),
+                    child: Row(
+                      children: <Widget>[
+                        Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: palette.surface.withValues(alpha: 0.72),
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: Icon(Icons.graphic_eq_rounded,
+                              color: palette.accent, size: 25),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                'YOUR SOUND SIGNATURE',
+                                style: TextStyle(
+                                  color: palette.textMuted,
+                                  fontSize: 9,
+                                  letterSpacing: 1.35,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Make every track feel yours.',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Choose a tone, then fine-tune the details.',
+                                style: TextStyle(
+                                  color: palette.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: <Widget>[
+                      const Expanded(
+                        child: Text(
+                          'Tone presets',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      Text(
+                        settings.equalizerEnabled
+                            ? _eqPresetName(settings.equalizerPreset)
+                            : 'Off',
+                        style: TextStyle(
+                          color: settings.equalizerEnabled
+                              ? palette.accent
+                              : palette.textMuted,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: <Widget>[
+                        for (var preset = 0; preset < 10; preset++) ...<Widget>[
+                          if (preset > 0) const SizedBox(width: 7),
+                          ChoiceChip(
+                            label: Text(_eqPresetName(preset)),
+                            selected: settings.equalizerEnabled &&
+                                settings.equalizerPreset == preset,
+                            onSelected: (_) async {
+                              await settings.setEqualizer(
+                                enabled: true,
+                                preset: preset,
+                              );
+                              if (!context.mounted) return;
+                              await context
+                                  .read<AudioEffectsService>()
+                                  .apply();
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _SoundFeatureTile(
+                    icon: Icons.surround_sound_rounded,
+                    title: 'Spatial stage',
+                    subtitle: 'Gently widens the stereo image.',
                     value: settings.virtualizerEnabled,
                     onChanged: (value) async {
                       await settings.setVirtualizer(enabled: value);
@@ -551,42 +659,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                   if (settings.virtualizerEnabled)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: Row(
-                        children: <Widget>[
-                          const Text('Strength', style: TextStyle(fontSize: 12)),
-                          Expanded(
-                            child: Slider(
-                              value: settings.virtualizerStrength
-                                  .clamp(0, 100)
-                                  .toDouble(),
-                              min: 0,
-                              max: 100,
-                              divisions: 20,
-                              label: '${settings.virtualizerStrength}%',
-                              onChanged: (value) => settings.setVirtualizer(
-                                enabled: true,
-                                strength: value.round(),
-                              ),
-                              onChangeEnd: (value) =>
-                                  context.read<AudioEffectsService>().apply(),
-                            ),
-                          ),
-                        ],
+                    _SoundStrengthControl(
+                      label: 'Width',
+                      value: settings.virtualizerStrength,
+                      onChanged: (value) => settings.setVirtualizer(
+                        enabled: true,
+                        strength: value,
                       ),
+                      onChangeEnd: (_) =>
+                          context.read<AudioEffectsService>().apply(),
                     ),
-                  Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
-                  SwitchListTile(
-                    secondary: Icon(Icons.equalizer_rounded,
-                        color: settings.bassBoostEnabled
-                            ? palette.accent
-                            : palette.textSecondary),
-                    title: const Text('Bass boost'),
-                    subtitle: Text(
-                      'Enhances low frequencies.',
-                      style: TextStyle(color: palette.textMuted, fontSize: 12),
-                    ),
+                  const SizedBox(height: 8),
+                  _SoundFeatureTile(
+                    icon: Icons.graphic_eq_rounded,
+                    title: 'Bass impact',
+                    subtitle: 'Add low-end weight, from subtle to bold.',
                     value: settings.bassBoostEnabled,
                     onChanged: (value) async {
                       await settings.setBassBoost(enabled: value);
@@ -595,42 +682,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                   if (settings.bassBoostEnabled)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: Row(
-                        children: <Widget>[
-                          const Text('Strength', style: TextStyle(fontSize: 12)),
-                          Expanded(
-                            child: Slider(
-                              value: settings.bassBoostStrength
-                                  .clamp(0, 100)
-                                  .toDouble(),
-                              min: 0,
-                              max: 100,
-                              divisions: 20,
-                              label: '${settings.bassBoostStrength}%',
-                              onChanged: (value) => settings.setBassBoost(
-                                enabled: true,
-                                strength: value.round(),
-                              ),
-                              onChangeEnd: (value) =>
-                                  context.read<AudioEffectsService>().apply(),
-                            ),
-                          ),
-                        ],
+                    _SoundStrengthControl(
+                      label: 'Impact',
+                      value: settings.bassBoostStrength,
+                      onChanged: (value) => settings.setBassBoost(
+                        enabled: true,
+                        strength: value,
                       ),
+                      onChangeEnd: (_) =>
+                          context.read<AudioEffectsService>().apply(),
                     ),
-                  Divider(height: 1, indent: 16, endIndent: 16, color: palette.outline),
-                  SwitchListTile(
-                    secondary: Icon(Icons.tune_rounded,
-                        color: settings.equalizerEnabled
-                            ? palette.accent
-                            : palette.textSecondary),
-                    title: const Text('Equalizer'),
-                    subtitle: Text(
-                      'Preset: ${_eqPresetName(settings.equalizerPreset)}',
-                      style: TextStyle(color: palette.textMuted, fontSize: 12),
-                    ),
+                  const SizedBox(height: 8),
+                  _SoundFeatureTile(
+                    icon: Icons.tune_rounded,
+                    title: 'Tone shaping',
+                    subtitle: 'Choose a built-in equalizer profile above.',
                     value: settings.equalizerEnabled,
                     onChanged: (value) async {
                       await settings.setEqualizer(enabled: value);
@@ -638,14 +704,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       await context.read<AudioEffectsService>().apply();
                     },
                   ),
-                  if (settings.equalizerEnabled)
-                    ListTile(
-                      contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                      title: const Text('Preset'),
-                      subtitle: Text(_eqPresetName(settings.equalizerPreset)),
-                      trailing: const Icon(Icons.expand_more_rounded),
-                      onTap: () => _pickEqPreset(context, settings),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+                    child: Text(
+                      'Sound processing depends on the Android device and '
+                      'active audio route. MuZic applies these controls to '
+                      'its playback session only.',
+                      style: TextStyle(
+                        color: palette.textMuted,
+                        fontSize: 10.5,
+                        height: 1.45,
+                      ),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -961,44 +1032,116 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return preset >= 0 && preset < names.length ? names[preset] : 'Normal';
   }
 
-  Future<void> _pickEqPreset(
-    BuildContext context,
-    AppSettingsService settings,
-  ) async {
-    final selected = await showModalBottomSheet<int>(
-      context: context,
-      backgroundColor: context.palette.surface,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: <Widget>[
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
-              child: Text(
-                'Equalizer preset',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
-              ),
-            ),
-            for (var preset = 0; preset < 10; preset++)
-              ListTile(
-                title: Text(_eqPresetName(preset)),
-                trailing: settings.equalizerPreset == preset
-                    ? Icon(Icons.check_rounded,
-                        color: context.palette.accent)
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, preset),
-              ),
-          ],
+  String _soundSummary(AppSettingsService settings) {
+    final active = <String>[
+      if (settings.equalizerEnabled) _eqPresetName(settings.equalizerPreset),
+      if (settings.virtualizerEnabled) 'Spatial stage',
+      if (settings.bassBoostEnabled) 'Bass impact',
+    ];
+    return active.isEmpty ? 'EQ presets, spatial width and bass' : active.join(' · ');
+  }
+
+}
+
+class _SoundFeatureTile extends StatelessWidget {
+  const _SoundFeatureTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Container(
+      decoration: BoxDecoration(
+        color: palette.surface.withValues(alpha: 0.76),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: palette.outline.withValues(alpha: 0.8)),
+      ),
+      child: SwitchListTile.adaptive(
+        contentPadding: const EdgeInsets.fromLTRB(12, 4, 9, 4),
+        secondary: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: (value ? palette.accent : palette.textMuted)
+                .withValues(alpha: 0.13),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Icon(icon, color: value ? palette.accent : palette.textMuted),
         ),
+        title: Text(title,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(color: palette.textMuted, fontSize: 11, height: 1.3),
+        ),
+        value: value,
+        onChanged: onChanged,
       ),
     );
-    if (selected != null) {
-      await settings.setEqualizer(enabled: true, preset: selected);
-      if (context.mounted) {
-        await context.read<AudioEffectsService>().apply();
-      }
-    }
+  }
+}
+
+class _SoundStrengthControl extends StatelessWidget {
+  const _SoundStrengthControl({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    required this.onChangeEnd,
+  });
+
+  final String label;
+  final int value;
+  final ValueChanged<int> onChanged;
+  final ValueChanged<double> onChangeEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 7, 10, 1),
+      padding: const EdgeInsets.fromLTRB(13, 9, 13, 2),
+      decoration: BoxDecoration(
+        color: palette.surfaceRaised.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(label,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+              ),
+              Text('$value%',
+                  style: TextStyle(
+                    color: palette.accent,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  )),
+            ],
+          ),
+          Slider(
+            value: value.clamp(0, 100).toDouble(),
+            min: 0,
+            max: 100,
+            divisions: 20,
+            onChanged: (next) => onChanged(next.round()),
+            onChangeEnd: onChangeEnd,
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../services/visualizer_service.dart';
 import '../theme/app_theme.dart';
 
-/// Animated bars driven by real waveform data from the playback session.
+/// Animated bars driven by measured waveform bands from the active playback
+/// session. The caller owns the capture lifecycle and supplies the live stream.
 class VisualizerBars extends StatefulWidget {
   const VisualizerBars({
-    required this.service,
+    required this.bands,
     this.height = 42,
     this.barCount = 18,
     super.key,
   });
 
-  final VisualizerService service;
+  final Stream<List<double>> bands;
   final double height;
   final int barCount;
 
@@ -22,21 +22,31 @@ class VisualizerBars extends StatefulWidget {
 
 class _VisualizerBarsState extends State<VisualizerBars> {
   late List<double> _levels =
-      List<double>.filled(widget.barCount, 0.06, growable: false);
+      List<double>.filled(widget.barCount, 0.055, growable: false);
+
+  @override
+  void didUpdateWidget(covariant VisualizerBars oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.barCount != widget.barCount) {
+      _levels = List<double>.filled(widget.barCount, 0.055, growable: false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
     return StreamBuilder<List<double>>(
-      stream: widget.service.bands,
+      stream: widget.bands,
       builder: (context, snapshot) {
         final incoming = snapshot.data;
         if (incoming != null && incoming.isNotEmpty) {
-          final buffer = List<double>.filled(widget.barCount, 0.06);
+          final buffer = List<double>.filled(widget.barCount, 0.055);
           for (var index = 0; index < widget.barCount; index++) {
-            final source = incoming[index % incoming.length];
-            // Smooth so the bars do not flicker frame to frame.
-            buffer[index] = (_levels[index] * 0.55) + (source * 0.45);
+            final source = incoming[index % incoming.length]
+                .clamp(0.0, 1.0)
+                .toDouble();
+            // Smooth peaks without pinning the display at a single value.
+            buffer[index] = (_levels[index] * 0.42) + (source * 0.58);
           }
           _levels = buffer;
         }
@@ -49,24 +59,19 @@ class _VisualizerBarsState extends State<VisualizerBars> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 1.5),
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween<double>(begin: 0, end: _levels[index]),
-                      duration: const Duration(milliseconds: 90),
-                      builder: (context, value, child) => Container(
-                        height: (widget.height * value).clamp(
-                          2.0,
-                          widget.height,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(3),
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: <Color>[
-                              palette.accent,
-                              palette.mint,
-                            ],
-                          ),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 110),
+                      curve: Curves.easeOutCubic,
+                      alignment: Alignment.bottomCenter,
+                      height: (widget.height * _levels[index])
+                          .clamp(2.0, widget.height)
+                          .toDouble(),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(4),
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: <Color>[palette.accent, palette.mint],
                         ),
                       ),
                     ),

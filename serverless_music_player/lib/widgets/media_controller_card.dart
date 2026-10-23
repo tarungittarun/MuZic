@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -131,6 +132,7 @@ class MediaControllerCard extends StatelessWidget {
                       child: WavySeekBar(
                         position: position,
                         duration: duration,
+                        isPlaying: isPlaying,
                         onSeek: onSeek,
                       ),
                     ),
@@ -297,11 +299,12 @@ class ArtworkBackdrop extends StatelessWidget {
 
 /// Seek bar drawn like Android's expressive media slider: the played part
 /// is a gentle wave, the rest is a straight line, with a round thumb.
-class WavySeekBar extends StatelessWidget {
+class WavySeekBar extends StatefulWidget {
   const WavySeekBar({
     required this.position,
     required this.duration,
     required this.onSeek,
+    this.isPlaying = false,
     this.activeColor = Colors.white,
     this.inactiveColor = const Color(0x66FFFFFF),
     super.key,
@@ -310,34 +313,82 @@ class WavySeekBar extends StatelessWidget {
   final Duration position;
   final Duration duration;
   final ValueChanged<Duration> onSeek;
+  final bool isPlaying;
   final Color activeColor;
   final Color inactiveColor;
 
   @override
+  State<WavySeekBar> createState() => _WavySeekBarState();
+}
+
+class _WavySeekBarState extends State<WavySeekBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _waveController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isPlaying) _startWave();
+  }
+
+  @override
+  void didUpdateWidget(covariant WavySeekBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isPlaying && !oldWidget.isPlaying) {
+      _startWave();
+    } else if (!widget.isPlaying && oldWidget.isPlaying) {
+      _waveController.stop();
+      _waveController.value = 0;
+    }
+  }
+
+  void _startWave() {
+    unawaited(_waveController.repeat());
+  }
+
+  @override
+  void dispose() {
+    _waveController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final totalMs = duration.inMilliseconds;
+    final totalMs = widget.duration.inMilliseconds;
     final value = totalMs <= 0
         ? 0.0
-        : position.inMilliseconds.clamp(0, totalMs).toDouble();
-    return SliderTheme(
-      data: SliderTheme.of(context).copyWith(
-        trackHeight: 4,
-        trackShape: const WavySliderTrackShape(),
-        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.5),
-        overlayShape: const RoundSliderOverlayShape(overlayRadius: 15),
-        activeTrackColor: activeColor,
-        inactiveTrackColor: inactiveColor,
-        thumbColor: activeColor,
-        overlayColor: activeColor.withValues(alpha: 0.18),
-      ),
-      child: Slider(
-        min: 0,
-        max: totalMs <= 0 ? 1 : totalMs.toDouble(),
-        value: value,
-        onChanged: totalMs <= 0
-            ? null
-            : (v) => onSeek(Duration(milliseconds: v.round())),
-      ),
+        : widget.position.inMilliseconds.clamp(0, totalMs).toDouble();
+    return AnimatedBuilder(
+      animation: _waveController,
+      builder: (context, _) {
+        final phase = widget.isPlaying ? _waveController.value * math.pi * 2 : 0.0;
+        return SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 4,
+            trackShape: WavySliderTrackShape(
+              phase: phase,
+              amplitudeScale: widget.isPlaying ? 1.0 : 0.72,
+            ),
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.5),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 15),
+            activeTrackColor: widget.activeColor,
+            inactiveTrackColor: widget.inactiveColor,
+            thumbColor: widget.activeColor,
+            overlayColor: widget.activeColor.withValues(alpha: 0.18),
+          ),
+          child: Slider(
+            min: 0,
+            max: totalMs <= 0 ? 1 : totalMs.toDouble(),
+            value: value,
+            onChanged: totalMs <= 0
+                ? null
+                : (v) => widget.onSeek(Duration(milliseconds: v.round())),
+          ),
+        );
+      },
     );
   }
 }
@@ -345,7 +396,10 @@ class WavySeekBar extends StatelessWidget {
 /// Track shape whose played portion undulates like the system media
 /// slider's waveform, flattening as it reaches the thumb.
 class WavySliderTrackShape extends SliderTrackShape {
-  const WavySliderTrackShape();
+  const WavySliderTrackShape({this.phase = 0, this.amplitudeScale = 1});
+
+  final double phase;
+  final double amplitudeScale;
 
   @override
   Rect getPreferredRect({
@@ -406,8 +460,9 @@ class WavySliderTrackShape extends SliderTrackShape {
         final endTaper = ((thumbCenter.dx - x) / 12).clamp(0.0, 1.0);
         final taper = math.min(startTaper, endTaper);
         final y = centerY +
-            math.sin((x - trackRect.left) / wavelength * 2 * math.pi) *
+            math.sin((x - trackRect.left) / wavelength * 2 * math.pi + phase) *
                 amplitude *
+                amplitudeScale *
                 taper;
         wave.lineTo(x, y);
       }

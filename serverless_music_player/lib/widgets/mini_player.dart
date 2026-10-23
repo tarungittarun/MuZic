@@ -190,6 +190,7 @@ class MiniPlayer extends StatelessWidget {
                                         child: WavySeekBar(
                                           position: player.position,
                                           duration: player.duration,
+                                          isPlaying: player.isPlaying,
                                           onSeek: player.seek,
                                         ),
                                       ),

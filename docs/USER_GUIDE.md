@@ -14,7 +14,41 @@ screenshots.
 | **Older 32-bit phone** | Use `app-armeabi-v7a-release.apk` instead. |
 | **Update** | Download the newest APK and install it over the old one. Every MuZic build is signed with the same key (`04d6c78f…`) and bumps the version code, so it updates in place — **no uninstall needed**. |
 | **If you ever see "package conflicts"** | You are installing over an old build from before the signing fix. Uninstall MuZic once, then install the new APK. This will not happen again. |
-| **Version** | Settings → About shows the version (e.g. `1.4.1+6`). |
+| **Version** | Settings → About shows the version (for example, `1.5.41+50`). |
+
+---
+
+## What's new in 1.5.41
+
+- **The lock-screen card moves in time:** the in-app full-face artwork card
+  and compact mini player keep the same MuZic disc, **This phone** pill,
+  overlaid title/artist, large light play/pause button, previous/next and
+  wavy seek bar. While music plays, the seek wave now flows instead of
+  staying frozen. The system lock-screen/Quick Settings player remains
+  untouched.
+- **One-hand reach is cleaner and smoother:** three firm pulls still move
+  only the current page into thumb reach, but the open space above is now
+  clear (the Last played music card is removed). The page glides into place
+  and tracks upward scrolling without forcing a smaller scroll viewport.
+- **No duplicate MuZic windows:** Android now routes launches back into one
+  app task, keeping Recents to a single MuZic card.
+- **Sound Studio replaces Audio effects:** a layered sound-design panel adds
+  horizontal EQ preset chips and clearer **Spatial stage**, **Bass impact**
+  and **Tone shaping** controls, with strength adjustments when enabled.
+  The existing Android audio-session effects and saved settings are retained.
+- **Live waveform responds to sound:** the Android capture now interprets
+  unsigned waveform samples correctly, uses per-band RMS energy and updates
+  faster; bars ease to the changing audio instead of sitting at full height.
+- **Back goes to Search:** pressing Android Back from Library, Settings or
+  Usage returns to Search while preserving its current query/results, rather
+  than minimizing or closing MuZic.
+- **Usage is redesigned:** the dashboard now leads with cumulative listening
+  time, activity metrics, repeat tracks, search lanes and a readable local
+  activity timeline. It stays private on this device.
+- **Strict Android E2E gate:** app changes now run the full journey on API 30
+  and 34 for pushes and pull requests. Failed UI, navigation, system-player or
+  task checks block the workflow; the report is attached to the run without
+  pushing generated commits.
 
 ---
 
@@ -40,12 +74,12 @@ screenshots.
 
 ## What's new in 1.5.39
 
-- **One-hand reach, corrected:** reach mode is now **per page**, not
-  app-wide. Pull down firmly three times at the top of a page and *that
-  page* drops under a simple **Now playing / Last played** card. The page
-  keeps its full height underneath — scrolling up smoothly gives the
-  dropped space back until the page is full-screen again, then scrolling
-  continues normally. Switching pages restores full screen.
+- **One-hand reach, corrected:** reach mode is **per page**, not app-wide.
+  Pull down firmly three times at the top of a page and *that page* drops
+  into thumb reach. The page keeps its full height underneath — scrolling
+  up gives the dropped space back until the page is full-screen again, then
+  scrolling continues normally. Switching pages restores full screen. (In
+  1.5.41, the open space is clear and the transition is smoother.)
 - **Deeper artist search:** an artist search such as "arijith sing songs"
   now resolves to the canonical artist, pages deeper into the catalogue,
   searches the artist directly and mines the artist's albums, aiming for a
@@ -71,11 +105,10 @@ screenshots.
   (Liked · Downloads · Recent · Playlists · Local) and the familiar
   Downloads Songs/Lyric videos pill return, while left/right swiping still
   moves continuously through every section.
-- **Real one-hand reach mode:** pull down firmly **three times** at the
-  top of a page and the whole MuZic screen drops into the lower part of
-  the display, One UI-style, so everything is within thumb reach. Tap the
-  empty area above to restore it. Turn it off in
-  *Settings → Appearance → One-hand mode*.
+- **First one-hand reach version:** three firm pulls dropped the app into
+  thumb reach. It was corrected in 1.5.39 to be page-specific and restore
+  smoothly on scroll-up; the latest transition and clear top area are
+  documented above. Turn it off in *Settings → Appearance → One-hand mode*.
 - **A more lifelike in-app player:** Now Playing now has an ambient
   artwork-tinted background, gently breathing artwork while music plays,
   centred title/artist, an animated rhythm indicator, a chunkier seek
@@ -344,16 +377,16 @@ fires while playback is stopped.
 
 ---
 
-## 8. Audio effects
+## 8. Sound Studio
 
-*Settings → Audio effects* (applied to the real playback session — they work
+*Settings → Sound Studio* (applied to the real playback session — they work
 with wired and Bluetooth headphones):
 
 | Effect | Notes |
 | --- | --- |
-| **Virtualizer (surround)** | Stereo widening / virtual surround, strength slider. The closest thing to "spatial audio" this app can offer — Dolby Atmos itself needs an Atmos source and a licensed decoder. |
-| **Bass boost** | Low-frequency enhancement, strength slider. |
-| **Equalizer** | 10 presets (Normal, Classical, Dance, Flat, Folk, Heavy metal, Hip hop, Jazz, Pop, Rock). |
+| **Spatial stage** | Widens the stereo image using Android's playback-session virtualizer, with an adjustable width control. |
+| **Bass impact** | Adds low-frequency weight, with a strength slider. |
+| **Tone shaping** | Select from 10 Android equalizer profiles (Normal, Classical, Dance, Flat, Folk, Heavy metal, Hip hop, Jazz, Pop, Rock). |
 
 Changes apply instantly; they are remembered across restarts.
 

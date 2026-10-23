@@ -1,4 +1,9 @@
-# MuZic end-to-end test report
+# MuZic end-to-end test report — historical snapshot
+
+> This report was generated on 2026-10-21 by the earlier, non-strict E2E
+> workflow. Current strict run summaries and artifacts are published by the
+> GitHub Actions workflow (see [FINDINGS.md](FINDINGS.md)); this file is kept
+> only as a historical run record.
 
 Generated: 2026-10-21 07:02 UTC  
 Commit: `6d122a4` · Run: `41`

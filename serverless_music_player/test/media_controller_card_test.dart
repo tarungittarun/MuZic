@@ -44,6 +44,7 @@ void main() {
     // Same chrome as Android's system media card: MuZic icon top-left,
     // "This phone" output pill, title/artist overlaid on the artwork.
     expect(find.byType(MuZicAppIcon), findsOneWidget);
+    expect(find.byType(ArtworkBackdrop), findsOneWidget);
     expect(find.text('This phone'), findsOneWidget);
     expect(find.text('Chhod Diya'), findsOneWidget);
     expect(find.text('Arijit Singh'), findsOneWidget);
@@ -54,6 +55,7 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.pause_rounded));
     expect(toggles, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('wavy seek bar reports seeks against the duration',
@@ -80,5 +82,35 @@ void main() {
     expect(sought, isNotNull);
     expect(sought!.inSeconds, greaterThan(100));
     expect(sought!.inSeconds, lessThan(140));
+  });
+
+  testWidgets('wavy seek animation moves while playback is active',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 300,
+              child: WavySeekBar(
+                position: const Duration(seconds: 90),
+                duration: const Duration(minutes: 4),
+                isPlaying: true,
+                onSeek: (_) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    WavySliderTrackShape shape() =>
+        tester.widget<SliderTheme>(find.byType(SliderTheme)).data.trackShape!
+            as WavySliderTrackShape;
+
+    final initialPhase = shape().phase;
+    await tester.pump(const Duration(milliseconds: 240));
+    expect(shape().phase, isNot(initialPhase));
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }

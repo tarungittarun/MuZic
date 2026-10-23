@@ -5,8 +5,7 @@ on:
   push:
     branches:
       - 'arena/**'
-    # Docs-only pushes (including the automated E2E report commit) must not
-    # trigger a full APK rebuild.
+    # Docs-only pushes must not trigger a full APK rebuild.
     paths-ignore:
       - 'docs/**'
 

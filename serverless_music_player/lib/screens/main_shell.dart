@@ -75,6 +75,23 @@ class _MainShellState extends State<MainShell> {
     _centreDestination(0);
   }
 
+  /// Android Back from Library, Settings, or Usage returns to Search instead
+  /// of dismissing the app. Keep the current Search query/results intact.
+  void _returnToSearch() {
+    if (_tab == 0) return;
+    setState(() {
+      _tab = 0;
+      _lastSearchTapAt = null;
+    });
+    _centreDestination(0);
+  }
+
+  @override
+  void dispose() {
+    _navScrollController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
@@ -186,7 +203,13 @@ class _MainShellState extends State<MainShell> {
         ),
       ),
     );
-    return scaffold;
+    return PopScope<Object?>(
+      canPop: _tab == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _tab != 0) _returnToSearch();
+      },
+      child: scaffold,
+    );
   }
 }
 

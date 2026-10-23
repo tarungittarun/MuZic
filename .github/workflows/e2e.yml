@@ -1,18 +1,25 @@
-name: End-to-end test report
+name: Strict Android end-to-end pipeline
 
 on:
-  # Manual only: the emulator runs are the slowest part of CI and are only
-  # valuable when a device-level check is explicitly wanted. They used to run
-  # on every push (and the report commit then retriggered the other
-  # workflows), which made every change take far longer than necessary.
+  push:
+    branches: ["**"]
+    paths:
+      - 'serverless_music_player/**'
+      - '.github/workflows/e2e.yml'
+  pull_request:
+    paths:
+      - 'serverless_music_player/**'
+      - '.github/workflows/e2e.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  actions: read
 
 concurrency:
-  group: e2e-${{ github.ref }}
+  # Push and pull_request events for the same PR branch share one expensive
+  # emulator run instead of racing two identical matrices.
+  group: e2e-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -330,52 +337,56 @@ jobs:
         id: e2e
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
           # Each step is a fresh shell: the SDK tools are not on PATH by default.
           export PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/platform-tools:${ANDROID_SDK_ROOT:-$ANDROID_HOME}/emulator:$PATH"
           adb shell settings put global window_animation_scale 0 || true
           adb shell settings put global transition_animation_scale 0 || true
           adb shell settings put global animator_duration_scale 0 || true
           adb shell svc power stayon true || true
-          # flutter test installs and then removes the app, so record the
-          # package facts while it is actually on the device.
+          # flutter test installs and then removes the app, so capture package
+          # facts from a successful install before the instrumentation starts.
           APK="${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-debug.apk"
-          install_out=$(adb install -r "$APK" 2>&1 | tail -1 | tr -d '\r')
-          # Grant AFTER installing: a reinstall preserves runtime permissions and
-          # flutter test then reinstalls over this. Granting before the first
-          # install is a no-op on Android 13+, which is why the media
-          # notification probe reported no permission on API 34.
-          adb shell pm grant ${{ env.APP_ID }} android.permission.POST_NOTIFICATIONS || true
-          adb shell pm grant ${{ env.APP_ID }} android.permission.RECORD_AUDIO || true
-          POST_NOTIF=$(adb shell dumpsys package ${{ env.APP_ID }} | grep -c 'POST_NOTIFICATIONS: granted' || true)
+          install_out=$(adb install -r "$APK" 2>&1) || {
+            echo "::error title=install::adb install failed: $install_out"
+            exit 1
+          }
+          API_LEVEL=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
+          # Notification permission exists only on Android 13+. Microphone is
+          # needed by the opt-in audio visualizer and is granted only in CI.
+          if [ "$API_LEVEL" -ge 33 ]; then
+            adb shell pm grant "${{ env.APP_ID }}" android.permission.POST_NOTIFICATIONS
+          fi
+          adb shell pm grant "${{ env.APP_ID }}" android.permission.RECORD_AUDIO
+          POST_NOTIF=$(adb shell dumpsys package "${{ env.APP_ID }}" \
+            | grep -c 'POST_NOTIFICATIONS: granted' || true)
           {
-            echo "api_level=${{ matrix.api-level }}"
+            echo "api_level=$API_LEVEL"
             echo "android_version=$(adb shell getprop ro.build.version.release | tr -d '\r')"
             echo "abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
-            echo "version_name=$(adb shell dumpsys package ${{ env.APP_ID }} | grep -m1 versionName | tr -d '\r' | cut -d= -f2)"
-            echo "version_code=$(adb shell dumpsys package ${{ env.APP_ID }} | grep -m1 versionCode | tr -d '\r' | sed 's/.*versionCode=\([0-9]*\).*/\1/')"
-            echo "apk_bytes=$(stat -c%s "$APK" 2>/dev/null || echo 0)"
-            echo "install_result=${install_out:-unknown}"
+            echo "version_name=$(adb shell dumpsys package "${{ env.APP_ID }}" | grep -m1 versionName | tr -d '\r' | cut -d= -f2)"
+            echo "version_code=$(adb shell dumpsys package "${{ env.APP_ID }}" | grep -m1 versionCode | tr -d '\r' | sed 's/.*versionCode=\([0-9]*\).*/\1/')"
+            echo "apk_bytes=$(stat -c%s "$APK")"
+            echo "install_result=$(printf '%s' "$install_out" | tail -1 | tr -d '\r')"
             echo "post_notifications_granted=${POST_NOTIF:-0}"
-          } > "device-${{ matrix.api-level }}.txt" || true
+          } > "device-${{ matrix.api-level }}.txt"
 
-          echo '--- adb devices ---'
-          adb devices
-          echo '--- flutter devices ---'
-          flutter devices || true
           start=$(date +%s)
-          cd ${{ env.APP_DIR }}
-          flutter test integration_test/app_flow_test.dart -d emulator-5554 \
-            --reporter expanded 2>&1 | tee "../e2e-${{ matrix.api-level }}.log"
-          status=${PIPESTATUS[0]}
+          cd "${{ env.APP_DIR }}"
+          if flutter test integration_test/app_flow_test.dart -d emulator-5554 \
+            --reporter expanded 2>&1 | tee "../e2e-${{ matrix.api-level }}.log"; then
+            status=0
+          else
+            status=$?
+          fi
           cd ..
-          # Android's own view of the media notification: if the card is
-          # missing on a real phone, this says which link in the chain broke.
+          # Android's own view of the media notification is diagnostic context;
+          # no matching log lines are acceptable when Android logs no failures.
           adb logcat -d -v brief \
             | grep -aiE "audioservice|audio_service|NotificationService|MediaSession|muZic.*notif|Bad notification|not valid|crash" \
             | tail -80 > "logcat-${{ matrix.api-level }}.txt" || true
           echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
-          exit $status
+          exit "$status"
 
       - name: Surface E2E failure details
         if: failure()
@@ -418,8 +429,27 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # Aggregate everything into one Markdown report, publish it and commit it back
-  # so the report is readable without downloading artefacts.
+  # A single strict status for branch protection: neither matrix failures nor
+  # a skipped static/device job can accidentally look green.
+  # ---------------------------------------------------------------------------
+  strict-gate:
+    name: Strict E2E gate
+    needs: [static, e2e]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require static and both Android journeys to pass
+        env:
+          STATIC_RESULT: ${{ needs.static.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          set -euo pipefail
+          echo "static=$STATIC_RESULT e2e=$E2E_RESULT"
+          test "$STATIC_RESULT" = success
+          test "$E2E_RESULT" = success
+
+  # ---------------------------------------------------------------------------
+  # Aggregate the results into a Markdown artifact and workflow summary.
   # ---------------------------------------------------------------------------
   report:
     name: Publish E2E report
@@ -535,14 +565,14 @@ jobs:
                   if not match:
                       continue
                   name, status, ms, detail = match.groups()
-                  icon = {'PASS': '✅', 'FAIL': '❌', 'WARN': '⚠️'}.get(status, '•')
+                  icon = {'PASS': '✅', 'FAIL': '❌', 'WARN': '❌'}.get(status, '❌')
                   detail = (detail or '').replace('|', '/')[:300]
                   lines.append(f'| {api} | `{name}` | {icon} {status} | '
                                f'{int(ms) / 1000:.2f}s | {detail} |')
                   counts = api_counts.setdefault(api, {'pass': 0, 'bad': 0})
                   if status == 'PASS':
                       counts['pass'] += 1
-                  elif status == 'FAIL':
+                  else:
                       counts['bad'] += 1
                   step_rows += 1
           if step_rows == 0:
@@ -601,7 +631,7 @@ jobs:
                   code = row.get('version_code') or ''
                   if version in ('', 'null'):
                       version, code = '—', '—'
-                  result = '✅ 14/14' if str(api) in green_apis else '❌ see §3'
+                  result = f'✅ {api_counts[str(api)]["pass"]} strict steps' if str(api) in green_apis else '❌ see §3'
                   lines.append(f'| emulator-{api} (API {api}) | '
                                f'{row.get("android_version", "?")} | '
                                f'{row.get("abi", "?")} | `{version}+{code}` | '
@@ -640,8 +670,8 @@ jobs:
 
           lines.append('## 6. Notes')
           lines.append('')
-          lines.append('- Steps marked ⚠️ depend on the live JioSaavn/YouTube '
-                       'network and do not fail the build.')
+          lines.append('- Every E2E assertion is a hard gate, including live-provider search/playback; '
+                       'there are no warning-only product steps.')
           lines.append('- `cold_start` measures process start → first rendered '
                        'home frame on a software-rendered emulator, so real '
                        'hardware is faster.')
@@ -666,19 +696,4 @@ jobs:
           path: docs/e2e/LATEST.md
           retention-days: 30
 
-      - name: Commit report back to the branch
-        if: |
-          always() &&
-          github.event_name != 'pull_request' &&
-          !contains(github.event.head_commit.message, '[e2e-report]')
-        shell: bash
-        run: |
-          git config user.name 'muzic-ci'
-          git config user.email 'ci@users.noreply.github.com'
-          git add docs/e2e/LATEST.md
-          if git diff --cached --quiet; then
-            echo 'report unchanged'
-            exit 0
-          fi
-          git commit -m 'Update end-to-end test report [e2e-report]'
-          git push
+      # The report is available in the workflow summary and the 30-day artifact.

@@ -38,6 +38,9 @@ class VisualizerService {
           'error': '$error',
         });
         _listening = false;
+        final subscription = _subscription;
+        _subscription = null;
+        if (subscription != null) unawaited(subscription.cancel());
       },
       cancelOnError: false,
     );
@@ -47,15 +50,20 @@ class VisualizerService {
   }
 
   Future<void> stop() async {
-    if (!_listening) return;
+    final subscription = _subscription;
+    if (!_listening && subscription == null) return;
     _listening = false;
-    await _subscription?.cancel();
     _subscription = null;
+    await subscription?.cancel();
     logDebug('visualizer', 'capture stopped');
   }
 
   void dispose() {
-    unawaited(stop());
-    unawaited(_controller.close());
+    unawaited(_shutdown());
+  }
+
+  Future<void> _shutdown() async {
+    await stop();
+    await _controller.close();
   }
 }

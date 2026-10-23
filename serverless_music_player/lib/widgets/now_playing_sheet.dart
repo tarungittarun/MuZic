@@ -401,7 +401,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      VisualizerBars(service: _visualizer),
+                      VisualizerBars(bands: _visualizer.bands),
                     ],
                   ),
                 ),
