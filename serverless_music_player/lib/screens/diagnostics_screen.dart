@@ -284,7 +284,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   Text(
                     'Run simulated checks to exercise the same pipeline a song '
                     'uses (search → stream URL → CDN reachability → lyrics → '
-                    'YouTube) and capture what happens at each step.',
+                    'Source B) and capture what happens at each step.',
                     style: TextStyle(
                       color: palette.textMuted,
                       height: 1.45,
@@ -364,8 +364,9 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                '${step.name} · ${step.elapsed.inMilliseconds} ms\n'
-                                '${step.detail}',
+                                '${neutralizeProviderNames(step.name)} · '
+                                '${step.elapsed.inMilliseconds} ms\n'
+                                '${neutralizeProviderNames(step.detail)}',
                                 style: TextStyle(
                                   color: palette.textSecondary,
                                   fontSize: 11,
@@ -605,6 +606,37 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   }
 }
 
+/// Keeps provider URLs and brand names out of diagnostics displayed in the UI.
+/// The full technical details remain available in the exported diagnostics file.
+String neutralizeProviderNames(String value) {
+  return value
+      .replaceAll(RegExp(r'https?://\S+', caseSensitive: false), 'network link')
+      .replaceAll(
+        RegExp(
+          r'\b(?:[\w-]+\.)*(?:saavncdn\.com|jiosaavn\.com|googlevideo\.com|youtube\.com|ytimg\.com|lrclib\.net|radioparadise\.com)\b',
+          caseSensitive: false,
+        ),
+        'media host',
+      )
+      .replaceAll(
+        RegExp(r'radio\s*paradise', caseSensitive: false),
+        'radio source',
+      )
+      .replaceAll(RegExp('googlevideo', caseSensitive: false), 'media host')
+      .replaceAll(RegExp('jiosaavn', caseSensitive: false), 'Source A')
+      .replaceAll(RegExp('youtube', caseSensitive: false), 'Source B')
+      .replaceAll(RegExp('lrclib', caseSensitive: false), 'lyrics source')
+      .replaceAll(RegExp('spotify', caseSensitive: false), 'radio mix')
+      .replaceAll(
+        RegExp(
+          r'\b(?:motorola|samsung|xiaomi|oppo|vivo|oneplus|miui|color\s*os|funtouch\s*os|hyper\s*os|one\s*ui|hello\s*ui|google|apple|amazon|microsoft|chrome|safari|iphone|ipad|ios)\b',
+          caseSensitive: false,
+        ),
+        'device',
+      )
+      .replaceAll(RegExp('android', caseSensitive: false), 'system');
+}
+
 class _LogTile extends StatelessWidget {
   const _LogTile({required this.entry});
 
@@ -621,6 +653,11 @@ class _LogTile extends StatelessWidget {
     };
     final time =
         '${entry.time.hour.toString().padLeft(2, '0')}:${entry.time.minute.toString().padLeft(2, '0')}:${entry.time.second.toString().padLeft(2, '0')}';
+    final logLine = neutralizeProviderNames(
+      '$time ${entry.level.name.toUpperCase()} [${entry.category}] '
+      '${entry.message}'
+      '${entry.data.isEmpty ? '' : ' ${entry.data}'}',
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Container(
@@ -630,9 +667,7 @@ class _LogTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
-          '$time ${entry.level.name.toUpperCase()} [${entry.category}] '
-          '${entry.message}'
-          '${entry.data.isEmpty ? '' : ' ${entry.data}'}',
+          logLine,
           style: TextStyle(
             color: color,
             fontSize: 10.5,

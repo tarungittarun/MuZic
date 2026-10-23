@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -259,6 +261,7 @@ class MiniPlayer extends StatelessWidget {
                     ),
                   ),
                 ),
+                _OrbitingPlaybackBorder(isPlaying: player.isPlaying),
               ],
             ),
           ),
@@ -268,11 +271,126 @@ class MiniPlayer extends StatelessWidget {
   }
 }
 
+class _OrbitingPlaybackBorder extends StatefulWidget {
+  const _OrbitingPlaybackBorder({required this.isPlaying});
+
+  final bool isPlaying;
+
+  @override
+  State<_OrbitingPlaybackBorder> createState() =>
+      _OrbitingPlaybackBorderState();
+}
+
+class _OrbitingPlaybackBorderState extends State<_OrbitingPlaybackBorder>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2600),
+    );
+    if (widget.isPlaying) unawaited(_controller.repeat());
+  }
+
+  @override
+  void didUpdateWidget(covariant _OrbitingPlaybackBorder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isPlaying && !oldWidget.isPlaying) {
+      unawaited(_controller.repeat());
+    } else if (!widget.isPlaying && oldWidget.isPlaying) {
+      _controller.stop();
+      _controller.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) => IgnorePointer(
+        child: CustomPaint(
+          foregroundPainter: _OrbitingBorderPainter(
+            progress: _controller.value,
+            active: widget.isPlaying,
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+  }
+}
+
+class _OrbitingBorderPainter extends CustomPainter {
+  const _OrbitingBorderPainter({required this.progress, required this.active});
+
+  final double progress;
+  final bool active;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const baseWidth = 1.1;
+    final rect = Offset.zero & size;
+    final border = RRect.fromRectAndRadius(
+      rect.deflate(baseWidth / 2),
+      const Radius.circular(22),
+    );
+    canvas.drawRRect(
+      border,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = baseWidth
+        ..color = const Color(0x5CFFFFFF),
+    );
+    if (!active || size.isEmpty) return;
+
+    final shader = SweepGradient(
+      colors: const <Color>[
+        Colors.transparent,
+        Colors.transparent,
+        Color(0xFF378CFF),
+        Color(0xFF78E8FF),
+        Colors.transparent,
+      ],
+      stops: const <double>[0, 0.62, 0.72, 0.79, 1],
+      transform: GradientRotation(progress * 6.283185307179586),
+    ).createShader(rect);
+    canvas.drawRRect(
+      border,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5
+        ..shader = shader
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+    canvas.drawRRect(
+      border,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8
+        ..shader = shader,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _OrbitingBorderPainter oldDelegate) =>
+      oldDelegate.progress != progress || oldDelegate.active != active;
+}
+
 void showNowPlaying(BuildContext context) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    enableDrag: false,
     backgroundColor: Colors.transparent,
     builder: (_) => const NowPlayingSheet(),
   );

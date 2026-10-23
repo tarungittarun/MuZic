@@ -177,6 +177,161 @@ class MediaControllerCard extends StatelessWidget {
   }
 }
 
+/// The artwork-only card used when transport controls sit below the art.
+class MediaArtworkCard extends StatelessWidget {
+  const MediaArtworkCard({required this.song, super.key});
+
+  final SongModel song;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(30),
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          ArtworkBackdrop(song: song),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[
+                  Color(0x2E000000),
+                  Color(0x00000000),
+                  Color(0x59000000),
+                  Color(0xC4000000),
+                ],
+                stops: <double>[0, 0.35, 0.68, 1],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Row(
+                  children: <Widget>[
+                    MuZicAppIcon(size: 34),
+                    Spacer(),
+                    _ThisPhonePill(),
+                  ],
+                ),
+                const Spacer(),
+                Text(
+                  song.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    height: 1.15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  song.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xD9FFFFFF),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Playback buttons and the live seek line placed directly under the art.
+class MediaTransportControls extends StatelessWidget {
+  const MediaTransportControls({
+    required this.isPlaying,
+    required this.isBusy,
+    required this.position,
+    required this.duration,
+    required this.onPlayPause,
+    required this.onNext,
+    required this.onPrevious,
+    required this.onSeek,
+    super.key,
+  });
+
+  final bool isPlaying;
+  final bool isBusy;
+  final Duration position;
+  final Duration duration;
+  final VoidCallback onPlayPause;
+  final VoidCallback onNext;
+  final VoidCallback onPrevious;
+  final ValueChanged<Duration> onSeek;
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = Theme.of(context).colorScheme.onSurface;
+    final timeStyle = TextStyle(
+      color: textColor.withValues(alpha: 0.62),
+      fontSize: 10.5,
+      fontWeight: FontWeight.w600,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              IconButton(
+                tooltip: 'Previous track',
+                onPressed: onPrevious,
+                icon: const Icon(Icons.skip_previous_rounded, size: 29),
+              ),
+              const SizedBox(width: 12),
+              _PlayPauseButton(
+                isPlaying: isPlaying,
+                isBusy: isBusy,
+                onPressed: onPlayPause,
+              ),
+              const SizedBox(width: 12),
+              IconButton(
+                tooltip: 'Next track',
+                onPressed: onNext,
+                icon: const Icon(Icons.skip_next_rounded, size: 29),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: <Widget>[
+              Text(formatMediaTime(position), style: timeStyle),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 9),
+                  child: WavySeekBar(
+                    position: position,
+                    duration: duration,
+                    isPlaying: isPlaying,
+                    onSeek: onSeek,
+                  ),
+                ),
+              ),
+              Text(formatMediaTime(duration), style: timeStyle),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ThisPhonePill extends StatelessWidget {
   const _ThisPhonePill();
 

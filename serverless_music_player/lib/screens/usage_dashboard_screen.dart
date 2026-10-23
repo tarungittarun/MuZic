@@ -734,8 +734,8 @@ IconData _eventIcon(String type) => switch (type) {
     };
 
 String _prettySource(String value) => switch (value) {
-      'jioSaavn' => 'JioSaavn',
-      'youtube' => 'YouTube',
+      'jioSaavn' => 'Source A',
+      'youtube' => 'Source B',
       'automatic' => 'Auto',
       _ => value,
     };

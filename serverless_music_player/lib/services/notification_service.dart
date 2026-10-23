@@ -141,24 +141,24 @@ class NotificationService {
           postedEntries.any(
               (entry) => entry.toString().contains('com.auralis.player.audio'));
       lines.add('${playerShowing ? '✅' : '⚠️'} System media notification '
-          '${playerShowing ? 'posted for Android to render' : 'not posted — play a song, then check again'}');
+          '${playerShowing ? 'posted for the system to render' : 'not posted — play a song, then check again'}');
       final tokenDetails = raw['sessionTokenDetails'];
       if (tokenDetails is List && tokenDetails.isNotEmpty) {
         final tokenLine = tokenDetails.join(' | ');
         final readable = tokenLine.contains('state=playing') ||
             tokenLine.contains('state=paused');
         lines.add('${readable ? '✅' : '⚠️'} Media session token '
-            '${readable ? 'readable by Android' : 'not readable'}');
+            '${readable ? 'readable by the system' : 'not readable'}');
         lines.add('Session token: $tokenLine');
       }
       if (importance is int && importance == 0) {
-        lines.add('This channel is turned off in Android settings — open '
+        lines.add('This channel is turned off in device settings — open '
             'notification settings and turn MuZic back on.');
       }
       final manufacturer =
           (raw['manufacturer'] ?? '').toString().toLowerCase();
       if (manufacturer.contains('motorola')) {
-        lines.add('Motorola checks if the player is missing:');
+        lines.add('Device-specific media checks:');
         lines.add('• Sound & vibration → Media → Pin media player: ON');
         lines.add('• Home & lock screen → Control center → Allow control '
             'center access on lock screen: ON');
@@ -168,9 +168,9 @@ class NotificationService {
             'notifications and music”: ON');
         lines.add('• Face unlock → turn OFF “Skip lock screen” (it hides '
             'lock-screen media players)');
-        lines.add('• Known Edge Neo bug: if the music card area is blank, '
+        lines.add('• If the media card area is blank, '
             'switch Control center style (Modern ↔ Classic) once — '
-            'Motorola’s panel then redraws the card');
+            'the media panel may redraw the card');
       }
       lastHealth = lines;
       return lines;

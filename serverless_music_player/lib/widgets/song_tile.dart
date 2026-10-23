@@ -288,10 +288,10 @@ class _SongTileState extends State<SongTile> {
           SnackBar(content: Text('Saved “${widget.song.title}” for offline listening.')),
         );
       }
-    } catch (error) {
+    } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $error')),
+          const SnackBar(content: Text('Download failed. Please try again.')),
         );
       }
     }
@@ -309,10 +309,10 @@ class _SongTileState extends State<SongTile> {
       } else if (action == 'playlist') {
         await _choosePlaylist(context);
       }
-    } catch (error) {
+    } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not complete that action: $error')),
+          const SnackBar(content: Text('Could not complete that action.')),
         );
       }
     }
@@ -439,7 +439,7 @@ class _TrackDetails extends StatelessWidget {
         if (song.isExplicit != null)
           _InfoRow(label: 'Content', value: song.isExplicit! ? 'Explicit' : 'Clean'),
         if (song.hasLyrics != null)
-          _InfoRow(label: 'JioSaavn lyrics flag', value: song.hasLyrics! ? 'Listed' : 'Not listed'),
+          _InfoRow(label: 'Catalog lyrics flag', value: song.hasLyrics! ? 'Listed' : 'Not listed'),
         _LyricsAvailability(future: lyricsFuture, onRetry: onRetryLyrics),
       ],
     );
@@ -569,8 +569,8 @@ String _formatCount(int value) {
 }
 
 String _sourceLabel(SongSource source) => switch (source) {
-      SongSource.jioSaavn => 'JioSaavn',
-      SongSource.youtube => 'YouTube',
+      SongSource.jioSaavn => 'Source A',
+      SongSource.youtube => 'Source B',
       SongSource.radio => 'Lossless radio',
       SongSource.local => 'Local file',
     };

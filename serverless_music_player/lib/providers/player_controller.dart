@@ -890,9 +890,9 @@ class PlayerController extends ChangeNotifier {
       } else {
         url = await _musicApi.resolveYouTubeFallback(song);
       }
-      await _replaceCurrentSource(song, index, url, label: 'youtube-fallback');
+      await _replaceCurrentSource(song, index, url, label: 'source-b-fallback');
     } catch (fallbackError) {
-      logError('player', 'YouTube fallback failed', <String, Object?>{
+      logError('player', 'Source B fallback failed', <String, Object?>{
         'song': song.title,
         'error': '$fallbackError',
       });

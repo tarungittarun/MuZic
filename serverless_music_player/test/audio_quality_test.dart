@@ -28,7 +28,7 @@ void main() {
       ));
       expect(info.label, 'AAC 320 kbps');
       expect(info.isLossless, isFalse);
-      expect(info.detail, contains('JioSaavn'));
+      expect(info.detail, contains('Source A'));
     });
 
     test('detects JioSaavn 96 kbps streams', () {
@@ -44,7 +44,7 @@ void main() {
         source: SongSource.youtube,
         streamUrl: 'https://rr1.googlevideo.com/videoplayback?mime=audio%2Fwebm',
       ));
-      expect(info.detail, contains('YouTube'));
+      expect(info.detail, contains('Source B'));
       expect(info.isLossless, isFalse);
     });
 

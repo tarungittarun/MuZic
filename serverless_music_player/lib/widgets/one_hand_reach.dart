@@ -3,16 +3,54 @@ import 'package:provider/provider.dart';
 
 import '../services/app_settings_service.dart';
 
+/// Keeps horizontal carousels available while the reach gesture returns the
+/// translated page to its normal position. Without this vertical-only lock,
+/// the restoring swipe also scrolls the page itself and pushes its header out
+/// of view behind the newly uncovered background.
+class _ReachScrollBehavior extends MaterialScrollBehavior {
+  const _ReachScrollBehavior({required this.lockVertical});
+
+  final bool lockVertical;
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    final platformPhysics = super.getScrollPhysics(context);
+    return lockVertical
+        ? _VerticalReachLockPhysics(parent: platformPhysics)
+        : platformPhysics;
+  }
+}
+
+class _VerticalReachLockPhysics extends ScrollPhysics {
+  const _VerticalReachLockPhysics({super.parent});
+
+  bool _isVertical(ScrollMetrics position) =>
+      position.axisDirection == AxisDirection.down ||
+      position.axisDirection == AxisDirection.up;
+
+  @override
+  bool shouldAcceptUserOffset(ScrollMetrics position) {
+    if (_isVertical(position)) return false;
+    return super.shouldAcceptUserOffset(position);
+  }
+
+  @override
+  double applyPhysicsToUserOffset(ScrollMetrics position, double offset) {
+    if (_isVertical(position)) return 0;
+    return super.applyPhysicsToUserOffset(position, offset);
+  }
+
+  @override
+  _VerticalReachLockPhysics applyTo(ScrollPhysics? ancestor) =>
+      _VerticalReachLockPhysics(parent: buildParent(ancestor));
+}
+
 /// Page-specific reachability: three firm pull-downs at the top of the
 /// currently visible page translate it into thumb reach. The page retains its
 /// normal full-height viewport; scrolling back up hands the space back without
 /// trapping the page in a smaller scroll area.
 class OneHandReach extends StatefulWidget {
-  const OneHandReach({
-    required this.visible,
-    required this.child,
-    super.key,
-  });
+  const OneHandReach({required this.visible, required this.child, super.key});
 
   /// Whether this is the currently selected main page.
   final bool visible;
@@ -42,6 +80,7 @@ class _OneHandReachState extends State<OneHandReach>
   Offset? _pointerStart;
   Offset? _pointerLast;
   bool _pullCountedThisPointer = false;
+  bool _restoreScrollLockUntilPointerUp = false;
   bool? _wasEnabled;
 
   @override
@@ -77,6 +116,7 @@ class _OneHandReachState extends State<OneHandReach>
     _pointerStart = null;
     _pointerLast = null;
     _pullCountedThisPointer = false;
+    _restoreScrollLockUntilPointerUp = false;
     _dropController.stop();
     _dropController.value = 0;
   }
@@ -85,6 +125,14 @@ class _OneHandReachState extends State<OneHandReach>
     _pointerStart = event.position;
     _pointerLast = event.position;
     _pullCountedThisPointer = false;
+  }
+
+  void _handlePointerEnd(PointerEvent event) {
+    _pointerStart = null;
+    _pointerLast = null;
+    if (_restoreScrollLockUntilPointerUp && mounted) {
+      setState(() => _restoreScrollLockUntilPointerUp = false);
+    }
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
@@ -108,6 +156,11 @@ class _OneHandReachState extends State<OneHandReach>
           _offset = next;
           if (_offset <= 0) {
             _active = false;
+            // Keep vertical scrolling locked for the remainder of this finger
+            // gesture. Otherwise the same upward swipe first removes the
+            // reach offset and then scrolls the page underneath it, making the
+            // header disappear behind the newly exposed blank area.
+            _restoreScrollLockUntilPointerUp = true;
             _pullDownCount = 0;
             _pullWindowStart = null;
           }
@@ -171,14 +224,8 @@ class _OneHandReachState extends State<OneHandReach>
       behavior: HitTestBehavior.translucent,
       onPointerDown: _handlePointerDown,
       onPointerMove: _handlePointerMove,
-      onPointerUp: (_) {
-        _pointerStart = null;
-        _pointerLast = null;
-      },
-      onPointerCancel: (_) {
-        _pointerStart = null;
-        _pointerLast = null;
-      },
+      onPointerUp: _handlePointerEnd,
+      onPointerCancel: _handlePointerEnd,
       child: NotificationListener<ScrollNotification>(
         onNotification: _handleScrollNotification,
         child: LayoutBuilder(
@@ -192,14 +239,22 @@ class _OneHandReachState extends State<OneHandReach>
                   final offset = !enabled || !widget.visible || !_active
                       ? 0.0
                       : _dropAnimating
-                          ? _maxDrop * Curves.easeOutCubic.transform(
-                              _dropController.value,
-                            )
-                          : _offset.clamp(0.0, _maxDrop).toDouble();
-                  return Transform.translate(
-                    key: const ValueKey<String>('one-hand-page-transform'),
-                    offset: Offset(0, offset),
-                    child: child,
+                      ? _maxDrop *
+                            Curves.easeOutCubic.transform(_dropController.value)
+                      : _offset.clamp(0.0, _maxDrop).toDouble();
+                  final lockVerticalScroll =
+                      enabled &&
+                      widget.visible &&
+                      (_active || _restoreScrollLockUntilPointerUp);
+                  return ScrollConfiguration(
+                    behavior: lockVerticalScroll
+                        ? const _ReachScrollBehavior(lockVertical: true)
+                        : const _ReachScrollBehavior(lockVertical: false),
+                    child: Transform.translate(
+                      key: const ValueKey<String>('one-hand-page-transform'),
+                      offset: Offset(0, offset),
+                      child: child,
+                    ),
                   );
                 },
               ),

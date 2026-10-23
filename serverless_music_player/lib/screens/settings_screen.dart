@@ -82,7 +82,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: <Widget>[
                 _ThemeOption(
                   title: 'Follow device',
-                  subtitle: 'Use Android’s current appearance.',
+                  subtitle: 'Use this device’s current appearance.',
                   icon: Icons.brightness_auto_rounded,
                   mode: ThemeMode.system,
                   selected: settings.themeMode == ThemeMode.system,
@@ -117,7 +117,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   title: const Text('One-hand mode'),
                   subtitle: Text(
-                    'One UI-style reachability on each page: pull down '
+                    'One-hand reachability on each page: pull down '
                     'firmly three times at the top and that page drops '
                     'into thumb reach. The open area stays clear; scrolling '
                     'up smoothly restores the full page. Turn this off '
@@ -213,7 +213,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ? 'Checking…'
                             : granted
                                 ? 'Allowed — the system media player can appear on the lock screen and in Quick Settings.'
-                                : 'Blocked — Android hides the media controls. Allow it here.',
+                                : 'Blocked — system media controls are hidden. Allow access here.',
                         style: TextStyle(
                           color: granted ? palette.textMuted : palette.accent,
                           fontSize: 12,
@@ -251,7 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: palette.textSecondary),
                   title: const Text('System media player'),
                   subtitle: Text(
-                    'Open Android’s media controls.',
+                    'Open the system media controls.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   trailing: const Icon(Icons.open_in_new_rounded, size: 18),
@@ -264,7 +264,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Allow background playback'),
                   subtitle: Text(
                     'Exempt MuZic from battery optimisation so playback '
-                    'is not killed (needed on MIUI, ColorOS, FuntouchOS).',
+                    'is not stopped by device-specific battery controls.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded),
@@ -707,7 +707,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
                     child: Text(
-                      'Sound processing depends on the Android device and '
+                      'Sound processing depends on device hardware and the '
                       'active audio route. MuZic applies these controls to '
                       'its playback session only.',
                       style: TextStyle(

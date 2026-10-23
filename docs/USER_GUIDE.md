@@ -10,11 +10,31 @@ screenshots.
 
 | What | How |
 | --- | --- |
-| **Install** | Open the latest release on GitHub → **Assets** → download `app-arm64-v8a-release.apk` (most phones) → tap it → *Install anyway* if Android warns about an unknown source. |
+| **Install** | Open the latest MuZic release → **Assets** → download `app-arm64-v8a-release.apk` (most phones) → tap it → *Install anyway* if Android warns about an unknown source. |
 | **Older 32-bit phone** | Use `app-armeabi-v7a-release.apk` instead. |
 | **Update** | Download the newest APK and install it over the old one. Every MuZic build is signed with the same key (`04d6c78f…`) and bumps the version code, so it updates in place — **no uninstall needed**. |
 | **If you ever see "package conflicts"** | You are installing over an old build from before the signing fix. Uninstall MuZic once, then install the new APK. This will not happen again. |
-| **Version** | Settings → About shows the version (for example, `1.5.41+50`). |
+| **Version** | Settings → About shows the version (for example, `1.5.42+51`). |
+
+---
+
+## What's new in 1.5.42
+
+- **Reach mode restores cleanly:** while the page is lowered, the upward
+  restoring swipe moves only the page back into place; it no longer scrolls
+  the content underneath and hides the home header.
+- **A clearer mini player:** a slim electric-blue trace circles the artwork
+  card only during playback and becomes still when paused.
+- **More balanced full player:** the artwork card is about 20% smaller, the
+  live waveform sits above it, and the seek line remains with the controls.
+  Repeat, shuffle, download, like, lyrics and Up next share a roomy horizontal
+  action rail. After a swipe, it glides back over 2.5 seconds if no action is
+  tapped for four seconds.
+- **Snapping sheets:** Up next opens at 80%, settles at 30%, and dismisses on a
+  further downward swipe. The full player similarly settles at 50% before a
+  second downward swipe closes it. Both stops provide a light haptic cue.
+- **Source-neutral labels:** song search and diagnostics use Source A / Source
+  B labels instead of displaying third-party catalog names.
 
 ---
 
@@ -94,7 +114,7 @@ screenshots.
 
 ## What's new in 1.5.38
 
-- **No more walls of the same song in search:** if JioSaavn returns the
+- **No more walls of the same song in search:** if Source A returns the
   same recording from a film album, a compilation and a playlist, MuZic now
   keeps the best single copy and hides the repeats.
 - **Settings, properly categorised:** **Playback** now contains only the
@@ -129,7 +149,7 @@ screenshots.
 - **Continuous Library swiping:** swipe left/right through **Liked →
   Downloads · Songs → Downloads · Videos → Recent → Playlists → Local**.
   Downloads no longer traps the swipe in its own inner tabs.
-- **One-hand mode (One UI style):** Library's section switcher moves down by
+- **One-hand mode (thumb-friendly style):** Library's section switcher moves down by
   the thumb (above the mini player) and the bottom navigation gets larger
   touch targets. Prefer the classic layout? Turn it off in
   *Settings → Appearance → One-hand mode*.
@@ -168,7 +188,7 @@ The home tab is a browsable feed, not just a search box.
 2. **Recently played** — the last tracks you started, newest first.
 3. **Liked songs** — everything you hearted.
 4. **Trending in \<language\>** — one shelf per language you picked
-   (live JioSaavn charts).
+   (live Source A charts).
 5. **Lossless radio** — free FLAC streams (see §10).
 6. **Your playlists** — tap a chip to play it.
 
@@ -191,7 +211,7 @@ shelves reload automatically when you change the selection.
 ## 3. Search
 
 1. Type in the search field and press the arrow (or Enter).
-2. Source chips let you switch between **Auto**, **JioSaavn** and **YouTube**;
+2. Source chips let you switch between **Auto**, **Source A** and **Source B**;
    switching re-runs the search.
 3. Results are grouped like other music apps:
    - **Top result** — big card, one tap to play.
@@ -249,8 +269,8 @@ Tap the small badge under the artist (e.g. `AAC 320 kbps`) to open the
 source, the stream host, and an honest note that Android may resample to 48 kHz
 unless you use a USB DAC.
 
-MuZic never claims "hi-res" for a lossy stream: JioSaavn tops out at AAC
-320 kbps, YouTube at Opus/AAC.
+MuZic never claims "hi-res" for a lossy stream: Source A tops out at AAC
+320 kbps, Source B at Opus/AAC.
 
 ---
 
@@ -261,8 +281,8 @@ MuZic never claims "hi-res" for a lossy stream: JioSaavn tops out at AAC
 Open the now-playing sheet and tap the **lyrics** icon. MuZic shows the
 first good lyrics result as soon as it arrives, then finishes loading the
 other language variants in the background instead of keeping the spinner
-up for every source. If LRCLIB is temporarily unavailable, MuZic can fall
-back to catalogue/JioSaavn lyrics and will retry on a later open rather
+up for every source. If the lyrics source is temporarily unavailable, MuZic can fall
+back to catalogue/Source A lyrics and will retry on a later open rather
 than remembering the failure for the whole session.
 
 - **Auto-scroll** follows the song smoothly and keeps the current line around a
@@ -295,16 +315,15 @@ phone itself renders on the lock screen and in Quick Settings
 repeat). It is provided by the standard `audio_service` +
 `just_audio_background` stack: every song carries a media tag, and
 Android turns the player's state into the controller automatically,
-including Bluetooth and Android Auto. The controller appears while a
+including Bluetooth and car media systems. The controller appears while a
 song plays and stays when you pause; swipe it away when paused to
 dismiss it.
 
-MuZic deliberately uses **only** that system player. It does not add a
-MuZic-made replacement card to the notification shade. Android and the
-phone maker decide where the system player appears: on the reference
-Motorola it is shown on the lock screen and in Quick Settings, while
-the first-pull notification shade has no MuZic player. Other phones
-may place the same system player on additional surfaces.
+MuZic deliberately uses **only** the system player; it does not add a
+replacement card to the notification shade. The device's system settings
+decide where the player appears. On the reference device it appears on the
+lock screen and in Quick Settings, while the first-pull notification shade
+has no MuZic player. Other devices may place it on additional surfaces.
 
 Settings is reached from the **gear** in the bottom row. It is organised
 into expandable sections: each section heading is a raised header card
@@ -318,11 +337,11 @@ in its exported report).
 | Row | What it does |
 | --- | --- |
 | **Notification access** | Shows Allowed/Blocked. **Allow** asks for the permission; if it is still blocked it opens the system settings page for MuZic. The media player cannot appear without it. |
-| **System media player** | Opens Android's own media-controls settings. MuZic does not draw a replacement shade card. |
-| **Allow background playback** | Battery-optimisation exemption. Required on MIUI, ColorOS, FuntouchOS, MagicOS — otherwise the player gets killed a few minutes after you leave the app. |
+| **System media player** | Opens the device's media-controls settings. MuZic does not draw a replacement shade card. |
+| **Allow background playback** | Battery-optimisation exemption. Required on manufacturer-specific power controls — otherwise the player gets killed a few minutes after you leave the app. |
 | **Autoplay recommendations** | On by default. Adds a personalised radio mix after your queue as real, rearrangeable **Up next** tracks. |
 | **Recommendation mix** | **Familiar** leans on artists you already play; **Balanced** mixes taste and charts; **Discovery** gives fresh trending picks more weight. |
-| **Android media-card limits** | MuZic supplies Android with the best artwork and song details it has, plus previous / play-pause / next, seek, shuffle and repeat state. Motorola/Android draws the Quick Settings card itself, so MuZic cannot resize it, recolour it or force Android/Google to show extra recommendation cards there. MuZic does publish the standard browsable/resumable media hooks Android offers apps. |
+| **System media-card limits** | MuZic supplies artwork and song details, plus previous / play-pause / next, seek, shuffle and repeat state. The system draws its Quick Settings card, so MuZic cannot resize it, recolour it or force extra recommendation cards there. |
 
 **If the system player does not appear**
 
@@ -332,26 +351,25 @@ in its exported report).
    Settings while a song plays, send a diagnostics report (the app version,
    media session and queue state are logged).
 3. Allow **background playback** and re-test after locking the screen once.
-4. On Motorola phones, also check **Settings → Sound & vibration → Media**:
+4. On some devices, also check **Settings → Sound & vibration → Media**:
    turn on the lock-screen media player / pin the media player, and under
    **Home & lock screen → Control center** allow control-center access on the
-   lock screen. MuZic's **System media player** row opens Android's Media
-   controls settings directly. The diagnostics report's
+   lock screen. MuZic's **System media player** row opens the media-controls
+   settings directly. The diagnostics report's
    `#1124 ... mediaSession=true` line means MuZic has posted everything
    Android asks for; the exported report also includes a "Media notification
    health" section whose "Session token" line shows the live session state,
-   metadata and style that Motorola/Samsung SystemUI renders from.
+   metadata and style that the system interface renders from.
 
-   **Motorola (Hello UI) specifics.** Motorola places the player in Quick
-   Settings and on the lock screen only when its own switches allow it:
+   **Device-specific media settings.** Some devices place the player in Quick
+   Settings and on the lock screen only when their media switches allow it:
    *Sound & vibration → Media → Pin media player* ON; *Home & lock
    screen → Control center → Allow control center access on lock screen*
    ON; *Lock screen → Privacy → show all notification content*; *Lock
    screen → Sleep display → Interact with notifications and music* ON;
    and face-unlock **Skip lock screen** OFF (it hides lock-screen media
-   players). Edge Neo models on Android 15 also have a known Motorola bug
-   where the music-card area renders blank: switch *Control center* style
-   (Modern ↔ Classic) once and the panel redraws the card. The optional
+   players). Some models may show a blank music-card area: switch the
+   *Control center* style (Modern ↔ Classic) once to redraw the panel. The optional
    diagnostics report still records the media-session health lines.
 
 ---
@@ -410,17 +428,17 @@ showing a fake visualizer; nothing is ever recorded from the microphone.
 
 ## 10. Lossless audio
 
-MuZic is honest about lossless: JioSaavn/YouTube do not serve FLAC, so lossless
+MuZic is honest about lossless: Source A/Source B do not serve FLAC, so lossless
 comes from two places.
 
 **Free FLAC radio** — home → *Lossless radio*:
 
 | Station | Stream |
 | --- | --- |
-| Radio Paradise — Main Mix | `stream.radioparadise.com/flac` |
-| Radio Paradise — Mellow Mix | `…/mellow-flac` |
-| Radio Paradise — Rock Mix | `…/rock-flac` |
-| Radio Paradise — Global Mix | `…/eclectic-flac` |
+| Main Mix | Live FLAC stream |
+| Mellow Mix | Live FLAC stream |
+| Rock Mix | Live FLAC stream |
+| Global Mix | Live FLAC stream |
 
 These are true 16-bit/44.1 kHz Ogg-FLAC streams. Live streams cannot be
 downloaded (the download button is disabled for them).
@@ -467,11 +485,11 @@ uncaught errors.
 
 | Button | Result |
 | --- | --- |
-| **Run simulated checks** | Exercises the real pipeline (search → stream URL → CDN reachability → lyrics → YouTube) and shows each step with timing. |
+| **Run simulated checks** | Exercises the real pipeline (search → stream URL → CDN reachability → lyrics → Source B) and shows each step with timing. |
 | **Copy report** | Full text report to the clipboard. |
-| **Save to Downloads** | `Downloads/MuZic/muzic_diagnostics_<timestamp>.txt` — visible in Files, and attachable in WhatsApp/Gmail. |
+| **Save to Downloads** | `Downloads/MuZic/muzic_diagnostics_<timestamp>.txt` — visible in Files, and attachable in a messaging or email app. |
 | **App storage** | Same report in the app's private documents folder. |
-| **Share report** | Android share sheet (WhatsApp, Gmail, Drive…). |
+| **Share report** | Device share sheet with the available sharing destinations. |
 
 The log list is **live** (`live · N entries`). Tap the flag icon to drop a
 marker into the log before you reproduce a problem — that makes the report much
@@ -499,7 +517,7 @@ In the now-playing sheet tap the **film icon**:
 
 The video is 720×720, 24 fps, H.264 + AAC, and contains the cover art, a
 waveform, the synced lyrics (current + next line) and a progress bar — ready to
-post to WhatsApp Status, Reels or Shorts.
+share through any compatible social app.
 
 Rendering is far faster than it used to be: audio is copied through instead of
 being decoded and re-encoded, and the background layer is painted once instead
@@ -528,11 +546,11 @@ stays in Movies/MuZic.
 
 | Symptom | Fix |
 | --- | --- |
-| No system media player on the lock screen or in Quick Settings | Play a song; allow notifications; enable **Allow background playback**; on Motorola enable **Pin media player**, then export a diagnostics report if it is still missing. |
-| System media player disappears after a while | Battery optimisation (Settings → Playback & recommendations → Allow background playback) — common on Xiaomi/OPPO/vivo. |
+| No system media player on the lock screen or in Quick Settings | Play a song; allow notifications; enable **Allow background playback**; on some devices, enable **Pin media player**, then export a diagnostics report if it is still missing. |
+| System media player disappears after a while | Battery optimisation (Settings → Playback & recommendations → Allow background playback) — common on some devices. |
 | System media player disappears when paused | Android normally keeps the paused player until it is swiped away; if it vanishes, disable battery optimisation for MuZic in Settings → Playback. |
-| "Could not start playback" | Try the other source (JioSaavn/YouTube) — some regional tracks are missing from one of them. |
-| A track will not play but others do | Long-press the row → details; if the stream host is `googlevideo.com` the cached URL expired — play the track again to refresh it. |
+| "Could not start playback" | Try the other source (Source A/Source B) — some regional tracks are missing from one of them. |
+| A track will not play but others do | Long-press the row → details; the temporary media link may have expired — play the track again to refresh it. |
 | Lyrics missing | Not every track has a licensed lyric source. The language sheet shows what is available; Romanized is generated when the original script exists. |
 | Video export fails | Enable diagnostics, retry, then **Share report** — the `video` log lines name the failing stage/codec. |
 | App feels slow after months of use | Clear the diagnostics log and remove downloads you no longer need (Library → Downloads). |

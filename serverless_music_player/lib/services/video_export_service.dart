@@ -74,7 +74,7 @@ class VideoExportService {
       });
       return VideoExportResult(path: path ?? '', shared: path != null);
     } on MissingPluginException {
-      throw StateError('Video export is only available on Android.');
+      throw StateError('Video export is unavailable on this device.');
     } on PlatformException catch (error) {
       logError('video', 'export failed', <String, Object?>{
         'song': song.title,

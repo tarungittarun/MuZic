@@ -58,6 +58,50 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('full-player artwork keeps transport controls below the art',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 360,
+              height: 380,
+              child: Column(
+                children: <Widget>[
+                  SizedBox(
+                    height: 220,
+                    child: MediaArtworkCard(song: _song),
+                  ),
+                  MediaTransportControls(
+                    isPlaying: true,
+                    isBusy: false,
+                    position: const Duration(seconds: 71),
+                    duration: const Duration(minutes: 5),
+                    onPlayPause: () {},
+                    onNext: () {},
+                    onPrevious: () {},
+                    onSeek: (_) {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Chhod Diya'), findsOneWidget);
+    expect(find.text('Arijit Singh'), findsOneWidget);
+    expect(find.byType(WavySeekBar), findsOneWidget);
+    expect(find.byIcon(Icons.pause_rounded), findsOneWidget);
+    expect(
+      tester.getRect(find.byType(MediaTransportControls)).top,
+      greaterThanOrEqualTo(tester.getRect(find.byType(MediaArtworkCard)).bottom),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('wavy seek bar reports seeks against the duration',
       (tester) async {
     Duration? sought;

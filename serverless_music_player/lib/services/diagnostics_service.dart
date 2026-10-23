@@ -75,7 +75,7 @@ class DiagnosticsService extends ChangeNotifier {
     SongModel? probeSong;
     String? probeUrl;
 
-    await _timed('JioSaavn search', () async {
+    await _timed('Source A search', () async {
       final results = await musicApi.searchJioSaavn('test song', limit: 3);
       if (results.isEmpty) {
         return 'No results returned.';
@@ -89,8 +89,7 @@ class DiagnosticsService extends ChangeNotifier {
     if (probeSong != null) {
       await _timed('Stream URL resolve', () async {
         probeUrl = await musicApi.resolveStream(probeSong!);
-        final host = Uri.tryParse(probeUrl!)?.host ?? '?';
-        return 'Resolved host=$host';
+        return 'Resolved network stream.';
       });
 
       if (probeUrl != null) {
@@ -117,9 +116,9 @@ class DiagnosticsService extends ChangeNotifier {
       });
     }
 
-    await _timed('YouTube search', () async {
+    await _timed('Source B search', () async {
       final results = await musicApi.searchYouTube('lofi beats', limit: 1);
-      if (results.isEmpty) return 'No YouTube results.';
+      if (results.isEmpty) return 'No Source B results.';
       return 'First="${results.first.title}"';
     });
 

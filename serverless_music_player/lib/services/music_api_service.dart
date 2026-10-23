@@ -109,8 +109,7 @@ class MusicApiService {
           .timeout(_timeout);
       if (response.statusCode != 200) {
         throw http.ClientException(
-          'JioSaavn search returned HTTP ${response.statusCode}.',
-          uri,
+          'Source A search returned HTTP ${response.statusCode}.',
         );
       }
       final decoded = jsonDecode(response.body);
@@ -125,7 +124,7 @@ class MusicApiService {
       // appears on (for example a film song repeated across compilations).
       // Search should show that recording once, not a wall of copies.
       final songs = dedupeSearchResults(parsed);
-      logInfo('api', 'searchJioSaavn', <String, Object?>{
+      logInfo('api', 'Source A search', <String, Object?>{
         'query': query,
         'results': songs.length,
         'withUrl': songs.where((song) => song.streamUrl != null).length,
@@ -133,7 +132,7 @@ class MusicApiService {
       });
       return songs;
     } catch (error) {
-      logWarn('api', 'searchJioSaavn failed', <String, Object?>{
+      logWarn('api', 'Source A search failed', <String, Object?>{
         'query': query,
         'error': '$error',
         'ms': stopwatch.elapsedMilliseconds,
@@ -548,14 +547,14 @@ class MusicApiService {
               ))
           .toList(growable: false);
       final songs = dedupeSearchResults(rawSongs);
-      logInfo('api', 'searchYouTube', <String, Object?>{
+      logInfo('api', 'Source B search', <String, Object?>{
         'query': query,
         'results': songs.length,
         'ms': stopwatch.elapsedMilliseconds,
       });
       return songs;
     } catch (error) {
-      logWarn('api', 'searchYouTube failed', <String, Object?>{
+      logWarn('api', 'Source B search failed', <String, Object?>{
         'query': query,
         'error': '$error',
         'ms': stopwatch.elapsedMilliseconds,
@@ -717,10 +716,10 @@ class MusicApiService {
               MusicApiService._isHttpUrl(candidate.streamUrl!)) {
             return remember(candidate.streamUrl!);
           }
-          logWarn('api', 'JioSaavn re-search produced no usable URL',
+          logWarn('api', 'Source A re-search produced no usable URL',
               <String, Object?>{'song': song.title, 'matches': matches.length});
         } catch (error) {
-          logWarn('api', 'JioSaavn resolve path failed', <String, Object?>{
+          logWarn('api', 'Source A resolve path failed', <String, Object?>{
             'song': song.title,
             'error': '$error',
           });
@@ -753,7 +752,7 @@ class MusicApiService {
     final videos = await _youtube.search.search(query).timeout(_timeout);
     final matches = videos.where((item) => !item.isLive).toList();
     if (matches.isEmpty) {
-      throw StateError('No matching YouTube audio stream was found.');
+      throw StateError('No matching Source B audio stream was found.');
     }
     return _youtubeStreamUrl(matches.first.id.value,
         lowestBitrate: lowestBitrate);
@@ -776,7 +775,7 @@ class MusicApiService {
       chosen = manifest.audioOnly.withHighestBitrate();
     }
     final url = chosen.url.toString();
-    logDebug('api', 'youtube stream resolved', <String, Object?>{
+    logDebug('api', 'Source B stream resolved', <String, Object?>{
       'videoId': videoId,
       'lowest': lowestBitrate,
     });
@@ -826,7 +825,7 @@ class MusicApiService {
         final extra = await _extraLrclibCandidates(song, variants);
         variants.addAll(extra);
       } catch (error) {
-        logDebug('api', 'lyrics: extra LRCLIB candidates failed', <String, Object?>{
+        logDebug('api', 'lyrics: extra lyrics source candidates failed', <String, Object?>{
           'song': song.title,
           'error': '$error',
         });
@@ -849,7 +848,7 @@ class MusicApiService {
       if (saavn == null || saavn.isEmpty) return null;
       return annotateLyrics(saavn, song, source: 'jiosaavn');
     } catch (error) {
-      logDebug('api', 'lyrics: JioSaavn lyrics failed', <String, Object?>{
+      logDebug('api', 'lyrics: Source A lyrics failed', <String, Object?>{
         'song': song.title,
         'error': '$error',
       });

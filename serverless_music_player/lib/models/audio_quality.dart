@@ -12,7 +12,7 @@ class AudioQualityInfo {
   /// Short badge text, e.g. 'AAC 320 kbps' or 'FLAC 16/44.1 kHz'.
   final String label;
 
-  /// Extra context, e.g. 'Lossy · JioSaavn' or 'Lossless · live stream'.
+  /// Extra context, e.g. 'Lossy · Source A' or 'Lossless · live stream'.
   final String detail;
 
   final bool isLossless;
@@ -95,14 +95,14 @@ AudioQualityInfo _describeRemote(SongModel song) {
   if (url.contains('_320.')) {
     return const AudioQualityInfo(
       label: 'AAC 320 kbps',
-      detail: 'Lossy · JioSaavn',
+      detail: 'Lossy · Source A',
       isLossless: false,
     );
   }
   if (url.contains('_96.')) {
     return const AudioQualityInfo(
       label: 'AAC 96 kbps',
-      detail: 'Lossy · JioSaavn',
+      detail: 'Lossy · Source A',
       isLossless: false,
     );
   }
@@ -118,34 +118,34 @@ AudioQualityInfo _describeRemote(SongModel song) {
     if (looksWebm) {
       return const AudioQualityInfo(
         label: 'Opus ~160 kbps',
-        detail: 'Lossy · YouTube',
+        detail: 'Lossy · Source B',
         isLossless: false,
       );
     }
     if (looksMp4) {
       return const AudioQualityInfo(
         label: 'AAC ~256 kbps',
-        detail: 'Lossy · YouTube',
+        detail: 'Lossy · Source B',
         isLossless: false,
       );
     }
     return const AudioQualityInfo(
       label: 'Opus / AAC',
-      detail: 'Lossy · YouTube',
+      detail: 'Lossy · Source B',
       isLossless: false,
     );
   }
   if (url.contains('googlevideo.com')) {
     return const AudioQualityInfo(
       label: 'Opus / AAC',
-      detail: 'Lossy · YouTube fallback',
+      detail: 'Lossy · Source B fallback',
       isLossless: false,
     );
   }
   if (url.isNotEmpty) {
     return const AudioQualityInfo(
       label: 'AAC (stream)',
-      detail: 'Lossy · JioSaavn',
+      detail: 'Lossy · Source A',
       isLossless: false,
     );
   }

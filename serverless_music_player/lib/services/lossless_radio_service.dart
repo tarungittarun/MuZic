@@ -25,30 +25,30 @@ class RadioStation {
       );
 }
 
-/// Curated free FLAC streams (Radio Paradise publishes these URLs openly).
+/// Curated free FLAC radio streams.
 class LosslessRadioService {
   static const List<RadioStation> stations = <RadioStation>[
     RadioStation(
       id: 'paradise-main',
-      name: 'Radio Paradise — Main Mix',
+      name: 'Main Mix',
       subtitle: 'Eclectic mix · live FLAC',
       streamUrl: 'https://stream.radioparadise.com/flac',
     ),
     RadioStation(
       id: 'paradise-mellow',
-      name: 'Radio Paradise — Mellow Mix',
+      name: 'Mellow Mix',
       subtitle: 'Mellow mix · live FLAC',
       streamUrl: 'https://stream.radioparadise.com/mellow-flac',
     ),
     RadioStation(
       id: 'paradise-rock',
-      name: 'Radio Paradise — Rock Mix',
+      name: 'Rock Mix',
       subtitle: 'Rock mix · live FLAC',
       streamUrl: 'https://stream.radioparadise.com/rock-flac',
     ),
     RadioStation(
       id: 'paradise-eclectic',
-      name: 'Radio Paradise — Global Mix',
+      name: 'Global Mix',
       subtitle: 'World / eclectic · live FLAC',
       streamUrl: 'https://stream.radioparadise.com/eclectic-flac',
     ),

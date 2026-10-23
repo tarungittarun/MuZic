@@ -164,10 +164,10 @@ class _HomeScreenState extends State<HomeScreen> {
         _albums = albums;
         _artists = artists;
       });
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Search failed: $error')),
+        const SnackBar(content: Text('Search failed. Check your connection and try again.')),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -183,11 +183,12 @@ class _HomeScreenState extends State<HomeScreen> {
       final player = context.read<PlayerController>();
       await player.playQueue(songs, initialIndex: index);
       if (shuffle && !player.shuffleEnabled) await player.toggleShuffle();
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
-      final message = error is StateError ? error.message : '$error';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not start playback: $message')),
+        const SnackBar(
+          content: Text('Could not start playback. Try another source or track.'),
+        ),
       );
     }
   }
@@ -331,9 +332,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: <Widget>[
                   _sourceChip(SearchSource.automatic, 'Auto'),
                   const SizedBox(width: 7),
-                  _sourceChip(SearchSource.jioSaavn, 'JioSaavn'),
+                  _sourceChip(SearchSource.jioSaavn, 'Source A'),
                   const SizedBox(width: 7),
-                  _sourceChip(SearchSource.youtube, 'YouTube'),
+                  _sourceChip(SearchSource.youtube, 'Source B'),
                 ],
               ),
             ),
@@ -369,7 +370,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (entry.value.isNotEmpty)
           _SongShelf(
             title: 'Trending in ${kDiscoverLanguageLabel[entry.key] ?? entry.key}',
-            subtitle: 'Popular on JioSaavn',
+            subtitle: 'Popular right now',
             songs: entry.value,
             onPlay: (index) => _play(entry.value, index),
           ),
@@ -418,7 +419,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Check the spelling or try the YouTube source.',
+                'Check the spelling or switch to Source B.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: palette.textMuted, fontSize: 12),
               ),

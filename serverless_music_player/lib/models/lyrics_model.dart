@@ -39,7 +39,7 @@ class LyricsModel {
 
   bool get hasSynced => syncedLines.isNotEmpty;
 
-  /// Label for UI lists: e.g. "Hindi · Synced (LRCLIB)".
+  /// Label for UI lists: e.g. "Hindi · Synced (Lyrics source)".
   String get displayLabel {
     final parts = <String>[
       if (languageLabel.isNotEmpty) languageLabel,
@@ -53,8 +53,8 @@ class LyricsModel {
   }
 
   static String _sourceLabel(String source) {
-    if (source.startsWith('lrclib')) return 'LRCLIB';
-    if (source.startsWith('jiosaavn')) return 'JioSaavn';
+    if (source.startsWith('lrclib')) return 'Lyrics source';
+    if (source.startsWith('jiosaavn')) return 'Source A';
     return 'Derived';
   }
 
