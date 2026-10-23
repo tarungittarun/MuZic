@@ -544,7 +544,7 @@ class _SearchChip extends StatelessWidget {
           ),
           const SizedBox(width: 7),
           Text(
-            '${count}×',
+            '$count×',
             style: TextStyle(
               color: palette.textMuted,
               fontSize: 10,

@@ -20,10 +20,15 @@ void main() {
       ),
     );
 
-    double tallestBar() => tester
-        .widgetList<AnimatedContainer>(find.byType(AnimatedContainer))
-        .map((bar) => bar.height ?? bar.constraints?.maxHeight ?? 0)
-        .fold<double>(0, (tallest, height) => height > tallest ? height : tallest);
+    double tallestBar() {
+      var tallest = 0.0;
+      for (var index = 0; index < 18; index++) {
+        final bar = find.byKey(ValueKey<String>('visualizer-bar-$index'));
+        final height = tester.getSize(bar).height;
+        if (height > tallest) tallest = height;
+      }
+      return tallest;
+    }
 
     final idleHeight = tallestBar();
     bands.add(List<double>.filled(18, 0.92));

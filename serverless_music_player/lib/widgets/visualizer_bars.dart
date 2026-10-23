@@ -60,6 +60,7 @@ class _VisualizerBarsState extends State<VisualizerBars> {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 1.5),
                     child: AnimatedContainer(
+                      key: ValueKey<String>('visualizer-bar-$index'),
                       duration: const Duration(milliseconds: 110),
                       curve: Curves.easeOutCubic,
                       alignment: Alignment.bottomCenter,

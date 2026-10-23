@@ -130,10 +130,10 @@ void main() {
         // The page starts at its top. Three firm pulls should smoothly move
         // the page into thumb reach, without the old Last played overlay.
         for (var pull = 0; pull < 3; pull++) {
-          await tester.drag(
+          await tester.timedDrag(
             list,
             const Offset(0, 440),
-            duration: const Duration(milliseconds: 120),
+            const Duration(milliseconds: 120),
           );
           await tester.pump(const Duration(milliseconds: 80));
         }
@@ -146,10 +146,10 @@ void main() {
         expect(find.text('LAST PLAYED'), findsNothing,
             reason: 'one-hand reach must not place a music card in the open area');
 
-        await tester.drag(
+        await tester.timedDrag(
           list,
           const Offset(0, -500),
-          duration: const Duration(milliseconds: 160),
+          const Duration(milliseconds: 160),
         );
         await tester.pump(const Duration(milliseconds: 300));
         final restored = tester.widget<Transform>(
@@ -158,10 +158,10 @@ void main() {
         expect(restored.transform.getTranslation().y, closeTo(0, 1),
             reason: 'scrolling upward did not smoothly restore the page');
         // Put the Discover page back at its top before checking the search box.
-        await tester.drag(
+        await tester.timedDrag(
           list,
           const Offset(0, 900),
-          duration: const Duration(milliseconds: 180),
+          const Duration(milliseconds: 180),
         );
         await tester.pump(const Duration(milliseconds: 200));
       });
