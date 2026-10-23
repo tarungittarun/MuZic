@@ -40,6 +40,7 @@ class _OneHandReachState extends State<OneHandReach>
   DateTime? _pullWindowStart;
   bool _atTop = true;
   Offset? _pointerStart;
+  Offset? _pointerLast;
   bool _pullCountedThisPointer = false;
   bool? _wasEnabled;
 
@@ -74,6 +75,7 @@ class _OneHandReachState extends State<OneHandReach>
     _pullDownCount = 0;
     _pullWindowStart = null;
     _pointerStart = null;
+    _pointerLast = null;
     _pullCountedThisPointer = false;
     _dropController.stop();
     _dropController.value = 0;
@@ -81,20 +83,42 @@ class _OneHandReachState extends State<OneHandReach>
 
   void _handlePointerDown(PointerDownEvent event) {
     _pointerStart = event.position;
+    _pointerLast = event.position;
     _pullCountedThisPointer = false;
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
+    final start = _pointerStart;
+    final last = _pointerLast;
+    if (start == null || last == null) return;
+    final movement = event.position - last;
+    _pointerLast = event.position;
     if (!widget.visible ||
-        _active ||
-        !_atTop ||
-        _pointerStart == null ||
-        _pullCountedThisPointer ||
         !context.read<AppSettingsService>().oneHandModeEnabled) {
       return;
     }
-    final delta = event.position - _pointerStart!;
-    if (delta.dy < 64 || delta.dy < delta.dx.abs() * 1.25) return;
+
+    if (_active) {
+      // Follow upward finger movement directly in a transform layer. This is
+      // independent of scroll-physics overscroll thresholds on each device.
+      if (_dropAnimating || movement.dy >= 0) return;
+      final next = (_offset + movement.dy).clamp(0.0, _maxDrop).toDouble();
+      if (next != _offset) {
+        setState(() {
+          _offset = next;
+          if (_offset <= 0) {
+            _active = false;
+            _pullDownCount = 0;
+            _pullWindowStart = null;
+          }
+        });
+      }
+      return;
+    }
+
+    if (!_atTop || _pullCountedThisPointer) return;
+    final total = event.position - start;
+    if (total.dy < 64 || total.dy < total.dx.abs() * 1.25) return;
     _pullCountedThisPointer = true;
     _recordPullDown();
   }
@@ -129,24 +153,6 @@ class _OneHandReachState extends State<OneHandReach>
     if (metrics.axis != Axis.vertical) return false;
     _atTop = metrics.extentBefore <= 0.5;
 
-    if (_active && notification is ScrollUpdateNotification) {
-      // Scrolling up hands the dropped space back smoothly: the offset
-      // shrinks with the scroll delta, then ordinary scrolling continues.
-      if (_dropAnimating) return false;
-      final delta = notification.scrollDelta ?? 0;
-      if (delta == 0) return false;
-      final next = (_offset - delta).clamp(0.0, _maxDrop).toDouble();
-      if (next != _offset) {
-        setState(() {
-          _offset = next;
-          if (_offset <= 0) {
-            _active = false;
-            _pullDownCount = 0;
-            _pullWindowStart = null;
-          }
-        });
-      }
-    }
     return false;
   }
 
@@ -165,8 +171,14 @@ class _OneHandReachState extends State<OneHandReach>
       behavior: HitTestBehavior.translucent,
       onPointerDown: _handlePointerDown,
       onPointerMove: _handlePointerMove,
-      onPointerUp: (_) => _pointerStart = null,
-      onPointerCancel: (_) => _pointerStart = null,
+      onPointerUp: (_) {
+        _pointerStart = null;
+        _pointerLast = null;
+      },
+      onPointerCancel: (_) {
+        _pointerStart = null;
+        _pointerLast = null;
+      },
       child: NotificationListener<ScrollNotification>(
         onNotification: _handleScrollNotification,
         child: LayoutBuilder(
