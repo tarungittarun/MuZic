@@ -18,6 +18,26 @@ screenshots.
 
 ---
 
+## What's new in 1.5.40
+
+- **The lock-screen controller, inside the app:** the in-app player now
+  uses the same controller as Android's lock-screen media card. The
+  song's artwork ("face card") fills the whole player card, with the
+  MuZic icon at the top-left, a **This phone** output pill at the
+  top-right, the title and artist overlaid at the bottom-left, a large
+  rounded-square play/pause button, and previous/next beside the **wavy
+  seek bar** (the played part of the bar undulates and flattens into the
+  thumb, like the system slider). Shuffle, quality, like, download and
+  repeat sit in a compact row under the card; Lyrics, Up next and the
+  live waveform work exactly as before.
+- **Mini player matches:** the bottom mini player is the same card in
+  miniature — artwork all over the bar, overlaid title/artist, wavy seek
+  strip and the light play/pause button. Tap it to open the full card.
+- This changes only how the player looks **inside MuZic**; the system
+  lock-screen/quick-settings player is untouched.
+
+---
+
 ## What's new in 1.5.39
 
 - **One-hand reach, corrected:** reach mode is now **per page**, not

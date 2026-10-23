@@ -22,6 +22,7 @@ import '../services/usage_service.dart';
 import '../services/visualizer_service.dart';
 import '../theme/app_theme.dart';
 import 'animated_rhythm_icon.dart';
+import 'media_controller_card.dart';
 import 'cover_art.dart';
 import 'song_tile.dart';
 import 'visualizer_bars.dart';
@@ -213,10 +214,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
     final song = player.currentSong;
     if (song == null) return const SizedBox.shrink();
     final screenHeight = MediaQuery.sizeOf(context).height;
-    final totalMs = player.duration.inMilliseconds;
-    final sliderValue = totalMs <= 0
-        ? 0.0
-        : player.position.inMilliseconds.clamp(0, totalMs).toDouble();
 
     return Container(
       height: screenHeight * 0.94,
@@ -343,10 +340,20 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                         song: song,
                         position: player.position,
                       )
-                    : _ArtworkPanel(
-                        key: ValueKey<String>('art-${song.id}'),
-                        song: song,
-                        isPlaying: player.isPlaying,
+                    : Padding(
+                        key: ValueKey<String>('card-${song.id}'),
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                        child: MediaControllerCard(
+                          song: song,
+                          isPlaying: player.isPlaying,
+                          isBusy: player.isBuffering || player.isResolving,
+                          position: player.position,
+                          duration: player.duration,
+                          onPlayPause: player.togglePlayback,
+                          onNext: player.next,
+                          onPrevious: player.previous,
+                          onSeek: player.seek,
+                        ),
                       ),
               ),
             ),
@@ -401,189 +408,75 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
                 ),
               ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
-              child: Column(
-                children: <Widget>[
-                  Text(
-                    song.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    song.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: palette.textSecondary, fontSize: 14),
-                  ),
-                  const SizedBox(height: 9),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      _QualityChip(song: song),
-                      if (player.isPlaying) ...<Widget>[
-                        const SizedBox(width: 9),
-                        AnimatedRhythmIcon(
-                          active: true,
-                          color: palette.mint,
-                          size: 16,
-                        ),
-                      ],
-                      const SizedBox(width: 6),
-                      IconButton(
-                        tooltip: player.isFavorite(song) ? 'Unlike' : 'Like',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => player.toggleFavorite(song),
-                        icon: Icon(
-                          player.isFavorite(song)
-                              ? Icons.favorite_rounded
-                              : Icons.favorite_border_rounded,
-                          color: player.isFavorite(song)
-                              ? palette.accent
-                              : palette.textSecondary,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: player.isDownloaded(song)
-                            ? 'Saved offline'
-                            : 'Download',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: player.isDownloaded(song) ||
-                                player.isDownloading ||
-                                song.isLiveStream
-                            ? null
-                            : () => _download(context, song),
-                        icon: player.downloadProgressFor(song) != null
-                            ? SizedBox(
-                                width: 21,
-                                height: 21,
-                                child: CircularProgressIndicator(
-                                  value: player.downloadProgressFor(song) == 0
-                                      ? null
-                                      : player.downloadProgressFor(song),
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Icon(
-                                player.isDownloaded(song)
-                                    ? Icons.download_done_rounded
-                                    : Icons.download_rounded,
-                                color: player.isDownloaded(song)
-                                    ? palette.mint
-                                    : palette.textSecondary,
-                              ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-              child: Column(
-                children: <Widget>[
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 4,
-                      thumbShape:
-                          const RoundSliderThumbShape(enabledThumbRadius: 7),
-                      overlayShape:
-                          const RoundSliderOverlayShape(overlayRadius: 16),
-                      activeTrackColor: palette.mint,
-                      inactiveTrackColor:
-                          palette.outline.withValues(alpha: 0.65),
-                      thumbColor: palette.mint,
-                    ),
-                    child: Slider(
-                      min: 0,
-                      max: totalMs <= 0 ? 1 : totalMs.toDouble(),
-                      value: totalMs <= 0 ? 0 : sliderValue,
-                      onChanged: totalMs <= 0
-                          ? null
-                          : (value) =>
-                              player.seek(Duration(milliseconds: value.toInt())),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 5),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: <Widget>[
-                        Text(_format(player.position), style: TextStyle(fontSize: 11, color: palette.textMuted)),
-                        Text(_format(player.duration), style: TextStyle(fontSize: 11, color: palette.textMuted)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 8),
+              padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
                   IconButton(
                     tooltip: 'Shuffle',
+                    visualDensity: VisualDensity.compact,
                     onPressed: player.toggleShuffle,
                     icon: Icon(Icons.shuffle_rounded,
-                        color: player.shuffleEnabled ? palette.mint : palette.textMuted),
+                        color: player.shuffleEnabled
+                            ? palette.mint
+                            : palette.textMuted),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
+                  _QualityChip(song: song),
+                  const SizedBox(width: 4),
                   IconButton(
-                    tooltip: 'Previous track',
-                    constraints:
-                        const BoxConstraints.tightFor(width: 56, height: 56),
-                    onPressed: player.previous,
-                    icon: const Icon(Icons.skip_previous_rounded, size: 36),
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 72,
-                    height: 72,
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: palette.accent,
-                        foregroundColor: palette.background,
-                        shape: const CircleBorder(),
-                        padding: EdgeInsets.zero,
-                      ),
-                      onPressed: player.togglePlayback,
-                      child: player.isBuffering || player.isResolving
-                          ? SizedBox(
-                              width: 25,
-                              height: 25,
-                              child: CircularProgressIndicator(strokeWidth: 2.5, color: palette.background),
-                            )
-                          : Icon(
-                              player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                              size: 38,
-                            ),
+                    tooltip: player.isFavorite(song) ? 'Unlike' : 'Like',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => player.toggleFavorite(song),
+                    icon: Icon(
+                      player.isFavorite(song)
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
+                      color: player.isFavorite(song)
+                          ? palette.accent
+                          : palette.textSecondary,
                     ),
                   ),
-                  const SizedBox(width: 8),
                   IconButton(
-                    tooltip: 'Next track',
-                    constraints:
-                        const BoxConstraints.tightFor(width: 56, height: 56),
-                    onPressed: player.next,
-                    icon: const Icon(Icons.skip_next_rounded, size: 36),
+                    tooltip:
+                        player.isDownloaded(song) ? 'Saved offline' : 'Download',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: player.isDownloaded(song) ||
+                            player.isDownloading ||
+                            song.isLiveStream
+                        ? null
+                        : () => _download(context, song),
+                    icon: player.downloadProgressFor(song) != null
+                        ? SizedBox(
+                            width: 21,
+                            height: 21,
+                            child: CircularProgressIndicator(
+                              value: player.downloadProgressFor(song) == 0
+                                  ? null
+                                  : player.downloadProgressFor(song),
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Icon(
+                            player.isDownloaded(song)
+                                ? Icons.download_done_rounded
+                                : Icons.download_rounded,
+                            color: player.isDownloaded(song)
+                                ? palette.mint
+                                : palette.textSecondary,
+                          ),
                   ),
-                  const SizedBox(width: 6),
                   IconButton(
                     tooltip: 'Repeat mode: ${_repeatLabel(player.repeatMode)}',
+                    visualDensity: VisualDensity.compact,
                     onPressed: player.cycleRepeatMode,
                     icon: Icon(
                       player.repeatMode == LoopMode.one
                           ? Icons.repeat_one_rounded
                           : Icons.repeat_rounded,
-                      color: player.repeatMode == LoopMode.off ? palette.textMuted : palette.mint,
+                      color: player.repeatMode == LoopMode.off
+                          ? palette.textMuted
+                          : palette.mint,
                     ),
                   ),
                 ],
@@ -645,13 +538,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
       showDragHandle: true,
       builder: (_) => const _QueueSheet(),
     );
-  }
-
-  String _format(Duration value) {
-    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
-    final hours = value.inHours;
-    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
   }
 
   static String _repeatLabel(LoopMode mode) => switch (mode) {
@@ -782,87 +668,6 @@ class _PathRow extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _ArtworkPanel extends StatefulWidget {
-  const _ArtworkPanel({required this.song, required this.isPlaying, super.key});
-
-  final SongModel song;
-  final bool isPlaying;
-
-  @override
-  State<_ArtworkPanel> createState() => _ArtworkPanelState();
-}
-
-class _ArtworkPanelState extends State<_ArtworkPanel>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1800),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.isPlaying) _pulse.repeat(reverse: true);
-  }
-
-  @override
-  void didUpdateWidget(covariant _ArtworkPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.isPlaying && !_pulse.isAnimating) {
-      _pulse.repeat(reverse: true);
-    } else if (!widget.isPlaying && _pulse.isAnimating) {
-      _pulse.stop();
-      _pulse.value = 0;
-    }
-  }
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.palette;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final dimension =
-            (constraints.biggest.shortestSide - 28).clamp(0.0, 420.0).toDouble();
-        return Center(
-          child: AnimatedBuilder(
-            animation: _pulse,
-            builder: (context, child) {
-              final lift = widget.isPlaying ? _pulse.value : 0.0;
-              return Transform.scale(
-                scale: 1 + lift * 0.014,
-                child: SizedBox.square(
-                  dimension: dimension,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(28),
-                      boxShadow: <BoxShadow>[
-                        BoxShadow(
-                          color: palette.accent
-                              .withValues(alpha: 0.14 + lift * 0.10),
-                          blurRadius: 42 + lift * 18,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: child,
-                  ),
-                ),
-              );
-            },
-            child: CoverArt(song: widget.song, size: dimension, radius: 28),
-          ),
-        );
-      },
     );
   }
 }

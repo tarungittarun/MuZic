@@ -88,6 +88,28 @@ class _MuZicHomeButtonState extends State<MuZicHomeButton>
   }
 }
 
+/// The MuZic launcher icon by itself (no tap behaviour), for places that
+/// brand a surface with the app mark — e.g. the lock-screen-style media
+/// card, which shows the app icon at its top-left just like Android's
+/// system media player does.
+class MuZicAppIcon extends StatelessWidget {
+  const MuZicAppIcon({this.size = 42, super.key});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: const _MuZicAppIconPainter(),
+        size: Size(size, size),
+      ),
+    );
+  }
+}
+
 /// Paints the shipped launcher icon: a #11121B disc with the lavender and
 /// mint double-note paths from the Android vector, scaled from its 48-unit
 /// viewport, so it reads as the app icon rather than a generic note glyph.
