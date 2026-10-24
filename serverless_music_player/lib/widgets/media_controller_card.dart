@@ -266,15 +266,25 @@ class MediaArtworkCard extends StatelessWidget {
             Positioned(
               right: 14,
               bottom: 14,
-              child: Material(
-                color: Colors.white.withValues(alpha: 0.92),
-                shape: const CircleBorder(),
-                child: IconButton(
-                  tooltip: 'Lyrics',
-                  onPressed: onLyricsTap,
-                  icon: const Icon(
-                    Icons.lyrics_outlined,
-                    color: Color(0xFF2A2438),
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: Material(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    tooltip: 'Lyrics',
+                    onPressed: onLyricsTap,
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.standard,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 48,
+                      height: 48,
+                    ),
+                    icon: const Icon(
+                      Icons.lyrics_outlined,
+                      color: Color(0xFF2A2438),
+                    ),
                   ),
                 ),
               ),
