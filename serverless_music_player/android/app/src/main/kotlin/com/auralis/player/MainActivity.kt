@@ -162,6 +162,9 @@ class MainActivity : AudioServiceActivity() {
                     call.argument<String>("mimeType"),
                     result,
                 )
+                "contentFileExists" -> result.success(
+                    contentFileExists(call.argument<String>("path")),
+                )
                 "deleteContentFile" -> deleteContentFile(call.argument<String>("path"), result)
                 "shareFile" -> shareFile(
                     call.argument<String>("path"),
@@ -668,25 +671,58 @@ class MainActivity : AudioServiceActivity() {
             return
         }
         videoExportCancel.set(false)
-        val audioPath = call.argument<String>("audioPath")
+        val requestedAudioPath = call.argument<String>("audioPath")?.trim()
         val artworkPath = call.argument<String>("artworkPath")
         val title = call.argument<String>("title") ?: "MuZic"
         val artist = call.argument<String>("artist") ?: ""
         val durationMs = call.argument<Int>("durationMs")?.toLong() ?: 0L
         val outputName = call.argument<String>("outputName") ?: "muzic_video"
         val lyrics = parseLyrics(call.argument<String>("lyrics") ?: "[]")
-        if (audioPath == null || !File(audioPath).exists()) {
+        if (requestedAudioPath.isNullOrEmpty()) {
             result.error("missing_audio", "The audio file is not available.", null)
             return
         }
+        // Claim the job before starting its worker so a rapid second tap cannot
+        // start a second encoder before the background thread gets scheduled.
+        videoExportRunning = true
         // The render is CPU bound for tens of seconds: keep it off the UI thread
         // and off the platform thread so the app stays fully usable (and the
-        // sheet can be closed) while it runs.
+        // sheet can be closed) while it runs. SAF downloads arrive as content://
+        // URIs, so copy those bytes into private cache before MediaExtractor.
         Thread({
-            videoExportRunning = true
+            var temporaryAudio: File? = null
             try {
+                val audioFile = if (requestedAudioPath.startsWith("content://")) {
+                    val uri = Uri.parse(requestedAudioPath)
+                    val tempDirectory = File(cacheDir, "muzic_video_audio")
+                    if (!tempDirectory.exists() && !tempDirectory.mkdirs() && !tempDirectory.exists()) {
+                        throw IllegalStateException("Could not prepare video audio cache.")
+                    }
+                    val cached = File.createTempFile("audio_", ".cache", tempDirectory)
+                    temporaryAudio = cached
+                    val input = contentResolver.openInputStream(uri)
+                        ?: throw java.io.FileNotFoundException("The selected audio URI is unavailable.")
+                    input.use { source ->
+                        FileOutputStream(cached).use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                if (videoExportCancel.get()) throw VideoExporter.Cancelled()
+                                val count = source.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                            }
+                        }
+                    }
+                    cached
+                } else {
+                    File(requestedAudioPath)
+                }
+                if (!audioFile.exists() || audioFile.length() <= 0L) {
+                    throw java.io.FileNotFoundException("The audio file is not available.")
+                }
+                if (videoExportCancel.get()) throw VideoExporter.Cancelled()
                 val path = VideoExporter(this).export(
-                    audioPath = audioPath,
+                    audioPath = audioFile.absolutePath,
                     artworkPath = artworkPath,
                     title = title,
                     artist = artist,
@@ -700,11 +736,16 @@ class MainActivity : AudioServiceActivity() {
                 runOnUiThread { result.success(path) }
             } catch (e: VideoExporter.Cancelled) {
                 runOnUiThread { result.error("cancelled", "Export stopped.", null) }
+            } catch (e: java.io.FileNotFoundException) {
+                runOnUiThread {
+                    result.error("missing_audio", "The audio file is not available.", null)
+                }
             } catch (e: Exception) {
                 runOnUiThread {
                     result.error("export_failed", e.message ?: "Video export failed.", null)
                 }
             } finally {
+                temporaryAudio?.delete()
                 videoExportRunning = false
             }
         }, "muzic-video-export").start()
@@ -842,8 +883,23 @@ class MainActivity : AudioServiceActivity() {
                     }
                     return@Thread
                 }
-                parent.findFile(safeName)?.delete()
-                val target = parent.createFile(mimeType ?: "audio/mpeg", safeName)
+                val extension = safeName.substringAfterLast('.', "")
+                val baseName = if (extension.isEmpty()) {
+                    safeName
+                } else {
+                    safeName.substringBeforeLast('.')
+                }
+                var uniqueName = safeName
+                var suffix = 2
+                while (parent.findFile(uniqueName) != null) {
+                    uniqueName = if (extension.isEmpty()) {
+                        "$baseName ($suffix)"
+                    } else {
+                        "$baseName ($suffix).$extension"
+                    }
+                    suffix++
+                }
+                val target = parent.createFile(mimeType ?: "audio/mpeg", uniqueName)
                 val outputUri = target?.uri
                 if (outputUri == null) {
                     runOnUiThread {
@@ -861,6 +917,15 @@ class MainActivity : AudioServiceActivity() {
                 runOnUiThread { result.error("copy_failed", e.message, null) }
             }
         }.start()
+    }
+
+    private fun contentFileExists(path: String?): Boolean {
+        if (path.isNullOrBlank() || !path.startsWith("content://")) return false
+        return try {
+            contentResolver.openFileDescriptor(Uri.parse(path), "r")?.use { true } ?: false
+        } catch (ignored: Exception) {
+            false
+        }
     }
 
     private fun deleteContentFile(path: String?, result: MethodChannel.Result) {

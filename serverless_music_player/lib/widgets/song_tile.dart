@@ -7,11 +7,13 @@ import '../models/audio_quality.dart';
 import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
+import '../services/download_service.dart';
 import '../services/library_service.dart';
 import '../services/local_files_service.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/file_name_utils.dart';
 import 'cover_art.dart';
 
 class SongTile extends StatefulWidget {
@@ -68,6 +70,9 @@ class _SongTileState extends State<SongTile> {
     );
     final progress = context.select<PlayerController, double?>(
       (player) => player.downloadProgressFor(song),
+    );
+    final isDownloadingAnother = context.select<PlayerController, bool>(
+      (player) => player.isDownloading && player.downloadingSongId != song.id,
     );
     final isFavorite = context.select<PlayerController, bool>(
       (player) => player.isFavorite(song),
@@ -193,19 +198,39 @@ class _SongTileState extends State<SongTile> {
                         padding: EdgeInsets.zero,
                         tooltip: song.isLiveStream
                             ? 'Live stream'
-                            : downloaded
-                                ? 'Saved offline'
-                                : 'Download',
-                        onPressed: downloaded || progress != null || song.isLiveStream
+                            : progress != null
+                                ? 'Downloading ${(progress * 100).round()}% — tap to stop'
+                                : downloaded
+                                    ? 'Saved offline'
+                                    : isDownloadingAnother
+                                        ? 'Another download is in progress'
+                                        : 'Download',
+                        onPressed: song.isLiveStream
                             ? null
-                            : () => _download(context),
+                            : progress != null
+                                ? () => _confirmStopDownload(context)
+                                : downloaded || isDownloadingAnother
+                                    ? null
+                                    : () => _download(context),
                         icon: progress != null
                             ? SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  value: progress == 0 ? null : progress,
-                                  strokeWidth: 2,
+                                width: 27,
+                                height: 27,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: <Widget>[
+                                    CircularProgressIndicator(
+                                      value: progress == 0 ? null : progress,
+                                      strokeWidth: 2,
+                                    ),
+                                    Text(
+                                      '${(progress * 100).round()}%',
+                                      style: const TextStyle(
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               )
                             : Icon(
@@ -280,12 +305,41 @@ class _SongTileState extends State<SongTile> {
     });
   }
 
+  Future<void> _confirmStopDownload(BuildContext context) async {
+    final stop = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Stop download?'),
+        content: Text('Stop downloading “${widget.song.title}”?'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep downloading'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Stop'),
+          ),
+        ],
+      ),
+    );
+    if (stop == true && context.mounted) {
+      await context.read<PlayerController>().cancelDownload(widget.song.id);
+    }
+  }
+
   Future<void> _download(BuildContext context) async {
     try {
       await context.read<PlayerController>().downloadSong(widget.song);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Saved “${widget.song.title}” for offline listening.')),
+        );
+      }
+    } on DownloadCancelledException {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Download stopped.')),
         );
       }
     } catch (_) {
@@ -330,21 +384,13 @@ class _SongTileState extends State<SongTile> {
       );
       return;
     }
-    final extension = path.contains('.')
-        ? path.substring(path.lastIndexOf('.'))
-        : '.m4a';
-    final cleanTitle = widget.song.title
-        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '')
-        .trim();
-    final cleanArtist = widget.song.artist
-        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '')
-        .trim();
-    final fileName = cleanArtist.isEmpty
-        ? '$cleanTitle$extension'
-        : '$cleanTitle - $cleanArtist$extension';
+    final extension = RegExp(
+      r'\.(?:m4a|mp3|ogg|opus|webm|wav|flac|aiff?)$',
+      caseSensitive: false,
+    ).firstMatch(path)?.group(0) ?? '.m4a';
     final shared = await LocalFilesService().shareFile(
       path: path,
-      fileName: fileName.isEmpty ? 'MuZic track$extension' : fileName,
+      fileName: trackFileName(widget.song.title, extension),
     );
     if (!shared && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

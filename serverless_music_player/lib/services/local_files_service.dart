@@ -159,6 +159,25 @@ class LocalFilesService {
     }
   }
 
+  /// Checks that a content:// download is still readable before reusing it.
+  Future<bool> contentFileExists(String path) async {
+    if (!path.startsWith('content://')) return false;
+    try {
+      return await _channel.invokeMethod<bool>(
+            'contentFileExists',
+            <String, String>{'path': path},
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException catch (error) {
+      logWarn('local', 'content file check failed', <String, Object?>{
+        'error': '$error',
+      });
+      return false;
+    }
+  }
+
   /// Deletes a file addressed by a content:// URI (custom-folder download).
   Future<void> deleteSharedFile(String path) async {
     if (!path.startsWith('content://')) return;

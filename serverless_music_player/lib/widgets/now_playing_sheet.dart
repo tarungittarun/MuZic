@@ -15,6 +15,7 @@ import '../services/app_settings_service.dart';
 import '../services/app_log.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
+import '../services/lyrics_video_timing.dart';
 import '../services/video_export_manager.dart';
 import '../services/video_library_service.dart';
 import '../services/lyrics_language.dart';
@@ -223,10 +224,9 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     if (mounted) setState(() => _showVisualizer = true);
   }
 
-  /// Starts (or stops) the lyric-video render.
-  ///
-  /// The render itself belongs to [VideoExportManager], so it keeps running
-  /// when this sheet is closed and the percentage stays on the export button.
+  /// Starts (or stops) the complete lyric-video job, including its temporary
+  /// audio preparation. It never turns an export-only request into an offline
+  /// audio download.
   Future<void> _exportVideo(SongModel song) async {
     final manager = context.read<VideoExportManager>();
     if (manager.isBusy) {
@@ -234,94 +234,123 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
       return;
     }
     final messenger = ScaffoldMessenger.of(context);
-    final player = context.read<PlayerController>();
     final downloads = context.read<DownloadService>();
     final api = context.read<MusicApiService>();
     final settings = context.read<AppSettingsService>();
     final videoLibrary = context.read<VideoLibraryService>();
+    var approximateLyricsTiming = false;
 
-    try {
-      if (!player.isDownloaded(song)) {
-        messenger.showSnackBar(
-          SnackBar(content: Text('Downloading “${song.title}” for export…')),
-        );
-        await player.downloadSong(song);
-      }
-      final audioPath = await downloads.localPathFor(song.id);
-      if (audioPath == null) {
-        throw StateError('The audio file is not saved on this device yet.');
-      }
-      LyricsModel? lyrics;
-      try {
-        final bundle = await api.fetchLyricsVariants(song);
-        lyrics = selectLyricsVariant(
-          variants: bundle.variants,
-          song: song,
-          preference: settings.lyricsLanguage,
-          override: settings.lyricsLanguageOverrideFor(song.id),
-        );
-        if (lyrics == null || !lyrics.hasSynced) {
-          final synced = bundle.variants.where((v) => v.hasSynced).toList();
-          lyrics = synced.isEmpty ? null : synced.first;
+    final operation = manager.start(
+      song: song,
+      prepareAudio: (onProgress, isCancelled) async {
+        if (song.isLocalFile && song.localPath?.isNotEmpty == true) {
+          onProgress(1);
+          return song.localPath!;
         }
-      } catch (error) {
-        logWarn('video', 'lyrics unavailable for export', <String, Object?>{
-          'error': '$error',
-        });
-      }
-      if (!mounted) return;
+        final savedAudio = await downloads.localPathFor(song.id);
+        if (savedAudio != null) {
+          onProgress(1);
+          return savedAudio;
+        }
+        if (isCancelled()) throw const DownloadCancelledException();
 
-      // No modal dialog: the job is owned by the manager and its percentage is
-      // shown on the export button, so the app stays usable while it renders.
-      unawaited(
-        manager.start(song: song, audioPath: audioPath, lyrics: lyrics).then((
-          result,
-        ) async {
-          if (result == null) {
-            if (manager.state == VideoExportState.idle &&
-                manager.error == null) {
-              messenger.showSnackBar(
-                const SnackBar(content: Text('Export stopped.')),
-              );
-            } else if (manager.error != null) {
-              messenger.showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Could not export the video. Please try again.',
-                  ),
-                ),
-              );
-            }
-            return;
+        final streamUrl = await api.resolveStream(song);
+        if (isCancelled()) throw const DownloadCancelledException();
+        try {
+          return await downloads.downloadTemporaryAudio(
+            song,
+            streamUrl,
+            onProgress: onProgress,
+            isCancelled: isCancelled,
+          );
+        } catch (error) {
+          if (error is DownloadCancelledException ||
+              isCancelled() ||
+              song.source != SongSource.jioSaavn) {
+            rethrow;
           }
-          // Remember it so Downloads can show lyric videos separately from
-          // ordinary offline audio.
-          await videoLibrary.add(
-            songId: song.id,
-            title: song.title,
-            artist: song.artist,
-            path: result.path,
-            artworkPath: song.localArtworkPath,
-            durationMs: song.duration?.inMilliseconds,
+          final fallbackUrl = await api.resolveYouTubeFallback(song);
+          if (isCancelled()) throw const DownloadCancelledException();
+          return downloads.downloadTemporaryAudio(
+            song.copyWith(streamUrl: fallbackUrl),
+            fallbackUrl,
+            onProgress: onProgress,
+            isCancelled: isCancelled,
           );
-          final location = result.path.startsWith('content://')
-              ? 'Movies/MuZic'
-              : result.path;
+        }
+      },
+      loadLyrics: () async {
+        try {
+          final bundle = await api.fetchLyricsVariants(song);
+          final variants = bundle.variants
+              .where((variant) => !variant.isEmpty)
+              .toList(growable: false);
+          final selected = selectLyricsVariant(
+            variants: variants,
+            song: song,
+            preference: settings.lyricsLanguage,
+            override: settings.lyricsLanguageOverrideFor(song.id),
+          );
+          if (selected?.hasSynced == true) return selected;
+
+          final synced = variants.where((variant) => variant.hasSynced);
+          if (synced.isNotEmpty) return synced.first;
+
+          final plain = selected ?? (variants.isEmpty ? null : variants.first);
+          final estimated = estimateLyricsTimingForVideo(
+            plain,
+            duration: song.duration,
+          );
+          approximateLyricsTiming = estimated?.hasSynced == true;
+          return estimated;
+        } catch (error) {
+          logWarn('video', 'lyrics unavailable for export', <String, Object?>{
+            'error': '$error',
+          });
+          return null;
+        }
+      },
+      cancelPreparation: () => downloads.cancelTemporaryAudioDownload(song.id),
+      cleanupAudio: downloads.deleteTemporaryAudio,
+    );
+
+    unawaited(operation.then((result) async {
+      if (result == null) {
+        if (manager.state == VideoExportState.idle && manager.error == null) {
           messenger.showSnackBar(
-            SnackBar(
-              content: Text('Lyric video saved to $location'),
-              duration: const Duration(seconds: 8),
-            ),
+            const SnackBar(content: Text('Export stopped.')),
           );
-        }),
+        } else if (manager.error != null) {
+          final message = manager.error == 'Lyrics are unavailable for this track.'
+              ? 'Lyrics are unavailable, so a lyric video could not be created.'
+              : 'Could not export the video. Please try again.';
+          messenger.showSnackBar(SnackBar(content: Text(message)));
+        }
+        return;
+      }
+      await videoLibrary.add(
+        songId: song.id,
+        title: song.title,
+        artist: song.artist,
+        path: result.path,
+        artworkPath: song.localArtworkPath,
+        durationMs: song.duration?.inMilliseconds,
       );
-    } catch (_) {
+      final location = result.path.startsWith('content://')
+          ? 'Movies/MuZic'
+          : result.path;
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Could not export the video. Please try again.'),
+        SnackBar(
+          content: Text(
+            approximateLyricsTiming
+                ? 'Lyric video saved to $location. Captions use approximate timing '
+                  'because synced lyrics were unavailable.'
+                : 'Lyric video saved to $location',
+          ),
+          duration: const Duration(seconds: 8),
         ),
       );
-    }
+    }));
   }
 
   /// Tapping the percentage asks whether to stop the render.
@@ -471,9 +500,13 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                         );
                                       }
                                       final percent = export.percent;
+                                      final phase =
+                                          export.state == VideoExportState.preparing
+                                              ? 'Preparing'
+                                              : 'Rendering';
                                       return Tooltip(
                                         message:
-                                            'Rendering $percent% — tap to stop',
+                                            '$phase lyric video · $percent% — tap to stop',
                                         child: InkWell(
                                           borderRadius: BorderRadius.circular(
                                             24,
@@ -838,30 +871,45 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     final isDownloadingThisSong = progress != null;
     final canDownload =
         !downloaded && !player.isDownloading && !song.isLiveStream;
-    final tooltip = downloaded
-        ? 'Saved offline'
-        : isDownloadingThisSong
-        ? 'Downloading'
-        : player.isDownloading
-        ? 'Another download is in progress'
-        : 'Download track';
+    final percent = progress == null ? null : (progress * 100).round();
+    final tooltip = isDownloadingThisSong
+        ? 'Downloading $percent% — tap to stop'
+        : downloaded
+            ? 'Saved offline'
+            : player.isDownloading
+                ? 'Another download is in progress'
+                : 'Download track';
 
     return IconButton(
       tooltip: tooltip,
-      onPressed: canDownload
-          ? () => unawaited(_download(context, song))
-          : null,
+      onPressed: isDownloadingThisSong
+          ? () => _confirmStopDownload(context, player, song)
+          : canDownload
+              ? () => unawaited(_download(context, song))
+              : null,
       icon: progress == null
           ? Icon(
               downloaded ? Icons.download_done_rounded : Icons.download_rounded,
               color: downloaded ? context.palette.mint : null,
             )
           : SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(
-                value: progress == 0 ? null : progress,
-                strokeWidth: 2,
+              width: 34,
+              height: 34,
+              child: Stack(
+                alignment: Alignment.center,
+                children: <Widget>[
+                  CircularProgressIndicator(
+                    value: progress == 0 ? null : progress,
+                    strokeWidth: 2,
+                  ),
+                  Text(
+                    '$percent%',
+                    style: const TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
               ),
             ),
     );
@@ -874,9 +922,42 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     setState(() => _showLyrics = true);
   }
 
+  Future<void> _confirmStopDownload(
+    BuildContext context,
+    PlayerController player,
+    SongModel song,
+  ) async {
+    final stop = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Stop download?'),
+        content: Text('Stop downloading “${song.title}”?'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep downloading'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Stop'),
+          ),
+        ],
+      ),
+    );
+    if (stop == true && context.mounted) {
+      await player.cancelDownload(song.id);
+    }
+  }
+
   Future<void> _download(BuildContext context, SongModel song) async {
     try {
       await context.read<PlayerController>().downloadSong(song);
+    } on DownloadCancelledException {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Download stopped.')),
+        );
+      }
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1214,22 +1295,54 @@ class _LyricsPanelState extends State<_LyricsPanel> {
             )
           else if (selected.hasSynced)
             _SyncedLyricsView(
+              key: ValueKey<String>(
+                '${widget.song.id}:${selected.languageLabel}:${selected.source}:'
+                '${selected.syncedLines.isEmpty ? '' : selected.syncedLines.first.text}',
+              ),
               lyrics: selected,
               song: widget.song,
               position: widget.position,
             )
           else
-            SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(28, 56, 28, 28),
-              child: Text(
-                selected.plainLyrics,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 17,
-                  height: 1.75,
-                  color: palette.textSecondary,
+            Column(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 46, 24, 8),
+                  child: Row(
+                    children: <Widget>[
+                      Icon(
+                        Icons.sync_disabled_rounded,
+                        size: 15,
+                        color: palette.textMuted,
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          'This lyrics version has no timing data, so it cannot auto-scroll.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: palette.textMuted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(28, 8, 28, 28),
+                    child: Text(
+                      selected.plainLyrics,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 17,
+                        height: 1.75,
+                        color: palette.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           Positioned(
             top: 4,
@@ -1490,13 +1603,29 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
   void initState() {
     super.initState();
     _lastIndex = _activeIndex(widget.lyrics.syncedLines, widget.position);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _animateTo(_lastIndex));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _lastIndex = _activeIndex(widget.lyrics.syncedLines, widget.position);
+      _animateTo(_lastIndex, immediate: true);
+    });
   }
 
   @override
   void didUpdateWidget(covariant _SyncedLyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     final index = _activeIndex(widget.lyrics.syncedLines, widget.position);
+    if (oldWidget.song.id != widget.song.id ||
+        oldWidget.lyrics != widget.lyrics) {
+      _resumeTimer?.cancel();
+      _userScrolling = false;
+      _lastIndex = index;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _lastIndex = _activeIndex(widget.lyrics.syncedLines, widget.position);
+        _animateTo(_lastIndex, immediate: true);
+      });
+      return;
+    }
     if (index != _lastIndex) {
       _lastIndex = index;
       _animateTo(index);
@@ -1534,7 +1663,11 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
   }
 
   void _animateTo(int index, {bool immediate = false}) {
-    if (!_controller.hasClients || index < 0) return;
+    if ((_userScrolling && !immediate) ||
+        !_controller.hasClients ||
+        index < 0) {
+      return;
+    }
     final position = _controller.position;
     final viewport = position.viewportDimension;
     final target = (index * _rowHeight) - (viewport * 0.38) + (_rowHeight / 2);
@@ -2063,7 +2196,9 @@ Future<void> showExportProgress(BuildContext context) async {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
             child: Text(
-              'Rendering lyric video',
+              manager.state == VideoExportState.preparing
+                  ? 'Preparing lyric video'
+                  : 'Rendering lyric video',
               style: Theme.of(sheetContext).textTheme.titleMedium,
             ),
           ),
@@ -2090,7 +2225,9 @@ Future<void> showExportProgress(BuildContext context) async {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'It keeps rendering in the background while you use the app.',
+                      manager.state == VideoExportState.preparing
+                          ? 'Preparing audio and lyrics; progress continues while you use the app.'
+                          : 'The video keeps rendering while you use the app.',
                       style: TextStyle(
                         fontSize: 12,
                         color: context.palette.textMuted,

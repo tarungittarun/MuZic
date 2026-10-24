@@ -206,7 +206,12 @@ class MusicApiService {
         final albumSongs = await Future.wait<List<SongModel>>(
           <Future<List<SongModel>>>[
             for (final album in albums.take(4))
-              fetchAlbumSongs(album.id, limit: 60),
+              fetchAlbumSongs(
+                album.id,
+                albumTitle: album.title,
+                albumArtist: album.artist,
+                limit: 60,
+              ),
           ],
         );
         for (final songs in albumSongs) {
@@ -458,6 +463,8 @@ class MusicApiService {
   /// Songs that belong to an album.
   Future<List<SongModel>> fetchAlbumSongs(
     String albumId, {
+    String? albumTitle,
+    String? albumArtist,
     int limit = 60,
   }) async {
     if (albumId.trim().isEmpty) return const <SongModel>[];
@@ -472,10 +479,15 @@ class MusicApiService {
     try {
       final response =
           await _http.get(uri, headers: _saavnHeaders).timeout(_timeout);
-      if (response.statusCode != 200) return const <SongModel>[];
-      final root = _asMap(jsonDecode(response.body));
-      if (root == null) return const <SongModel>[];
-      final rows = _findSongRows(root);
+      if (response.statusCode != 200) {
+        throw http.ClientException(
+          'Album details returned HTTP ${response.statusCode}.',
+          uri,
+        );
+      }
+      final decoded = jsonDecode(response.body);
+      final root = _asMap(decoded);
+      final rows = root == null ? const <dynamic>[] : _findSongRows(root);
       final songs = rows
           .map(_songFromSaavn)
           .whereType<SongModel>()
@@ -485,10 +497,37 @@ class MusicApiService {
         'albumId': albumId,
         'songs': songs.length,
       });
-      return songs;
+      if (songs.isNotEmpty) return songs;
     } catch (error) {
       logWarn('api', 'fetchAlbumSongs failed', <String, Object?>{
         'albumId': albumId,
+        'error': '$error',
+      });
+    }
+
+    // Search results sometimes have a current album listing but the details
+    // endpoint returns an empty wrapper. Recover the tracks by the visible
+    // album title, and only keep results whose album metadata matches it.
+    final title = albumTitle?.trim() ?? '';
+    if (title.isEmpty) return const <SongModel>[];
+    try {
+      final candidates = await searchJioSaavn(
+        title,
+        limit: limit < 40 ? 40 : limit,
+      );
+      final matching = candidates
+          .where((song) => _albumNameMatches(song.album, title))
+          .take(limit)
+          .toList(growable: false);
+      logInfo('api', 'fetchAlbumSongs title fallback', <String, Object?>{
+        'album': title,
+        'artist': albumArtist ?? '',
+        'songs': matching.length,
+      });
+      return matching;
+    } catch (error) {
+      logWarn('api', 'fetchAlbumSongs title fallback failed', <String, Object?>{
+        'album': title,
         'error': '$error',
       });
       return const <SongModel>[];
@@ -1331,15 +1370,50 @@ class MusicApiService {
     );
   }
 
-  List<dynamic> _findSongRows(Map<String, dynamic> root) {
-    dynamic candidate = root['results'] ?? root['songs'] ?? root['data'];
-    if (candidate is Map) {
-      final map = _asMap(candidate);
-      if (map == null) return const <dynamic>[];
-      candidate = map['results'] ?? map['songs'] ?? map['data'];
+  List<dynamic> _findSongRows(Map<String, dynamic> root) =>
+      _findSongRowsIn(root, depth: 0);
+
+  List<dynamic> _findSongRowsIn(dynamic value, {required int depth}) {
+    if (depth > 6) return const <dynamic>[];
+    if (value is String && value.trim().isNotEmpty) {
+      try {
+        return _findSongRowsIn(jsonDecode(value), depth: depth + 1);
+      } on FormatException {
+        return const <dynamic>[];
+      }
     }
-    if (candidate is Iterable) return candidate.toList(growable: false);
+    if (value is Iterable && value is! Map) {
+      return value.toList(growable: false);
+    }
+    final map = _asMap(value);
+    if (map == null) return const <dynamic>[];
+    for (final key in const <String>[
+      'results',
+      'songs',
+      'data',
+      'tracks',
+      'items',
+      'list',
+      'album',
+      'result',
+      'response',
+    ]) {
+      if (!map.containsKey(key)) continue;
+      final rows = _findSongRowsIn(map[key], depth: depth + 1);
+      if (rows.isNotEmpty) return rows;
+    }
     return const <dynamic>[];
+  }
+
+  bool _albumNameMatches(String candidate, String requested) {
+    final candidateText = candidate.trim().toLowerCase();
+    final requestedText = requested.trim().toLowerCase();
+    if (candidateText.isEmpty || requestedText.isEmpty) return false;
+    if (candidateText == requestedText) return true;
+    final normalizedCandidate = _normalizeForMatch(candidateText);
+    final normalizedRequested = _normalizeForMatch(requestedText);
+    return normalizedCandidate.isNotEmpty &&
+        normalizedCandidate == normalizedRequested;
   }
 
   List<LyricLine> _parseLrc(String lrc) {

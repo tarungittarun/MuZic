@@ -119,6 +119,32 @@ void main() {
       expect(selected, same(original));
     });
 
+    test('auto prefers timed lyrics when the same-language copy is plain', () {
+      final plain = annotateLyrics(
+        const LyricsModel(plainLyrics: 'कौशल्या दशरथ के नंदन'),
+        song,
+        source: 'lrclib',
+      );
+      final timed = annotateLyrics(
+        const LyricsModel(
+          syncedLines: <LyricLine>[
+            LyricLine(time: Duration(seconds: 2), text: 'कौशल्या दशरथ के नंदन'),
+          ],
+          plainLyrics: 'कौशल्या दशरथ के नंदन',
+        ),
+        song,
+        source: 'jiosaavn',
+      );
+
+      final selected = selectLyricsVariant(
+        variants: <LyricsModel>[plain, timed],
+        song: song,
+        preference: 'auto',
+      );
+
+      expect(selected, same(timed));
+    });
+
     test('romanized preference picks the Latin variant', () {
       final selected = selectLyricsVariant(
         variants: <LyricsModel>[original],

@@ -22,6 +22,9 @@ class MiniPlayer extends StatelessWidget {
     if (song == null) return const SizedBox.shrink();
     final sleepTimer = context.watch<SleepTimerService>();
     final export = context.watch<VideoExportManager>();
+    final exportPhase = export.state == VideoExportState.preparing
+        ? 'Preparing'
+        : 'Rendering';
 
     final warning = sleepTimer.isWarningActive;
     return Column(
@@ -80,7 +83,7 @@ class MiniPlayer extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Rendering lyric video · ${export.percent}%'
+                    '$exportPhase lyric video · ${export.percent}%'
                     '${export.songTitle == null ? '' : ' · ${export.songTitle}'}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,

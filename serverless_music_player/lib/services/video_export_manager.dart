@@ -29,6 +29,11 @@ class VideoExportManager extends ChangeNotifier {
   VideoExportResult? _lastResult;
   String? _error;
   bool _cancelRequested = false;
+  Completer<void> _cancelSignal = Completer<void>();
+  bool _isRendering = false;
+  String? _preparedAudioPath;
+  Future<void> Function()? _cancelPreparation;
+  Future<void> Function(String path)? _cleanupAudio;
   StreamSubscription<double>? _progressSubscription;
 
   VideoExportState get state => _state;
@@ -49,8 +54,13 @@ class VideoExportManager extends ChangeNotifier {
 
   Future<VideoExportResult?> start({
     required SongModel song,
-    required String audioPath,
-    required LyricsModel? lyrics,
+    required Future<String> Function(
+      void Function(double progress) onProgress,
+      bool Function() isCancelled,
+    ) prepareAudio,
+    required Future<LyricsModel?> Function() loadLyrics,
+    Future<void> Function()? cancelPreparation,
+    Future<void> Function(String path)? cleanupAudio,
   }) async {
     if (isBusy) return null;
     _song = song;
@@ -59,26 +69,95 @@ class VideoExportManager extends ChangeNotifier {
     _lastResult = null;
     _progress = 0;
     _cancelRequested = false;
+    _cancelSignal = Completer<void>();
+    _isRendering = false;
+    _preparedAudioPath = null;
+    _cancelPreparation = cancelPreparation;
+    _cleanupAudio = cleanupAudio;
     _state = VideoExportState.preparing;
     notifyListeners();
 
     await _progressSubscription?.cancel();
-    _progressSubscription = _service.progress.listen((value) {
-      if (!isBusy) return;
-      if (value >= _progress) {
-        _progress = value.clamp(0.0, 1.0);
-        if (_state == VideoExportState.preparing) {
-          _state = VideoExportState.rendering;
-        }
-        notifyListeners();
-      }
-    });
-
     try {
+      if (_cancelRequested) {
+        _reset();
+        return null;
+      }
+      final prepareFuture = prepareAudio((value) {
+        if (!isBusy || _cancelRequested) return;
+        final preparationProgress = value.clamp(0.0, 1.0).toDouble() * 0.4;
+        if (preparationProgress > _progress) {
+          _progress = preparationProgress;
+          notifyListeners();
+        }
+      }, () => _cancelRequested);
+      final audioPath = await Future.any<String?>(<Future<String?>>[
+        prepareFuture.then<String?>((path) => path),
+        _cancelSignal.future.then<String?>((_) => null),
+      ]);
+      if (audioPath == null) {
+        // A resolver may finish after its cancel signal. If it produced a
+        // temporary file late, remove it rather than leaving it behind.
+        unawaited(
+          prepareFuture.then<void>(
+            (latePath) async {
+              try {
+                await cleanupAudio?.call(latePath);
+              } catch (error) {
+                logWarn('video', 'late temporary audio cleanup failed',
+                    <String, Object?>{'error': '$error'});
+              }
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              logWarn('video', 'audio preparation ended after cancellation',
+                  <String, Object?>{
+                    'error': '$error',
+                    'stack': '$stackTrace',
+                  });
+            },
+          ),
+        );
+        _reset();
+        return null;
+      }
+      _preparedAudioPath = audioPath;
+      if (_cancelRequested) {
+        _reset();
+        return null;
+      }
+
+      // Keep one continuous percentage across audio preparation and encoding.
+      _progress = _progress < 0.4 ? 0.4 : _progress;
+      notifyListeners();
+      final lyricsFuture = loadLyrics();
+      final lyrics = await Future.any<LyricsModel?>(<Future<LyricsModel?>>[
+        lyricsFuture,
+        _cancelSignal.future.then<LyricsModel?>((_) => null),
+      ]);
+      if (_cancelRequested) {
+        _reset();
+        return null;
+      }
+
+      _state = VideoExportState.rendering;
+      _isRendering = true;
+      _progress = _progress < 0.42 ? 0.42 : _progress;
+      _progressSubscription = _service.progress.listen((value) {
+        if (!isBusy || !_isRendering) return;
+        final renderProgress = 0.42 +
+            value.clamp(0.0, 1.0).toDouble() * 0.58;
+        if (renderProgress >= _progress) {
+          _progress = renderProgress.clamp(0.0, 1.0).toDouble();
+          notifyListeners();
+        }
+      });
+      notifyListeners();
+
       final result = await _service.export(
         song: song,
         audioPath: audioPath,
         lyrics: lyrics,
+        isCancelled: () => _cancelRequested,
       );
       if (_cancelRequested) {
         _reset();
@@ -112,6 +191,20 @@ class VideoExportManager extends ChangeNotifier {
     } finally {
       await _progressSubscription?.cancel();
       _progressSubscription = null;
+      _isRendering = false;
+      final audioPath = _preparedAudioPath;
+      _preparedAudioPath = null;
+      if (audioPath != null) {
+        try {
+          await _cleanupAudio?.call(audioPath);
+        } catch (error) {
+          logWarn('video', 'temporary audio cleanup failed', <String, Object?>{
+            'error': '$error',
+          });
+        }
+      }
+      _cancelPreparation = null;
+      _cleanupAudio = null;
     }
   }
 
@@ -124,12 +217,18 @@ class VideoExportManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Asks the renderer to stop; the encoder aborts at the next frame boundary.
+  /// Stops preparation, lyric lookup, or rendering for the active export.
+  /// During rendering, the encoder aborts at the next frame boundary.
   Future<void> cancel() async {
     if (!isBusy) return;
     _cancelRequested = true;
+    if (!_cancelSignal.isCompleted) _cancelSignal.complete();
     try {
-      await _service.cancel();
+      if (_isRendering) {
+        await _service.cancel();
+      } else {
+        await _cancelPreparation?.call();
+      }
     } catch (error) {
       logWarn('video', 'cancel request failed', <String, Object?>{'error': '$error'});
     }

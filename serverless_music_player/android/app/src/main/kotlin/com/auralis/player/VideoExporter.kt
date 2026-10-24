@@ -590,13 +590,19 @@ class VideoExporter(private val context: Context) {
         // per-file name limit and make MediaMuxer fail with a misleading
         // ENOENT. Keep the visible name useful but bounded.
         val safe = name
-            .replace(Regex("[^A-Za-z0-9._ -]"), "_")
+            .replace(Regex("[^\\p{L}\\p{M}\\p{N}._ -]"), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
             .take(82)
             .trim()
-            .ifEmpty { "muzic_video" }
-        return File(directory, "$safe.mp4")
+            .ifEmpty { "Unknown track" }
+        var candidate = "$safe.mp4"
+        var suffix = 2
+        while (File(directory, candidate).exists()) {
+            candidate = "$safe ($suffix).mp4"
+            suffix++
+        }
+        return File(directory, candidate)
     }
 
     /** Copies the finished MP4 into the shared Movies collection. */

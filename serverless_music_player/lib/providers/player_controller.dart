@@ -99,6 +99,8 @@ class PlayerController extends ChangeNotifier {
   bool _permissionAsked = false;
   String? _downloadingId;
   double _downloadProgress = 0;
+  bool _downloadCancelRequested = false;
+  Completer<void>? _downloadCancelSignal;
   final List<SongModel> _recommendations = <SongModel>[];
   final Map<String, String> _recommendationReasons = <String, String>{};
   int _pendingListeningMs = 0;
@@ -424,7 +426,12 @@ class PlayerController extends ChangeNotifier {
             }
           }
           if (match == null) return const <RecommendationCandidate>[];
-          final songs = await _musicApi.fetchAlbumSongs(match.id, limit: 30);
+          final songs = await _musicApi.fetchAlbumSongs(
+            match.id,
+            albumTitle: match.title,
+            albumArtist: match.artist,
+            limit: 30,
+          );
           return songs
               .map(
                 (song) => RecommendationCandidate(
@@ -580,10 +587,9 @@ class PlayerController extends ChangeNotifier {
   }
 
   Future<void> previous() async {
-    if (_position > const Duration(seconds: 3)) {
-      await seek(Duration.zero);
-      return;
-    }
+    // Previous always follows the queue/shuffle order, even when the current
+    // track is well underway. Restarting the current song belongs to tapping
+    // its artwork/progress, not to the dedicated Previous control.
     try {
       await _audio.player.seekToPrevious();
     } on PlayerException {
@@ -597,19 +603,25 @@ class PlayerController extends ChangeNotifier {
     await _audio.player.seek(position);
   }
 
+  static bool nextShuffleState(bool enabled) => !enabled;
+
+  static LoopMode nextRepeatMode(LoopMode mode) => switch (mode) {
+        LoopMode.off => LoopMode.all,
+        LoopMode.all => LoopMode.one,
+        LoopMode.one => LoopMode.off,
+      };
+
   Future<void> toggleShuffle() async {
-    _shuffleEnabled = !_shuffleEnabled;
-    await _audio.player.setShuffleModeEnabled(_shuffleEnabled);
+    final next = nextShuffleState(_shuffleEnabled);
+    await _audio.player.setShuffleModeEnabled(next);
+    _shuffleEnabled = next;
     notifyListeners();
   }
 
   Future<void> cycleRepeatMode() async {
-    _loopMode = switch (_loopMode) {
-      LoopMode.off => LoopMode.all,
-      LoopMode.all => LoopMode.one,
-      LoopMode.one => LoopMode.off,
-    };
-    await _audio.player.setLoopMode(_loopMode);
+    final next = nextRepeatMode(_loopMode);
+    await _audio.player.setLoopMode(next);
+    _loopMode = next;
     notifyListeners();
   }
 
@@ -688,9 +700,24 @@ class PlayerController extends ChangeNotifier {
     }
     _downloadingId = song.id;
     _downloadProgress = 0;
+    _downloadCancelRequested = false;
+    final cancelSignal = Completer<void>();
+    _downloadCancelSignal = cancelSignal;
     notifyListeners();
+
+    Future<String> resolveWhileActive(Future<String> pending) async {
+      final resolved = await Future.any<String?>(<Future<String?>>[
+        pending.then<String?>((value) => value),
+        cancelSignal.future.then<String?>((_) => null),
+      ]);
+      if (_downloadCancelRequested || resolved == null) {
+        throw const DownloadCancelledException();
+      }
+      return resolved;
+    }
+
     try {
-      final streamUrl = await _musicApi.resolveStream(song);
+      final streamUrl = await resolveWhileActive(_musicApi.resolveStream(song));
       try {
         await _downloads.downloadSong(
           song,
@@ -699,10 +726,16 @@ class PlayerController extends ChangeNotifier {
             _downloadProgress = value;
             notifyListeners();
           },
+          isCancelled: () => _downloadCancelRequested,
         );
-      } catch (_) {
+      } catch (error) {
+        if (error is DownloadCancelledException || _downloadCancelRequested) {
+          throw const DownloadCancelledException();
+        }
         if (song.source != SongSource.jioSaavn) rethrow;
-        final fallbackUrl = await _musicApi.resolveYouTubeFallback(song);
+        final fallbackUrl = await resolveWhileActive(
+          _musicApi.resolveYouTubeFallback(song),
+        );
         await _downloads.downloadSong(
           song.copyWith(streamUrl: fallbackUrl),
           fallbackUrl,
@@ -710,13 +743,21 @@ class PlayerController extends ChangeNotifier {
             _downloadProgress = value;
             notifyListeners();
           },
+          isCancelled: () => _downloadCancelRequested,
         );
       }
+      if (_downloadCancelRequested) throw const DownloadCancelledException();
       await _usage.recordSongEvent('download', song);
       logInfo('player', 'download finished', <String, Object?>{
         'song': song.title,
       });
     } catch (error) {
+      if (error is DownloadCancelledException || _downloadCancelRequested) {
+        logInfo('player', 'download cancelled', <String, Object?>{
+          'song': song.title,
+        });
+        throw const DownloadCancelledException();
+      }
       logError('player', 'download failed', <String, Object?>{
         'song': song.title,
         'error': '$error',
@@ -725,8 +766,22 @@ class PlayerController extends ChangeNotifier {
     } finally {
       _downloadingId = null;
       _downloadProgress = 0;
+      _downloadCancelRequested = false;
+      _downloadCancelSignal = null;
       notifyListeners();
     }
+  }
+
+  Future<void> cancelDownload([String? songId]) async {
+    final activeId = _downloadingId;
+    if (activeId == null || (songId != null && songId != activeId)) return;
+    _downloadCancelRequested = true;
+    final cancelSignal = _downloadCancelSignal;
+    if (cancelSignal != null && !cancelSignal.isCompleted) {
+      cancelSignal.complete();
+    }
+    _downloads.cancelDownload(activeId);
+    notifyListeners();
   }
 
   Future<void> removeDownload(SongModel song) async {

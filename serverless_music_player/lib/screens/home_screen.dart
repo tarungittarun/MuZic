@@ -225,7 +225,11 @@ class _HomeScreenState extends State<HomeScreen> {
       isScrollControlled: true,
       builder: (sheetContext) => _AlbumSheet(
         album: album,
-        songsFuture: api.fetchAlbumSongs(album.id),
+        songsFuture: api.fetchAlbumSongs(
+          album.id,
+          albumTitle: album.title,
+          albumArtist: album.artist,
+        ),
         onPlay: (songs, index) {
           Navigator.pop(sheetContext);
           unawaited(_play(songs, index));

@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
+import '../utils/file_name_utils.dart';
 import 'app_log.dart';
 
 /// Result of a finished lyric-video export.
@@ -30,6 +31,8 @@ class VideoExportService {
 
   final MethodChannel _channel;
   final EventChannel _progressChannel;
+  CancelToken? _artworkCancelToken;
+  bool _cancelRequested = false;
 
   Stream<double> get progress => _progressChannel
       .receiveBroadcastStream()
@@ -42,31 +45,52 @@ class VideoExportService {
     required String audioPath,
     required LyricsModel? lyrics,
     void Function(double progress)? onProgress,
+    bool Function()? isCancelled,
   }) async {
-    final artworkPath = await _downloadArtwork(song);
-    final lines = <Map<String, Object?>>[
-      for (final line in lyrics?.syncedLines ?? const <LyricLine>[])
-        <String, Object?>{
-          'timeMs': line.time.inMilliseconds,
-          'text': line.text,
-        },
-    ];
-    final subscription = onProgress == null
-        ? null
-        : progress.listen((value) => onProgress(value));
+    if (lyrics == null || !lyrics.hasSynced) {
+      throw StateError('Lyrics are unavailable for this track.');
+    }
+    _cancelRequested = false;
+    final artworkCancelToken = CancelToken();
+    _artworkCancelToken = artworkCancelToken;
+    StreamSubscription<double>? subscription;
     try {
-      final path = await _channel.invokeMethod<String>('export', <String, Object?>{
-        'audioPath': audioPath,
-        'artworkPath': artworkPath,
-        'title': song.title,
-        'artist': song.artist,
-        'durationMs': song.duration?.inMilliseconds ??
-            (lyrics?.syncedLines.isNotEmpty == true
-                ? lyrics!.syncedLines.last.time.inMilliseconds + 6000
-                : 0),
-        'lyrics': jsonEncode(lines),
-        'outputName': _outputName(song),
-      });
+      final artworkPath = await _downloadArtwork(
+        song,
+        cancelToken: artworkCancelToken,
+      );
+      if (_cancelRequested || isCancelled?.call() == true) {
+        throw StateError('Export stopped.');
+      }
+      final lines = <Map<String, Object?>>[
+        for (final line in lyrics?.syncedLines ?? const <LyricLine>[])
+          <String, Object?>{
+            'timeMs': line.time.inMilliseconds,
+            'text': line.text,
+          },
+      ];
+      subscription = onProgress == null
+          ? null
+          : progress.listen((value) => onProgress(value));
+      if (_cancelRequested || isCancelled?.call() == true) {
+        throw StateError('Export stopped.');
+      }
+
+      final path = await _channel.invokeMethod<String>(
+        'export',
+        <String, Object?>{
+          'audioPath': audioPath,
+          'artworkPath': artworkPath,
+          'title': song.title,
+          'artist': song.artist,
+          'durationMs': song.duration?.inMilliseconds ??
+              (lyrics?.syncedLines.isNotEmpty == true
+                  ? lyrics!.syncedLines.last.time.inMilliseconds + 6000
+                  : 0),
+          'lyrics': jsonEncode(lines),
+          'outputName': _outputName(song),
+        },
+      );
       logInfo('video', 'export finished', <String, Object?>{
         'song': song.title,
         'path': path,
@@ -83,23 +107,27 @@ class VideoExportService {
       throw StateError(error.message ?? 'Video export failed.');
     } finally {
       await subscription?.cancel();
+      if (identical(_artworkCancelToken, artworkCancelToken)) {
+        _artworkCancelToken = null;
+      }
     }
   }
 
-  /// Stops an in-flight render. The native side aborts at the next frame and
-  /// deletes the partial file, so a cancelled export never lands in the gallery.
-  Future<void> cancel() => _channel.invokeMethod<void>('cancelExport');
-
-  String _outputName(SongModel song) {
-    final stamp = DateTime.now().millisecondsSinceEpoch % 100000;
-    final base = '${song.title} - ${song.artist}'
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    return '${base.isEmpty ? 'MuZic' : base} $stamp';
+  /// Stops an in-flight render or artwork download. The native side aborts at
+  /// the next frame and deletes the partial file.
+  Future<void> cancel() async {
+    _cancelRequested = true;
+    _artworkCancelToken?.cancel('Stopped by the user.');
+    await _channel.invokeMethod<void>('cancelExport');
   }
 
+  String _outputName(SongModel song) => trackFileBase(song.title);
+
   /// Caches the cover art locally so the encoder can draw it.
-  Future<String?> _downloadArtwork(SongModel song) async {
+  Future<String?> _downloadArtwork(
+    SongModel song, {
+    required CancelToken cancelToken,
+  }) async {
     final local = song.localArtworkPath;
     if (local != null && File(local).existsSync()) return local;
     final url = song.artworkUrl;
@@ -109,10 +137,10 @@ class VideoExportService {
         p.join((await getTemporaryDirectory()).path, 'video_artwork'),
       );
       if (!directory.existsSync()) directory.createSync(recursive: true);
-      final safeId = song.id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-      final file = File(p.join(directory.path, '$safeId.jpg'));
+      final artworkName = trackFileBase(song.title);
+      final file = File(p.join(directory.path, '$artworkName.jpg'));
       if (file.existsSync() && await file.length() > 1024) return file.path;
-      await Dio().download(url, file.path);
+      await Dio().download(url, file.path, cancelToken: cancelToken);
       return file.path;
     } catch (error) {
       logWarn('video', 'artwork download failed', <String, Object?>{
