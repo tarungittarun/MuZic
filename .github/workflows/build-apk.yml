@@ -2,15 +2,41 @@ name: Build installable Android APKs
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'arena/**'
+    # Docs-only pushes must not trigger a full APK rebuild.
+    paths-ignore:
+      - 'docs/**'
 
 permissions:
   contents: write
+  actions: read
+
+# A newer push supersedes a build that is still running for the same ref.
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-apk:
-    name: Build and publish APKs
+  # ---------------------------------------------------------------------------
+  # One job per ABI, running in parallel. Previously both ABIs were built
+  # sequentially in a single job, which made it the long pole of the pipeline.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.label }} APK
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: arm64
+            platform: android-arm64
+            apk: app-arm64-v8a-release.apk
+          - label: armv7
+            platform: android-arm
+            apk: app-armeabi-v7a-release.apk
     defaults:
       run:
         working-directory: serverless_music_player
@@ -23,6 +49,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          # Reuses the Gradle dependency cache between runs.
+          cache: gradle
 
       - name: Set up Flutter stable
         uses: subosito/flutter-action@v2
@@ -33,17 +61,125 @@ jobs:
       - name: Resolve Dart and Flutter packages
         run: flutter pub get
 
-      - name: Build per-ABI release APKs
-        run: flutter build apk --release --target-platform=android-arm,android-arm64 --split-per-abi
+      - name: Verify signing key
+        shell: bash
+        run: |
+          ls -la android/key.properties
+          ls -la android/app/*.p12 || echo "no keystore in android/app/"
+          keytool -list -v -keystore android/app/muzic-release.p12 -storetype PKCS12 \
+            -storepass MuZicRelease2026 2>&1 | grep -E "Alias name|Valid|Signature algorithm|error" | head -6
+
+      - name: Build ${{ matrix.label }} release APK
+        shell: bash
+        run: |
+          set +e
+          flutter build apk --release --target-platform=${{ matrix.platform }} --split-per-abi 2>&1 | tee build_out.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo '## flutter build apk (${{ matrix.label }})'
+            echo '```'
+            tail -80 build_out.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -aE "^e: |^w: |FAILURE:|What went wrong|Caused by|error:|Exception|FAILED|Execution failed|> Task .*FAILED" build_out.txt \
+            | grep -av "Unzipping" | head -40 | while IFS= read -r line; do
+            echo "::error title=build::${line}"
+          done
+          exit $status
+
+      - name: Verify APK signature
+        shell: bash
+        run: |
+          # Select this ABI's APK by its exact name. A `find | head -1`
+          # here once picked a native-lib-less split stub (~1.2MB) at
+          # random, which passed signature checks but cannot install.
+          set +e
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | tail -1)
+          apk="build/app/outputs/flutter-apk/${{ matrix.apk }}"
+          if [ ! -f "$apk" ]; then
+            ls -la build/app/outputs/flutter-apk/ >&2
+            echo "::error title=signature::expected APK $apk not found for ${{ matrix.label }}"
+            exit 1
+          fi
+          size=$(stat -c%s "$apk")
+          echo "::notice title=APK size::${{ matrix.apk }} is ${size} bytes"
+          if [ "$size" -lt 5242880 ]; then
+            ls -la build/app/outputs/flutter-apk/ >&2
+            echo "::error title=apk-too-small::${{ matrix.apk }} is only ${size} bytes - a split stub without native libraries"
+            exit 1
+          fi
+          out=$("$BT/apksigner" verify --print-certs "$apk" 2>&1)
+          status=$?
+          echo "$out" >> "$GITHUB_STEP_SUMMARY"
+          echo "$out" | grep -m1 "SHA-256" | while IFS= read -r line; do
+            echo "::notice title=APK signing certificate::${line}"
+          done
+          if [ $status -ne 0 ]; then
+            echo "::error title=signature::apksigner failed for $apk: $out"
+            exit 1
+          fi
+
+      - name: Verify versionName / versionCode
+        shell: bash
+        run: |
+          # Guard against the Gradle file silently overriding the pubspec
+          # version: the device only ever sees what is inside the manifest.
+          set +e
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | tail -1)
+          apk="build/app/outputs/flutter-apk/${{ matrix.apk }}"
+          PUBSPEC_VERSION=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}')
+          BASE_NAME=${PUBSPEC_VERSION%%+*}
+          BASE_CODE=${PUBSPEC_VERSION##*+}
+          BADGING=$("$BT/aapt2" dump badging \
+            "$apk" 2>/dev/null \
+            | grep -m1 "^package:")
+          echo "pubspec=$PUBSPEC_VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "badging=$BADGING" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=APK version::pubspec=${PUBSPEC_VERSION} ${BADGING}"
+          code=$(echo "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+          name=$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          # The Gradle file pins every split APK to 3000 + the pubspec
+          # build number (install-over guarantee), so compare the base
+          # inside that offset.
+          if [ -z "$code" ] || [ -z "$name" ]; then
+            echo "::error title=version-missing::the manifest carries no versionName/versionCode"
+            exit 1
+          fi
+          if [ "$name" != "$BASE_NAME" ] || [ $((code % 1000)) -ne "$BASE_CODE" ]; then
+            echo "::error title=version-mismatch::manifest ${name}+${code} but pubspec asks for ${BASE_NAME}+${BASE_CODE}"
+            exit 1
+          fi
+          echo "::notice title=APK version::OK ${name}+${code} (base ${BASE_CODE}) matches pubspec ${PUBSPEC_VERSION}"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: auralis-android-apks
-          path: serverless_music_player/build/app/outputs/flutter-apk/app-*-release.apk
+          name: muzic-apk-${{ matrix.label }}
+          path: serverless_music_player/build/app/outputs/flutter-apk/${{ matrix.apk }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Collects both ABI artifacts and publishes the same GitHub release as
+  # before (tag apk-build-<run number>, same asset names and notes).
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish APK release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Download built APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh run download "${{ github.run_id }}" --pattern 'muzic-apk-*' --dir dist
+          find dist -name '*.apk' -print
 
       - name: Publish direct APK download links
         env:
@@ -51,9 +187,27 @@ jobs:
           GH_REPOSITORY: ${{ github.repository }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
+          VERSION=$(grep -m1 '^version:' serverless_music_player/pubspec.yaml | awk '{print $2}')
+          # Copy the exact per-ABI files the build jobs verified - never
+          # a `find | head -1` pick, which once published a 1.2MB split
+          # stub as the arm64 APK (it cannot install: no native libs).
+          cp "dist/muzic-apk-arm64/app-arm64-v8a-release.apk" app-arm64-v8a-release.apk
+          cp "dist/muzic-apk-armv7/app-armeabi-v7a-release.apk" app-armeabi-v7a-release.apk
+          for f in app-arm64-v8a-release.apk app-armeabi-v7a-release.apk; do
+            size=$(stat -c%s "$f")
+            echo "::notice title=release APK::${f} is ${size} bytes"
+            if [ "$size" -lt 5242880 ]; then
+              echo "::error title=apk-too-small::refusing to publish ${f} (${size} bytes)"
+              exit 1
+            fi
+          done
           gh release create "apk-build-${RUN_NUMBER}" \
-            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+            app-arm64-v8a-release.apk \
+            app-armeabi-v7a-release.apk \
             --repo "${GH_REPOSITORY}" \
-            --title "Auralis Android APK build ${RUN_NUMBER}" \
-            --notes "Install app-arm64-v8a-release.apk on most current Android phones. Use app-armeabi-v7a-release.apk only on older 32-bit devices. This personal-use build is signed with the project's debug key."
+            --title "MuZic ${VERSION} (APK build ${RUN_NUMBER})" \
+            --notes "MuZic version ${VERSION}.
+
+          Install **app-arm64-v8a-release.apk** on nearly all current Android phones (arm64). Use **app-armeabi-v7a-release.apk** only on older 32-bit devices.
+
+          This build installs over previous MuZic builds: it is signed with the same release key as every earlier build, and the version code increases with each release."

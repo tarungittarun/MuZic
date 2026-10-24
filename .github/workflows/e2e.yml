@@ -1,0 +1,728 @@
+name: Strict Android end-to-end pipeline
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'serverless_music_player/**'
+      - '.github/workflows/e2e.yml'
+  pull_request:
+    paths:
+      - 'serverless_music_player/**'
+      - '.github/workflows/e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # Push and pull_request events for the same PR branch share one expensive
+  # emulator run instead of racing two identical matrices.
+  group: e2e-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  APP_DIR: serverless_music_player
+  APP_ID: com.auralis.player
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Fast gate: static analysis + unit/widget tests with coverage and JUnit XML.
+  # ---------------------------------------------------------------------------
+  static:
+    name: Static analysis & unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve packages
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      - name: Analyze (warnings are errors)
+        id: analyze
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set +e
+          start=$(date +%s)
+          flutter analyze --no-fatal-infos --fatal-warnings 2>&1 | tee analyze.txt
+          status=${PIPESTATUS[0]}
+          echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          issues=$(grep -cE '^\s+(error|warning) •' analyze.txt || true)
+          echo "issues=$issues" >> "$GITHUB_OUTPUT"
+          if [ $status -ne 0 ]; then
+            head -40 analyze.txt | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=analyze::$(echo "$line" | cut -c1-300)"
+            done
+          fi
+          exit $status
+
+      - name: Unit & widget tests (JUnit + coverage)
+        id: unit
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set +e
+          start=$(date +%s)
+          flutter test --reporter json --coverage > test.json 2> test.err
+          status=$?
+          echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          tail -5 test.err
+          if [ $status -ne 0 ]; then
+            # Surface compile failures and name the exact failing test in the
+            # check annotations, not only in a log archive.
+            head -40 test.err | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=tests::$(echo "$line" | cut -c1-300)"
+            done
+            grep -aE "^[^ ]+:[0-9]+:[0-9]+: Error|Error:|error: |Failed to load" test.json \
+              | head -20 | while IFS= read -r line; do
+              echo "::error title=test-compile::$(echo "$line" | cut -c1-300)"
+            done
+            python3 - <<'PY'
+          import json, re
+          names = {}
+          errors = {}
+          failed = []
+          for line in open('test.json', errors='ignore'):
+              try:
+                  event = json.loads(line)
+              except Exception:
+                  continue
+              kind = event.get('type')
+              if kind == 'testStart':
+                  test = event.get('test', {})
+                  names[test.get('id')] = test.get('name', 'unnamed test')
+              elif kind == 'error':
+                  test_id = event.get('testID')
+                  text = event.get('error') or event.get('message') or 'test error'
+                  stack = event.get('stackTrace') or ''
+                  errors.setdefault(test_id, []).append(f'{text} {stack}')
+              elif kind == 'testDone' and event.get('result') != 'success':
+                  failed.append(event.get('testID'))
+          for test_id in failed:
+              name = names.get(test_id, f'test id {test_id}')
+              detail = ' '.join(errors.get(test_id, ['No failure detail in JSON output']))
+              detail = re.sub(r'\s+', ' ', detail).strip()[:2500]
+              print(f'::error title=failed-test::{name}: {detail}')
+          if not failed:
+              print('::error title=failed-test::No test failure event found; inspect the uploaded static-report artifact.')
+          PY
+          fi
+          exit $status
+
+      - name: Summarise unit tests
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          python3 - <<'PY' > summary.txt
+          import json
+          passed = failed = 0
+          durations = {}
+          current = None
+          with open('test.json') as handle:
+              for line in handle:
+                  try:
+                      event = json.loads(line)
+                  except Exception:
+                      continue
+                  if event.get('type') == 'testStart':
+                      current = event['test']['name']
+                  elif event.get('type') == 'testDone' and not event.get('hidden'):
+                      if event.get('result') == 'success':
+                          passed += 1
+                      else:
+                          failed += 1
+                      durations[current] = event.get('time', 0)
+          slowest = sorted(durations.items(), key=lambda kv: kv[1], reverse=True)[:5]
+          print(f'passed={passed} failed={failed}')
+          for name, ms in slowest:
+              print(f'slow {ms} {name[:80]}')
+          PY
+          cat summary.txt
+          {
+            echo "## flutter test"
+            echo '```'
+            cat summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload static artefacts
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: static-report
+          path: |
+            ${{ env.APP_DIR }}/analyze.txt
+            ${{ env.APP_DIR }}/test.json
+            ${{ env.APP_DIR }}/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Device matrix: real end-to-end journey on multiple Android API levels.
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: E2E · Android API ${{ matrix.api-level }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [30, 34]
+        include:
+          - api-level: 30
+            target: google_apis
+          - api-level: 34
+            target: google_apis
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Probe emulator prerequisites
+        shell: bash
+        run: |
+          set +e
+          if [ -e /dev/kvm ]; then
+            echo "::notice title=env::/dev/kvm present"
+            ls -l /dev/kvm
+          else
+            echo "::error title=env::/dev/kvm missing — hardware acceleration unavailable"
+          fi
+          echo "::notice title=env::cpu-virtualisation=$(egrep -c '(vmx|svm)' /proc/cpuinfo)"
+          echo "::notice title=env::cpus=$(nproc) memory=$(free -g | awk '/Mem:/ {print $2}')GB"
+          sudo apt-get -qq update >/dev/null 2>&1
+          sudo apt-get -qq install -y cpu-checker >/dev/null 2>&1
+          kvm-ok 2>&1 | while IFS= read -r line; do
+            echo "::notice title=kvm-ok::${line}"
+          done
+
+      - name: Resolve packages
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      - name: Build debug APK
+        id: build
+        working-directory: ${{ env.APP_DIR }}
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set +e
+          start=$(date +%s)
+          for attempt in 1 2; do
+            flutter build apk --debug > build-debug.log 2>&1
+            status=$?
+            echo "::notice title=build::attempt=$attempt status=$status"
+            [ $status -eq 0 ] && break
+            sleep 15
+          done
+          tail -20 build-debug.log
+          echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          if [ $status -ne 0 ]; then
+            grep -aE "^e: |FAILURE:|What went wrong|Caused by|error:|Exception|Execution failed|> Task .*FAILED" build-debug.log \
+              | head -20 | while IFS= read -r line; do
+              echo "::error title=build::$line"
+            done
+          fi
+          exit $status
+
+      - name: Install emulator and system image
+        shell: bash
+        run: |
+          set +e
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "::notice title=env::sdk-root=${SDK_ROOT}"
+          CMDLINE_BIN=$(ls -d "$SDK_ROOT"/cmdline-tools/*/bin 2>/dev/null | head -1)
+          export PATH="${CMDLINE_BIN}:${SDK_ROOT}/platform-tools:${SDK_ROOT}/emulator:${SDK_ROOT}/tools/bin:$PATH"
+          echo "::notice title=env::sdkmanager=$(command -v sdkmanager || echo missing)"
+          echo "::notice title=env::avdmanager=$(command -v avdmanager || echo missing)"
+          # The bundled emulator links against libpulse and the X/GL shims even
+          # in headless mode; without them the binary dies at load time.
+          sudo apt-get -qq update >/dev/null 2>&1
+          sudo apt-get -qq install -y libpulse0 libxcomposite1 libxcursor1 \
+            libxi6 libxtst6 libnss3 libgbm1 libxdamage1 libxrandr2 >/dev/null 2>&1
+          echo "::notice title=install::libpulse=$(ldconfig -p | grep -c libpulse.so.0)"
+
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platform-tools" "emulator" \
+            "system-images;android-${{ matrix.api-level }};google_apis;x86_64" 2>&1 | tail -3
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "::error title=install::sdkmanager failed ($status) path=$(command -v sdkmanager)"
+            exit $status
+          fi
+          # avdmanager and the emulator must agree on where AVDs live, otherwise
+          # the emulator reports "Unknown AVD name" even after a successful create.
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "::notice title=avd::home=$ANDROID_AVD_HOME"
+          echo "::notice title=avd::sdk-home=${ANDROID_SDK_HOME:-unset} avd-home-var=${ANDROID_AVD_HOME:-unset}"
+
+          echo no | avdmanager create avd -n "muzic-${{ matrix.api-level }}" \
+            -k "system-images;android-${{ matrix.api-level }};google_apis;x86_64" \
+            -d pixel_5 --force 2>&1 | tail -3
+
+          echo "::notice title=avd::ini=$(ls "$ANDROID_AVD_HOME"/*.ini 2>/dev/null | wc -l)"
+          echo "::notice title=avd::dirs=$(ls -d "$ANDROID_AVD_HOME"/*.avd 2>/dev/null | wc -l)"
+          echo "::notice title=avd::visible=$("$SDK_ROOT/emulator/emulator" -list-avds 2>&1 | tr '\n' ',')"
+
+      - name: Check emulator prerequisites
+        shell: bash
+        run: |
+          set +e
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          EMU="$SDK_ROOT/emulator/emulator"
+          echo "::notice title=emu::binary=$(ls -l "$EMU" 2>/dev/null | awk '{print $5" bytes"}')"
+          echo "::notice title=emu::version=$("$EMU" -version 2>&1 | head -1)"
+          echo "::notice title=emu::accel=$("$EMU" -accel-check 2>&1 | tail -2 | tr '\n' ' ')"
+          missing=$(ldd "$EMU" 2>/dev/null | grep 'not found' | wc -l)
+          echo "::notice title=emu::missing-libs=$missing"
+          ldd "$EMU" 2>/dev/null | grep 'not found' | head -5
+          adb start-server 2>&1 | tail -2
+          echo "::notice title=emu::adb=$(adb version | head -1)"
+
+      - name: Boot emulator
+        id: boot
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set +e
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          EMU="$SDK_ROOT/emulator/emulator"
+          LOG="emulator-${{ matrix.api-level }}.log"
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          export PATH="${SDK_ROOT}/platform-tools:${SDK_ROOT}/emulator:$PATH"
+          echo "::notice title=boot::adb=$(command -v adb || echo missing) avds=$("$EMU" -list-avds 2>&1 | tr '\n' ',')"
+
+          setsid "$EMU" -avd "muzic-${{ matrix.api-level }}" \
+            -no-window -no-audio -no-boot-anim \
+            -no-snapshot -no-snapshot-save -no-snapshot-load \
+            -camera-back none -camera-front none \
+            -gpu swiftshader_indirect -accel on \
+            -netdelay none -netspeed full \
+            -wipe-data \
+            > "$LOG" 2>&1 &
+          EMU_PID=$!
+          echo "::notice title=boot::launched pid=$EMU_PID log=$LOG"
+
+          booted=0
+          for i in $(seq 1 90); do
+            if ! kill -0 "$EMU_PID" 2>/dev/null; then
+              echo "::error title=boot::emulator process exited at t+$((i * 10))s"
+              break
+            fi
+            state=$(timeout 20 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            if [ "$state" = "1" ]; then
+              booted=1
+              echo "::notice title=boot::booted after $((i * 10))s"
+              break
+            fi
+            if [ $((i % 6)) -eq 0 ]; then
+              devices=$(adb devices | grep -c 'emulator-')
+              echo "::notice title=boot::t+$((i * 10))s devices=$devices boot_completed=[${state}] last=$(tail -1 "$LOG" 2>/dev/null | cut -c1-150)"
+            fi
+            sleep 10
+          done
+
+          if [ "$booted" != "1" ]; then
+            echo "::error title=boot::emulator did not become ready — see attached log"
+            tail -60 "$LOG" 2>/dev/null | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=emulator-log::$(echo "$line" | cut -c1-300)"
+            done
+            exit 1
+          fi
+
+          adb shell input keyevent 82 || true
+          adb shell settings put global window_animation_scale 0 || true
+          adb shell settings put global transition_animation_scale 0 || true
+          adb shell settings put global animator_duration_scale 0 || true
+          adb shell svc power stayon true || true
+          adb shell wm dismiss-keyguard || true
+          echo "::notice title=boot::device=$(adb shell getprop ro.build.version.sdk | tr -d '\r') api ready"
+
+      - name: Run E2E journey on emulator
+        id: e2e
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Each step is a fresh shell: the SDK tools are not on PATH by default.
+          export PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/platform-tools:${ANDROID_SDK_ROOT:-$ANDROID_HOME}/emulator:$PATH"
+          adb shell settings put global window_animation_scale 0 || true
+          adb shell settings put global transition_animation_scale 0 || true
+          adb shell settings put global animator_duration_scale 0 || true
+          adb shell svc power stayon true || true
+          # flutter test installs and then removes the app, so capture package
+          # facts from a successful install before the instrumentation starts.
+          APK="${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-debug.apk"
+          install_out=$(adb install -r "$APK" 2>&1) || {
+            echo "::error title=install::adb install failed: $install_out"
+            exit 1
+          }
+          API_LEVEL=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
+          # Notification permission exists only on Android 13+. Microphone is
+          # needed by the opt-in audio visualizer and is granted only in CI.
+          if [ "$API_LEVEL" -ge 33 ]; then
+            adb shell pm grant "${{ env.APP_ID }}" android.permission.POST_NOTIFICATIONS
+          fi
+          adb shell pm grant "${{ env.APP_ID }}" android.permission.RECORD_AUDIO
+          POST_NOTIF=$(adb shell dumpsys package "${{ env.APP_ID }}" \
+            | grep -c 'POST_NOTIFICATIONS: granted' || true)
+          {
+            echo "api_level=$API_LEVEL"
+            echo "android_version=$(adb shell getprop ro.build.version.release | tr -d '\r')"
+            echo "abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
+            echo "version_name=$(adb shell dumpsys package "${{ env.APP_ID }}" | grep -m1 versionName | tr -d '\r' | cut -d= -f2)"
+            echo "version_code=$(adb shell dumpsys package "${{ env.APP_ID }}" | grep -m1 versionCode | tr -d '\r' | sed 's/.*versionCode=\([0-9]*\).*/\1/')"
+            echo "apk_bytes=$(stat -c%s "$APK")"
+            echo "install_result=$(printf '%s' "$install_out" | tail -1 | tr -d '\r')"
+            echo "post_notifications_granted=${POST_NOTIF:-0}"
+          } > "device-${{ matrix.api-level }}.txt"
+
+          start=$(date +%s)
+          cd "${{ env.APP_DIR }}"
+          if flutter test integration_test/app_flow_test.dart -d emulator-5554 \
+            --reporter expanded 2>&1 | tee "../e2e-${{ matrix.api-level }}.log"; then
+            status=0
+          else
+            status=$?
+          fi
+          cd ..
+          # Android's own view of the media notification is diagnostic context;
+          # no matching log lines are acceptable when Android logs no failures.
+          adb logcat -d -v brief \
+            | grep -aiE "audioservice|audio_service|NotificationService|MediaSession|muZic.*notif|Bad notification|not valid|crash" \
+            | tail -80 > "logcat-${{ matrix.api-level }}.txt" || true
+          echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Surface E2E failure details
+        if: failure()
+        shell: bash
+        run: |
+          LOG="e2e-${{ matrix.api-level }}.log"
+          echo "### e2e log (${{ matrix.api-level }})"
+          if [ -f "$LOG" ]; then
+            tail -45 "$LOG" | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=e2e-${{ matrix.api-level }}::${line}"
+            done
+            echo "--- full tail ---"
+            tail -60 "$LOG"
+          else
+            echo "::error title=e2e-${{ matrix.api-level }}::no log file — the emulator never started the test"
+          fi
+
+      - name: Collect device facts
+        if: always()
+        shell: bash
+        run: |
+          export PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/platform-tools:$PATH"
+          FACTS="device-${{ matrix.api-level }}.txt"
+          [ -f "$FACTS" ] || echo "api_level=${{ matrix.api-level }}" > "$FACTS"
+          echo "after_test_installed=$(adb shell pm list packages 2>/dev/null | grep -c ${{ env.APP_ID }})" >> "$FACTS"
+          cat device-${{ matrix.api-level }}.txt
+
+      - name: Upload E2E artefacts
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: e2e-api-${{ matrix.api-level }}
+          path: |
+            e2e-${{ matrix.api-level }}.log
+            emulator-${{ matrix.api-level }}.log
+            device-${{ matrix.api-level }}.txt
+            logcat-${{ matrix.api-level }}.txt
+            ${{ env.APP_DIR }}/build-debug.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # A single strict status for branch protection: neither matrix failures nor
+  # a skipped static/device job can accidentally look green.
+  # ---------------------------------------------------------------------------
+  strict-gate:
+    name: Strict E2E gate
+    needs: [static, e2e]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require static and both Android journeys to pass
+        env:
+          STATIC_RESULT: ${{ needs.static.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          set -euo pipefail
+          echo "static=$STATIC_RESULT e2e=$E2E_RESULT"
+          test "$STATIC_RESULT" = success
+          test "$E2E_RESULT" = success
+
+  # ---------------------------------------------------------------------------
+  # Aggregate the results into a Markdown artifact and workflow summary.
+  # ---------------------------------------------------------------------------
+  report:
+    name: Publish E2E report
+    needs: [static, e2e]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: artefacts
+
+      - name: Build report
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, os, re, json
+          from datetime import datetime, timezone
+
+          def read(path, default=''):
+              try:
+                  with open(path, errors='ignore') as handle:
+                      return handle.read()
+              except FileNotFoundError:
+                  return default
+
+          lines = []
+          lines.append('# MuZic end-to-end test report')
+          lines.append('')
+          lines.append(f'Generated: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}  ')
+          lines.append(f'Commit: `{os.environ.get("GITHUB_SHA", "")[:7]}` · '
+                       f'Run: `{os.environ.get("GITHUB_RUN_NUMBER", "")}`')
+          lines.append('')
+          lines.append('What this suite covers, why it exists and what it has '
+                       'found: [FINDINGS.md](FINDINGS.md).')
+          lines.append('')
+
+          # ---- static analysis ----
+          analyze = read('artefacts/static-report/analyze.txt')
+          errors = len(re.findall(r'^\s+error •', analyze, re.M))
+          warnings = len(re.findall(r'^\s+warning •', analyze, re.M))
+          infos = len(re.findall(r'^\s+info •', analyze, re.M))
+          verdict = '✅ clean' if errors == 0 and warnings == 0 else '❌ issues'
+          lines.append('## 1. Static analysis')
+          lines.append('')
+          lines.append('| Metric | Value |')
+          lines.append('| --- | --- |')
+          lines.append(f'| Errors | {errors} |')
+          lines.append(f'| Warnings | {warnings} |')
+          lines.append(f'| Lint infos | {infos} |')
+          lines.append(f'| Verdict | {verdict} |')
+          lines.append('')
+
+          # ---- unit tests ----
+          passed = failed = skipped = 0
+          durations = {}
+          current = None
+          for line in read('artefacts/static-report/test.json').splitlines():
+              try:
+                  event = json.loads(line)
+              except Exception:
+                  continue
+              if event.get('type') == 'testStart':
+                  current = event['test']['name']
+              elif event.get('type') == 'testDone' and not event.get('hidden'):
+                  if event.get('skipped'):
+                      skipped += 1
+                  elif event.get('result') == 'success':
+                      passed += 1
+                  else:
+                      failed += 1
+                  durations[current] = event.get('time', 0)
+
+          total = passed + failed
+          rate = (passed / total * 100) if total else 0
+          lines.append('## 2. Unit & widget tests')
+          lines.append('')
+          lines.append('| Metric | Value |')
+          lines.append('| --- | --- |')
+          lines.append(f'| Passed | {passed} |')
+          lines.append(f'| Failed | {failed} |')
+          lines.append(f'| Pass rate | {rate:.1f}% |')
+          lines.append('')
+
+          lcov = read('artefacts/static-report/coverage/lcov.info')
+          hits = found = 0
+          for row in lcov.splitlines():
+              if row.startswith('DA:'):
+                  parts = row[3:].split(',')
+                  if len(parts) == 2:
+                      found += 1
+                      if int(parts[1]) > 0:
+                          hits += 1
+          if found:
+              lines.append(f'Line coverage: **{hits / found * 100:.1f}%** '
+                           f'({hits}/{found} lines)')
+              lines.append('')
+
+          # ---- e2e ----
+          lines.append('## 3. End-to-end journeys (real Android emulator)')
+          lines.append('')
+          lines.append('| API level | Step | Status | Time | Detail |')
+          lines.append('| --- | --- | --- | --- | --- |')
+          step_rows = 0
+          api_counts = {}
+          for log in sorted(glob.glob('artefacts/e2e-api-*/e2e-*.log')):
+              api = re.search(r'api-(\d+)', log).group(1)
+              for line in read(log).splitlines():
+                  match = re.search(
+                      r'\[E2E\] step=(\S+) status=(\w+) ms=(\d+)(?: detail=(.*))?',
+                      line)
+                  if not match:
+                      continue
+                  name, status, ms, detail = match.groups()
+                  icon = {'PASS': '✅', 'FAIL': '❌', 'WARN': '❌'}.get(status, '❌')
+                  detail = (detail or '').replace('|', '/')[:300]
+                  lines.append(f'| {api} | `{name}` | {icon} {status} | '
+                               f'{int(ms) / 1000:.2f}s | {detail} |')
+                  counts = api_counts.setdefault(api, {'pass': 0, 'bad': 0})
+                  if status == 'PASS':
+                      counts['pass'] += 1
+                  else:
+                      counts['bad'] += 1
+                  step_rows += 1
+          if step_rows == 0:
+              lines.append('| – | no journey output | ❌ | – | emulator job failed '
+                           'before emitting steps |')
+          lines.append('')
+
+          # ---- media notification truth ----
+          notif = {}
+          for log in sorted(glob.glob('artefacts/e2e-api-*/e2e-*.log')):
+              api = re.search(r'api-(\d+)', log).group(1)
+              for line in read(log).splitlines():
+                  marker = '[E2E] notification-report '
+                  if marker in line:
+                      payload = line.split(marker, 1)[1]
+                      notif[api] = dict(
+                          part.split('=', 1) for part in payload.split(' ') if '=' in part
+                      )
+          lines.append('### Media notification, as Android sees it')
+          lines.append('')
+          if notif:
+              keys = ['notificationsEnabled', 'postPermission', 'playbackChannelExists',
+                      'playbackChannelImportance', 'audioServiceDeclared',
+                      'mediaSessionActive', 'playbackServiceRunning',
+                      'smallIconResolves', 'postedCount', 'posted']
+              lines.append('| Probe | ' + ' | '.join(f'API {a}' for a in sorted(notif)) + ' |')
+              lines.append('| --- | ' + ' | '.join('---' for _ in notif) + ' |')
+              for key in keys:
+                  cells = [notif[a].get(key, '—') for a in sorted(notif)]
+                  lines.append(f'| `{key}` | ' + ' | '.join(cells) + ' |')
+          else:
+              lines.append('No notification report was produced.')
+          lines.append('')
+
+          green_apis = {api for api, c in api_counts.items()
+                        if c['bad'] == 0 and c['pass'] > 0}
+
+          # ---- device compatibility ----
+          lines.append('## 4. Device matrix')
+          lines.append('')
+          facts = {}
+          for path in sorted(glob.glob('artefacts/e2e-api-*/device-*.txt')):
+              api = re.search(r'api-(\d+)', path).group(1)
+              row = facts.setdefault(api, {})
+              for line in read(path).splitlines():
+                  if '=' in line:
+                      key, value = line.split('=', 1)
+                      row[key.strip()] = value.strip()
+          if facts:
+              lines.append('| Device | Android | ABI | MuZic build | APK | Journey |')
+              lines.append('| --- | --- | --- | --- | --- | --- |')
+              for api, row in sorted(facts.items()):
+                  size = row.get('apk_bytes', '0')
+                  mib = f'{int(size) / 1048576:.1f} MB' if size.isdigit() and int(size) else '—'
+                  version = row.get('version_name') or ''
+                  code = row.get('version_code') or ''
+                  if version in ('', 'null'):
+                      version, code = '—', '—'
+                  result = f'✅ {api_counts[str(api)]["pass"]} strict steps' if str(api) in green_apis else '❌ see §3'
+                  lines.append(f'| emulator-{api} (API {api}) | '
+                               f'{row.get("android_version", "?")} | '
+                               f'{row.get("abi", "?")} | `{version}+{code}` | '
+                               f'{mib} | {result} |')
+          else:
+              lines.append('| – | no device facts | – | – |')
+          lines.append('')
+
+          # ---- timings ----
+          lines.append('## 5. Timings & budgets')
+          lines.append('')
+          budgets = {
+              'cold_start': 8000,
+              'time_to_first_frame': 8000,
+              'search_flow': 12000,
+              'playback_start': 15000,
+          }
+          lines.append('| Step | Measured | Budget | Verdict |')
+          lines.append('| --- | --- | --- | --- |')
+          seen = set()
+          for log in sorted(glob.glob('artefacts/e2e-api-*/e2e-*.log')):
+              for line in read(log).splitlines():
+                  match = re.search(
+                      r'\[E2E\] step=(\S+) status=\w+ ms=(\d+)', line)
+                  if not match:
+                      continue
+                  name, ms = match.group(1), int(match.group(2))
+                  if name in seen or name not in budgets:
+                      continue
+                  seen.add(name)
+                  ok = ms <= budgets[name]
+                  lines.append(f'| `{name}` | {ms / 1000:.2f}s | '
+                               f'{budgets[name] / 1000:.1f}s | '
+                               f'{"✅ within" if ok else "⚠️ over"} |')
+          lines.append('')
+
+          lines.append('## 6. Notes')
+          lines.append('')
+          lines.append('- Every E2E assertion is a hard gate, including live-provider search/playback; '
+                       'there are no warning-only product steps.')
+          lines.append('- `cold_start` measures process start → first rendered '
+                       'home frame on a software-rendered emulator, so real '
+                       'hardware is faster.')
+          lines.append('- The device matrix runs the same journey on API 30 '
+                       '(Android 11) and API 34 (Android 14).')
+          lines.append('')
+
+          report = '\n'.join(lines)
+          os.makedirs('docs/e2e', exist_ok=True)
+          with open('docs/e2e/LATEST.md', 'w') as handle:
+              handle.write(report)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as handle:
+              handle.write(report)
+          print(report)
+          PY
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: e2e-report
+          path: docs/e2e/LATEST.md
+          retention-days: 30
+
+      # The report is available in the workflow summary and the 30-day artifact.

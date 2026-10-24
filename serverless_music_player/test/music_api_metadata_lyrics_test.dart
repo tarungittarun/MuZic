@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:auralis_player/models/song_model.dart';
-import 'package:auralis_player/services/music_api_service.dart';
+import 'package:music_player/models/song_model.dart';
+import 'package:music_player/services/music_api_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -64,6 +64,43 @@ void main() {
     });
   });
 
+  group('MusicApiService artist search', () {
+    test('parses artist results for the artist library', () async {
+      Uri? requestedUri;
+      final client = MockClient((request) async {
+        requestedUri = request.url;
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'results': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'id': 'artist-1',
+                'title': 'Example Artist',
+                'subtitle': 'Artist',
+                'image': 'https://example.test/artist-150.jpg',
+              },
+              <String, dynamic>{
+                'id': '',
+                'title': 'Ignore incomplete rows',
+              },
+            ],
+          }),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      });
+      final api = MusicApiService(httpClient: client);
+      addTearDown(api.dispose);
+
+      final artists = await api.searchArtists('Example Artist');
+
+      expect(requestedUri?.queryParameters['__call'], 'search.getArtistResults');
+      expect(artists, hasLength(1));
+      expect(artists.single.id, 'artist-1');
+      expect(artists.single.name, 'Example Artist');
+      expect(artists.single.imageUrl, contains('artist'));
+    });
+  });
+
   group('MusicApiService lyrics', () {
     test('uses exact LRCLIB match, parses synced lines, and caches it', () async {
       var requestCount = 0;
@@ -106,6 +143,65 @@ void main() {
       expect(cachedLyrics.plainLyrics, lyrics.plainLyrics);
     });
 
+    test('returns fast when primary lyrics are already synced', () async {
+      var lrclibSearchCount = 0;
+      final client = MockClient((request) async {
+        if (request.url.host == 'www.jiosaavn.com') {
+          return http.Response(
+            jsonEncode(<String, dynamic>{'lyrics': 'JioSaavn lyric line'}),
+            200,
+            headers: const <String, String>{'content-type': 'application/json'},
+          );
+        }
+        if (request.url.path == '/api/search') {
+          lrclibSearchCount++;
+          return http.Response(
+            jsonEncode(<Map<String, dynamic>>[
+              <String, dynamic>{
+                'trackName': 'Fast Song',
+                'artistName': 'Fast Artist',
+                'plainLyrics': 'Extra catalogue lyric',
+              },
+            ]),
+            200,
+            headers: const <String, String>{'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'instrumental': false,
+            'plainLyrics': 'Fast line',
+            'syncedLyrics': '[00:01.00]Fast line',
+          }),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      });
+      final api = MusicApiService(httpClient: client);
+      addTearDown(api.dispose);
+      const song = SongModel(
+        id: 'saavn:fast-song',
+        sourceId: 'fast-song',
+        title: 'Fast Song',
+        artist: 'Fast Artist',
+        source: SongSource.jioSaavn,
+        durationMs: 180000,
+      );
+
+      final bundle = await api.fetchLyricsVariants(song);
+
+      expect(bundle.variants.where((variant) => !variant.isEmpty), isNotEmpty);
+      expect(bundle.variants.any((variant) => variant.hasSynced), isTrue);
+      expect(
+        bundle.variants.any((variant) => variant.plainLyrics.contains('JioSaavn')),
+        isTrue,
+      );
+      // The extra LRCLIB catalogue search is deliberately skipped: the
+      // primary already gave us synced lyrics, so waiting for it only made
+      // the lyrics screen feel slow.
+      expect(lrclibSearchCount, 0);
+    });
+
     test('honors LRCLIB Retry-After before a later request', () async {
       var requestCount = 0;
       final client = MockClient((request) async {
@@ -137,7 +233,7 @@ void main() {
       final lyrics = await api.fetchLyrics(song);
       stopwatch.stop();
 
-      expect(stopwatch.elapsed, greaterThanOrEqual(const Duration(milliseconds: 900)));
+      expect(stopwatch.elapsed, greaterThanOrEqualTo(const Duration(milliseconds: 900)));
       expect(lyrics.plainLyrics, 'Available after the wait');
       expect(requestCount, 2);
     });

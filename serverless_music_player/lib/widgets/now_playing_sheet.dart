@@ -1,16 +1,32 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import '../app_info.dart';
+import '../models/audio_quality.dart';
 import '../models/lyrics_model.dart';
 import '../models/song_model.dart';
 import '../providers/player_controller.dart';
+import '../services/app_settings_service.dart';
+import '../services/app_log.dart';
+import '../services/audio_player_service.dart';
+import '../services/download_service.dart';
+import '../services/lyrics_video_timing.dart';
+import '../services/video_export_manager.dart';
+import '../services/video_library_service.dart';
+import '../services/lyrics_language.dart';
 import '../services/music_api_service.dart';
 import '../services/usage_service.dart';
+import '../services/visualizer_service.dart';
 import '../theme/app_theme.dart';
-import 'cover_art.dart';
+import 'animated_rhythm_icon.dart';
+import 'media_controller_card.dart';
+import 'song_tile.dart';
+import 'visualizer_bars.dart';
 
 class NowPlayingSheet extends StatefulWidget {
   const NowPlayingSheet({super.key});
@@ -19,242 +35,890 @@ class NowPlayingSheet extends StatefulWidget {
   State<NowPlayingSheet> createState() => _NowPlayingSheetState();
 }
 
-class _NowPlayingSheetState extends State<NowPlayingSheet> {
+class _NowPlayingSheetState extends State<NowPlayingSheet>
+    with TickerProviderStateMixin {
+  static const double _playerMinExtent = 0.10;
+
   bool _showLyrics = false;
+  bool _showVisualizer = false;
+  bool _controlActionTapped = false;
+  Timer? _controlResetTimer;
+
+  final VisualizerService _visualizer = VisualizerService();
+  final DraggableScrollableController _sheetController =
+      DraggableScrollableController();
+  final ScrollController _controlStripController = ScrollController();
+  late final AnimationController _controlReturnAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controlReturnAnimation = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2300),
+    );
+    // The waveform choice is remembered: if it was on for the last song it
+    // comes back on for this one (and every song after) until turned off.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (context.read<AppSettingsService>().liveVisualizerEnabled) {
+        setState(() => _showVisualizer = true);
+        unawaited(_startVisualizerCapture(requestPermission: false));
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controlResetTimer?.cancel();
+    _controlReturnAnimation.dispose();
+    _controlStripController.dispose();
+    _sheetController.dispose();
+    _visualizer.dispose();
+    super.dispose();
+  }
+
+  bool _handleControlStripScroll(ScrollNotification notification) {
+    if (notification.metrics.axis == Axis.horizontal &&
+        notification is ScrollUpdateNotification &&
+        notification.dragDetails != null) {
+      _controlActionTapped = false;
+      _stopControlReturnMotion();
+      _scheduleControlStripReset();
+    }
+    return false;
+  }
+
+  void _stopControlReturnMotion() {
+    _controlReturnAnimation.stop();
+    _controlReturnAnimation.value = 0;
+  }
+
+  void _markControlActionTapped() {
+    _controlActionTapped = true;
+    _controlResetTimer?.cancel();
+    _stopControlReturnMotion();
+    if (_controlStripController.hasClients &&
+        _controlStripController.position.isScrollingNotifier.value) {
+      _controlStripController.jumpTo(_controlStripController.offset);
+    }
+  }
+
+  void _scheduleControlStripReset() {
+    _controlResetTimer?.cancel();
+    _controlActionTapped = false;
+    _controlResetTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (!mounted ||
+          _controlActionTapped ||
+          !_controlStripController.hasClients) {
+        return;
+      }
+      final position = _controlStripController.position;
+      final restingOffset = position.minScrollExtent;
+      // Always return to the actual leading edge. Using the current pixel
+      // offset as the target made the return work only from one side.
+      if ((position.pixels - restingOffset).abs() < 1) return;
+      unawaited(_controlReturnAnimation.forward(from: 0));
+      unawaited(
+        _controlStripController.animateTo(
+          restingOffset,
+          duration: const Duration(milliseconds: 2500),
+          curve: Curves.easeInOutCubic,
+        ),
+      );
+    });
+  }
+
+  Future<void> _startVisualizerCapture({
+    required bool requestPermission,
+  }) async {
+    if (requestPermission) {
+      final granted = await _ensureMicrophonePermission();
+      if (!mounted) return;
+      if (!granted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Live waveform capture needs microphone access on this device. '
+              'Grant access to enable it.',
+            ),
+          ),
+        );
+        return;
+      }
+    } else {
+      final status = await Permission.microphone.status;
+      if (!mounted || !status.isGranted) return;
+    }
+    final sessionId = context
+        .read<AudioPlayerService>()
+        .player
+        .androidAudioSessionId;
+    _visualizer.start(sessionId);
+  }
+
+  Future<void> _toggleVisualizer(PlayerController player) async {
+    final settings = context.read<AppSettingsService>();
+    if (_showVisualizer) {
+      await _visualizer.stop();
+      await settings.setLiveVisualizerEnabled(false);
+      if (mounted) setState(() => _showVisualizer = false);
+      return;
+    }
+    await _startVisualizerCapture(requestPermission: true);
+    if (!mounted) return;
+    final status = await Permission.microphone.status;
+    if (!status.isGranted) return;
+    await settings.setLiveVisualizerEnabled(true);
+    if (mounted) setState(() => _showVisualizer = true);
+  }
+
+  /// Starts (or stops) the complete lyric-video job, including its temporary
+  /// audio preparation. It never turns an export-only request into an offline
+  /// audio download.
+  Future<void> _exportVideo(SongModel song) async {
+    final manager = context.read<VideoExportManager>();
+    if (manager.isBusy) {
+      await _confirmStopExport(manager);
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    final downloads = context.read<DownloadService>();
+    final api = context.read<MusicApiService>();
+    final settings = context.read<AppSettingsService>();
+    final videoLibrary = context.read<VideoLibraryService>();
+    final selectedDownloadsFolderUri = settings.hasCustomDownloadsFolder
+        ? settings.downloadsFolderUri
+        : null;
+    var approximateLyricsTiming = false;
+
+    final operation = manager.start(
+      song: song,
+      outputFolderUri: selectedDownloadsFolderUri,
+      prepareAudio: (onProgress, isCancelled) async {
+        if (song.isLocalFile && song.localPath?.isNotEmpty == true) {
+          onProgress(1);
+          return song.localPath!;
+        }
+        final savedAudio = await downloads.localPathFor(song.id);
+        if (savedAudio != null) {
+          onProgress(1);
+          return savedAudio;
+        }
+        if (isCancelled()) throw const DownloadCancelledException();
+
+        final streamUrl = await api.resolveStream(song);
+        if (isCancelled()) throw const DownloadCancelledException();
+        try {
+          return await downloads.downloadTemporaryAudio(
+            song,
+            streamUrl,
+            onProgress: onProgress,
+            isCancelled: isCancelled,
+          );
+        } catch (error) {
+          if (error is DownloadCancelledException ||
+              isCancelled() ||
+              song.source != SongSource.jioSaavn) {
+            rethrow;
+          }
+          final fallbackUrl = await api.resolveYouTubeFallback(song);
+          if (isCancelled()) throw const DownloadCancelledException();
+          return downloads.downloadTemporaryAudio(
+            song.copyWith(streamUrl: fallbackUrl),
+            fallbackUrl,
+            onProgress: onProgress,
+            isCancelled: isCancelled,
+          );
+        }
+      },
+      loadLyrics: () async {
+        try {
+          final bundle = await api.fetchLyricsVariants(song);
+          final variants = bundle.variants
+              .where((variant) => !variant.isEmpty)
+              .toList(growable: false);
+          final selected = selectLyricsVariant(
+            variants: variants,
+            song: song,
+            preference: settings.lyricsLanguage,
+            override: settings.lyricsLanguageOverrideFor(song.id),
+          );
+          if (selected?.hasSynced == true) return selected;
+
+          final synced = variants.where((variant) => variant.hasSynced);
+          if (synced.isNotEmpty) return synced.first;
+
+          final plain = selected ?? (variants.isEmpty ? null : variants.first);
+          final estimated = estimateLyricsTimingForVideo(
+            plain,
+            duration: song.duration,
+          );
+          approximateLyricsTiming = estimated?.hasSynced == true;
+          return estimated;
+        } catch (error) {
+          logWarn('video', 'lyrics unavailable for export', <String, Object?>{
+            'error': '$error',
+          });
+          return null;
+        }
+      },
+      cancelPreparation: () async {
+        downloads.cancelTemporaryAudioDownload(song.id);
+      },
+      cleanupAudio: downloads.deleteTemporaryAudio,
+    );
+
+    unawaited(operation.then((result) async {
+      if (result == null) {
+        if (manager.state == VideoExportState.idle && manager.error == null) {
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Export stopped.')),
+          );
+        } else if (manager.error != null) {
+          final error = manager.error?.toLowerCase() ?? '';
+          final String message;
+          if (manager.error == 'Lyrics are unavailable for this track.') {
+            message = 'Lyrics are unavailable, so a lyric video could not be created.';
+          } else if (error.contains('selected downloads folder')) {
+            message = 'Could not save to your selected downloads folder. '
+                'Check the folder setting and try again.';
+          } else {
+            message = 'Could not export the video. Please try again.';
+          }
+          messenger.showSnackBar(SnackBar(content: Text(message)));
+        }
+        return;
+      }
+      await videoLibrary.add(
+        songId: song.id,
+        title: song.title,
+        artist: song.artist,
+        path: result.path,
+        artworkPath: song.localArtworkPath,
+        durationMs: song.duration?.inMilliseconds,
+      );
+      final location = selectedDownloadsFolderUri != null
+          ? 'your selected downloads folder'
+          : result.path.startsWith('content://')
+              ? 'Movies/MuZic'
+              : result.path;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            approximateLyricsTiming
+                ? 'Lyric video saved to $location. Captions use approximate timing '
+                  'because synced lyrics were unavailable.'
+                : 'Lyric video saved to $location',
+          ),
+          duration: const Duration(seconds: 8),
+        ),
+      );
+    }));
+  }
+
+  /// Tapping the percentage asks whether to stop the render.
+  Future<void> _confirmStopExport(VideoExportManager manager) =>
+      showExportProgress(context);
+
+  Future<bool> _ensureMicrophonePermission() async {
+    try {
+      final status = await Permission.microphone.status;
+      if (status.isGranted) return true;
+      final result = await Permission.microphone.request();
+      return result.isGranted;
+    } catch (_) {
+      return false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerController>();
+    final oneHandModeEnabled = context
+        .watch<AppSettingsService>()
+        .oneHandModeEnabled;
+    final playerMinExtent = _playerMinExtent;
     final palette = context.palette;
     final song = player.currentSong;
     if (song == null) return const SizedBox.shrink();
-    final screenHeight = MediaQuery.sizeOf(context).height;
-    final totalMs = player.duration.inMilliseconds;
-    final sliderValue = totalMs <= 0
-        ? 0.0
-        : player.position.inMilliseconds.clamp(0, totalMs).toDouble();
 
-    return Container(
-      height: screenHeight * 0.94,
-      decoration: BoxDecoration(
-        color: palette.background,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: <Widget>[
-            const SizedBox(height: 10),
-            Container(
-              width: 42,
-              height: 4,
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final estimatedNonCardHeight =
+        78.0 + (_showVisualizer ? 100.0 : 0.0) + 100.0 + 80.0 + 8.0;
+    final availableCardHeight = screenHeight * 0.94 - estimatedNonCardHeight;
+    // The artwork card used to consume every remaining pixel. Keep it about
+    // one fifth smaller while reserving room for the controls below it.
+    final cardHeight = (availableCardHeight * 0.80)
+        .clamp(screenHeight * 0.30, screenHeight * 0.64)
+        .toDouble();
+
+    return _SheetSnapHaptics(
+      stopExtents: oneHandModeEnabled
+          ? const <double>[_playerMinExtent]
+          : const <double>[],
+      child: DraggableScrollableSheet(
+        controller: _sheetController,
+        initialChildSize: 0.94,
+        minChildSize: playerMinExtent,
+        maxChildSize: 0.94,
+        snap: false,
+        shouldCloseOnMinExtent: true,
+        expand: false,
+        builder: (context, scrollController) {
+          return ClipRRect(
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(30),
+            ),
+            child: DecoratedBox(
               decoration: BoxDecoration(
-                color: palette.outline,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 8, 12, 4),
-              child: Row(
-                children: <Widget>[
-                  IconButton(
-                    tooltip: 'Close player',
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 30),
-                  ),
-                  Expanded(
-                    child: Column(
-                      children: <Widget>[
-                        Text('NOW PLAYING', style: TextStyle(fontSize: 10, letterSpacing: 2, color: palette.textMuted, fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 3),
-                        const Text('Auralis', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                      ],
+                gradient: LinearGradient(
+                  colors: <Color>[
+                    Color.alphaBlend(
+                      palette.accent.withValues(alpha: 0.10),
+                      palette.background,
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Up next',
-                    onPressed: () => _showQueue(context),
-                    icon: const Icon(Icons.queue_music_rounded),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                child: _showLyrics
-                    ? _LyricsPanel(
-                        key: ValueKey<String>('lyrics-${song.id}'),
-                        song: song,
-                        position: player.position,
-                      )
-                    : _ArtworkPanel(key: ValueKey<String>('art-${song.id}'), song: song),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(song.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 6),
-                        Text(song.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: palette.textSecondary, fontSize: 14)),
-                      ],
+                    palette.background,
+                    Color.alphaBlend(
+                      palette.mint.withValues(alpha: 0.05),
+                      palette.background,
                     ),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: SafeArea(
+                top: false,
+                child: CustomScrollView(
+                  controller: scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: ClampingScrollPhysics(),
                   ),
-                  IconButton(
-                    tooltip: player.isFavorite(song) ? 'Unlike' : 'Like',
-                    onPressed: () => player.toggleFavorite(song),
-                    icon: Icon(
-                      player.isFavorite(song) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                      color: player.isFavorite(song) ? palette.accent : palette.textSecondary,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: player.isDownloaded(song) ? 'Saved offline' : 'Download',
-                    onPressed: player.isDownloaded(song) || player.isDownloading
-                        ? null
-                        : () => _download(context, song),
-                    icon: player.downloadProgressFor(song) != null
-                        ? SizedBox(
-                            width: 21,
-                            height: 21,
-                            child: CircularProgressIndicator(
-                              value: player.downloadProgressFor(song) == 0
-                                  ? null
-                                  : player.downloadProgressFor(song),
-                              strokeWidth: 2,
+                  slivers: <Widget>[
+                    SliverToBoxAdapter(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          const SizedBox(height: 10),
+                          Container(
+                            width: 42,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: palette.outline,
+                              borderRadius: BorderRadius.circular(4),
                             ),
-                          )
-                        : Icon(
-                            player.isDownloaded(song)
-                                ? Icons.download_done_rounded
-                                : Icons.download_rounded,
-                            color: player.isDownloaded(song) ? palette.mint : palette.textSecondary,
                           ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-              child: Column(
-                children: <Widget>[
-                  Slider(
-                    min: 0,
-                    max: totalMs <= 0 ? 1 : totalMs.toDouble(),
-                    value: totalMs <= 0 ? 0 : sliderValue,
-                    onChanged: totalMs <= 0
-                        ? null
-                        : (value) => player.seek(Duration(milliseconds: value.toInt())),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 5),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: <Widget>[
-                        Text(_format(player.position), style: TextStyle(fontSize: 11, color: palette.textMuted)),
-                        Text(_format(player.duration), style: TextStyle(fontSize: 11, color: palette.textMuted)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: <Widget>[
-                  IconButton(
-                    tooltip: 'Shuffle',
-                    onPressed: player.toggleShuffle,
-                    icon: Icon(Icons.shuffle_rounded,
-                        color: player.shuffleEnabled ? palette.mint : palette.textMuted),
-                  ),
-                  IconButton(
-                    tooltip: 'Previous track',
-                    onPressed: player.previous,
-                    icon: const Icon(Icons.skip_previous_rounded, size: 34),
-                  ),
-                  SizedBox(
-                    width: 68,
-                    height: 68,
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: palette.accent,
-                        foregroundColor: palette.background,
-                        shape: const CircleBorder(),
-                        padding: EdgeInsets.zero,
-                      ),
-                      onPressed: player.togglePlayback,
-                      child: player.isBuffering || player.isResolving
-                          ? SizedBox(
-                              width: 25,
-                              height: 25,
-                              child: CircularProgressIndicator(strokeWidth: 2.5, color: palette.background),
-                            )
-                          : Icon(
-                              player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                              size: 38,
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(18, 8, 12, 4),
+                            child: Row(
+                              children: <Widget>[
+                                IconButton(
+                                  tooltip: 'Close player',
+                                  onPressed: () => Navigator.pop(context),
+                                  icon: const Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    size: 30,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Column(
+                                    children: <Widget>[
+                                      Text(
+                                        'NOW PLAYING',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          letterSpacing: 2,
+                                          color: palette.textMuted,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      const Text(
+                                        AppInfo.displayName,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                _buildDownloadButton(context, player, song),
+                                Consumer<VideoExportManager>(
+                                  builder: (context, export, _) {
+                                    if (!export.isBusy) {
+                                      return IconButton(
+                                        tooltip: 'Export lyric video',
+                                        onPressed: () => _exportVideo(song),
+                                        icon: const Icon(
+                                          Icons.movie_creation_outlined,
+                                        ),
+                                      );
+                                    }
+                                    final percent = export.percent;
+                                    final phase = switch (export.state) {
+                                      VideoExportState.preparing => 'Preparing',
+                                      VideoExportState.saving => 'Saving',
+                                      _ => 'Rendering',
+                                    };
+                                    return Tooltip(
+                                      message:
+                                          '$phase lyric video · $percent% — tap to stop',
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(
+                                          24,
+                                        ),
+                                        onTap: () =>
+                                            _confirmStopExport(export),
+                                        child: SizedBox(
+                                          width: 48,
+                                          height: 48,
+                                          child: Stack(
+                                            alignment: Alignment.center,
+                                            children: <Widget>[
+                                              SizedBox(
+                                                width: 34,
+                                                height: 34,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      value: percent == 0
+                                                          ? null
+                                                          : export.progress,
+                                                      strokeWidth: 2.5,
+                                                    ),
+                                              ),
+                                              Text(
+                                                '$percent%',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).colorScheme.onSurface,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                IconButton(
+                                  tooltip: _showVisualizer
+                                      ? 'Hide live waveform'
+                                      : 'Show live waveform',
+                                  onPressed: () => _toggleVisualizer(player),
+                                  icon: AnimatedRhythmIcon(
+                                    active:
+                                        _showVisualizer && player.isPlaying,
+                                    color: _showVisualizer
+                                        ? palette.accent
+                                        : palette.textSecondary,
+                                  ),
+                                ),
+                              ],
                             ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Next track',
-                    onPressed: player.next,
-                    icon: const Icon(Icons.skip_next_rounded, size: 34),
-                  ),
-                  IconButton(
-                    tooltip: 'Repeat mode: ${_repeatLabel(player.repeatMode)}',
-                    onPressed: player.cycleRepeatMode,
-                    icon: Icon(
-                      player.repeatMode == LoopMode.one
-                          ? Icons.repeat_one_rounded
-                          : Icons.repeat_rounded,
-                      color: player.repeatMode == LoopMode.off ? palette.textMuted : palette.mint,
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Column(
+                        children: <Widget>[
+                          Expanded(
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final available = (constraints.maxHeight - 10)
+                                    .clamp(0.0, double.infinity)
+                                    .toDouble();
+                                final displayHeight = available < cardHeight
+                                    ? available
+                                    : cardHeight;
+                                final artworkOrLyrics = _showLyrics
+                                    ? Stack(
+                                        fit: StackFit.expand,
+                                        children: <Widget>[
+                                          _LyricsPanel(
+                                            key: ValueKey<String>(
+                                              'lyrics-${song.id}',
+                                            ),
+                                            song: song,
+                                            position: player.position,
+                                          ),
+                                          Positioned(
+                                            right: 14,
+                                            bottom: 14,
+                                            child: IconButton(
+                                              tooltip: 'Show artwork',
+                                              onPressed: () => setState(
+                                                () => _showLyrics = false,
+                                              ),
+                                              style: IconButton.styleFrom(
+                                                foregroundColor:
+                                                    palette.accent,
+                                                backgroundColor: palette
+                                                    .surface
+                                                    .withValues(alpha: 0.88),
+                                              ),
+                                              icon: const Icon(
+                                                Icons.album_rounded,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : MediaArtworkCard(
+                                        key: ValueKey<String>(
+                                          'card-${song.id}',
+                                        ),
+                                        song: song,
+                                        onLyricsTap: () =>
+                                            _toggleLyrics(song),
+                                      );
+                                return Center(
+                                  child: SizedBox(
+                                    width: double.infinity,
+                                    height: displayHeight,
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        4,
+                                        16,
+                                        6,
+                                      ),
+                                      child: AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 220,
+                                        ),
+                                        child: KeyedSubtree(
+                                          key: ValueKey<String>(
+                                            _showLyrics
+                                                ? 'lyrics-${song.id}'
+                                                : 'card-${song.id}',
+                                          ),
+                                          child: artworkOrLyrics,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          if (_showVisualizer)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                24,
+                                4,
+                                24,
+                                6,
+                              ),
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.fromLTRB(
+                                  14,
+                                  10,
+                                  14,
+                                  10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: palette.surface.withValues(
+                                    alpha: 0.92,
+                                  ),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(
+                                    color: palette.outline.withValues(
+                                      alpha: 0.6,
+                                    ),
+                                  ),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Row(
+                                      children: <Widget>[
+                                        AnimatedRhythmIcon(
+                                          active: player.isPlaying,
+                                          color: palette.accent,
+                                          size: 16,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'LIVE WAVEFORM',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            letterSpacing: 1.6,
+                                            fontWeight: FontWeight.w800,
+                                            color: palette.textMuted,
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        Text(
+                                          'On for every song',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            color: palette.textMuted,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    VisualizerBars(
+                                      bands: _visualizer.bands,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          MediaTransportControls(
+                            leadingControl: _QualityChip(
+                              song: song,
+                              onBeforeTap: _markControlActionTapped,
+                            ),
+                            isPlaying: player.isPlaying,
+                            isBusy:
+                                player.isBuffering || player.isResolving,
+                            position: player.position,
+                            duration: player.duration,
+                            onPlayPause: player.togglePlayback,
+                            onNext: player.next,
+                            onPrevious: player.previous,
+                            onSeek: player.seek,
+                          ),
+                          _buildControlStrip(context, player, song, palette),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: TextButton.icon(
-                onPressed: () {
-                  final showLyrics = !_showLyrics;
-                  if (showLyrics) {
-                    unawaited(context.read<UsageService>().recordSongEvent('lyrics_check', song));
-                  }
-                  setState(() => _showLyrics = showLyrics);
-                },
-                icon: Icon(_showLyrics ? Icons.album_rounded : Icons.lyrics_outlined, size: 18),
-                label: Text(_showLyrics ? 'Show artwork' : 'Lyrics'),
-                style: TextButton.styleFrom(foregroundColor: palette.accent),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _staggerControl(Widget child, int index) => AnimatedBuilder(
+    animation: _controlReturnAnimation,
+    child: child,
+    builder: (context, child) {
+      final start = index * 0.09;
+      final progress = Interval(
+        start,
+        start + 0.36,
+        curve: Curves.easeInOutCubic,
+      ).transform(_controlReturnAnimation.value);
+      final pulse = 1 - (progress * 2 - 1).abs();
+      return Transform.translate(
+        offset: Offset(0, -4 * pulse),
+        child: Transform.scale(scale: 1 + 0.03 * pulse, child: child),
+      );
+    },
+  );
+
+  Widget _buildControlStrip(
+    BuildContext context,
+    PlayerController player,
+    SongModel song,
+    AppPalette palette,
+  ) {
+    final favorite = player.isFavorite(song);
+    final repeatEnabled = player.repeatMode != LoopMode.off;
+    final repeatTooltip = 'Repeat mode: ${_repeatLabel(player.repeatMode)}';
+
+    return SizedBox(
+      height: 80,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _handleControlStripScroll,
+        child: SingleChildScrollView(
+          controller: _controlStripController,
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          child: Row(
+            children: <Widget>[
+              _staggerControl(
+                _PlayerActionButton(
+                  icon: Icons.shuffle_rounded,
+                  label: 'Shuffle',
+                  tooltip: 'Shuffle ${player.shuffleEnabled ? 'on' : 'off'}',
+                  selected: player.shuffleEnabled,
+                  color: player.shuffleEnabled
+                      ? palette.mint
+                      : palette.textSecondary,
+                  onTap: () {
+                    _markControlActionTapped();
+                    player.toggleShuffle();
+                  },
+                ),
+                0,
               ),
-            ),
-          ],
+              const SizedBox(width: 6),
+              _staggerControl(
+                _PlayerActionButton(
+                  icon: player.repeatMode == LoopMode.one
+                      ? Icons.repeat_one_rounded
+                      : Icons.repeat_rounded,
+                  label: player.repeatMode == LoopMode.one
+                      ? 'Repeat 1'
+                      : 'Repeat',
+                  tooltip: repeatTooltip,
+                  selected: repeatEnabled,
+                  color: repeatEnabled ? palette.mint : palette.textSecondary,
+                  onTap: () {
+                    _markControlActionTapped();
+                    player.cycleRepeatMode();
+                  },
+                ),
+                1,
+              ),
+              const SizedBox(width: 6),
+              _staggerControl(
+                _PlayerActionButton(
+                  icon: favorite
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
+                  label: favorite ? 'Liked' : 'Like',
+                  tooltip: favorite ? 'Unlike track' : 'Like track',
+                  selected: favorite,
+                  color: favorite ? palette.accent : palette.textSecondary,
+                  onTap: () {
+                    _markControlActionTapped();
+                    player.toggleFavorite(song);
+                  },
+                ),
+                2,
+              ),
+              const SizedBox(width: 6),
+              _staggerControl(
+                _PlayerActionButton(
+                  icon: Icons.queue_music_rounded,
+                  label: 'Up next',
+                  tooltip: 'Open the upcoming queue',
+                  selected: false,
+                  color: palette.accent,
+                  onTap: () {
+                    _markControlActionTapped();
+                    _showQueue(context);
+                  },
+                ),
+                3,
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
+  Widget _buildDownloadButton(
+    BuildContext context,
+    PlayerController player,
+    SongModel song,
+  ) {
+    final downloaded = player.isDownloaded(song);
+    final progress = player.downloadProgressFor(song);
+    final isDownloadingThisSong = progress != null;
+    final canDownload =
+        !downloaded && !player.isDownloading && !song.isLiveStream;
+    final percent = progress == null ? null : (progress * 100).round();
+    final tooltip = isDownloadingThisSong
+        ? 'Downloading $percent% — tap to stop'
+        : downloaded
+            ? 'Saved offline'
+            : player.isDownloading
+                ? 'Another download is in progress'
+                : 'Download track';
+
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: isDownloadingThisSong
+          ? () => _confirmStopDownload(context, player, song)
+          : canDownload
+              ? () => unawaited(_download(context, song))
+              : null,
+      icon: progress == null
+          ? Icon(
+              downloaded ? Icons.download_done_rounded : Icons.download_rounded,
+              color: downloaded ? context.palette.mint : null,
+            )
+          : SizedBox(
+              width: 34,
+              height: 34,
+              child: Stack(
+                alignment: Alignment.center,
+                children: <Widget>[
+                  CircularProgressIndicator(
+                    value: progress == 0 ? null : progress,
+                    strokeWidth: 2,
+                  ),
+                  Text(
+                    '$percent%',
+                    style: const TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+
+  void _toggleLyrics(SongModel song) {
+    unawaited(
+      context.read<UsageService>().recordSongEvent('lyrics_check', song),
+    );
+    setState(() => _showLyrics = true);
+  }
+
+  Future<void> _confirmStopDownload(
+    BuildContext context,
+    PlayerController player,
+    SongModel song,
+  ) async {
+    final stop = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Stop download?'),
+        content: Text('Stop downloading “${song.title}”?'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep downloading'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Stop'),
+          ),
+        ],
+      ),
+    );
+    if (stop == true && context.mounted) {
+      await player.cancelDownload(song.id);
+    }
+  }
+
   Future<void> _download(BuildContext context, SongModel song) async {
     try {
       await context.read<PlayerController>().downloadSong(song);
-    } catch (error) {
+    } on DownloadCancelledException {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $error')),
+          const SnackBar(content: Text('Download stopped.')),
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Download failed. Please try again.')),
         );
       }
     }
@@ -264,51 +928,198 @@ class _NowPlayingSheetState extends State<NowPlayingSheet> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: context.palette.surface,
-      showDragHandle: true,
+      enableDrag: false,
+      barrierColor: Colors.black.withValues(alpha: 0.28),
+      backgroundColor: Colors.transparent,
       builder: (_) => const _QueueSheet(),
     );
   }
 
-  String _format(Duration value) {
-    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
-    final hours = value.inHours;
-    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
-  }
-
   static String _repeatLabel(LoopMode mode) => switch (mode) {
-        LoopMode.off => 'off',
-        LoopMode.all => 'all',
-        LoopMode.one => 'one',
-      };
+    LoopMode.off => 'off',
+    LoopMode.all => 'all',
+    LoopMode.one => 'one',
+  };
 }
 
-class _ArtworkPanel extends StatelessWidget {
-  const _ArtworkPanel({required this.song, super.key});
+class _PlayerActionButton extends StatelessWidget {
+  const _PlayerActionButton({
+    required this.icon,
+    required this.label,
+    required this.tooltip,
+    required this.color,
+    required this.onTap,
+    this.selected = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String tooltip;
+  final Color color;
+  final VoidCallback onTap;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 84,
+      height: 68,
+      child: Tooltip(
+        message: tooltip,
+        child: Material(
+          color: selected ? color.withValues(alpha: 0.10) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(icon, size: 21, color: color),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 9.5,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QualityChip extends StatelessWidget {
+  const _QualityChip({required this.song, required this.onBeforeTap});
+
   final SongModel song;
+  final VoidCallback onBeforeTap;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final dimension = (constraints.biggest.shortestSide - 28).clamp(0.0, 420.0).toDouble();
-        return Center(
-          child: SizedBox.square(
-            dimension: dimension,
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(color: palette.accent.withValues(alpha: 0.12), blurRadius: 42, spreadRadius: 2),
-                ],
-              ),
-              child: CoverArt(song: song, size: dimension, radius: 28),
+    final quality = describeAudio(song);
+    final qualityColor = quality.isLossless ? palette.mint : palette.accent;
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Tooltip(
+        message: 'Quality: ${quality.label} · ${quality.detail}',
+        child: Material(
+          color: qualityColor.withValues(alpha: 0.12),
+          shape: const CircleBorder(),
+          child: IconButton(
+            visualDensity: VisualDensity.compact,
+            onPressed: () {
+              onBeforeTap();
+              _showQualitySheet(context, song, quality);
+            },
+            icon: Icon(
+              quality.isLossless
+                  ? Icons.workspace_premium_rounded
+                  : Icons.graphic_eq_rounded,
+              size: 22,
+              color: qualityColor,
             ),
           ),
-        );
-      },
+        ),
+      ),
+    );
+  }
+
+  void _showQualitySheet(
+    BuildContext context,
+    SongModel song,
+    AudioQualityInfo quality,
+  ) {
+    final palette = context.palette;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: palette.surface,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 4, 22, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Audio quality & signal path',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+              ),
+              const SizedBox(height: 14),
+              _PathRow('Quality', quality.label),
+              _PathRow('Fidelity', quality.detail),
+              _PathRow('Source', _sourceName(song)),
+              _PathRow(
+                'Delivery',
+                song.source == SongSource.local
+                    ? 'Local file'
+                    : 'Network stream',
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Signal path: stream → device decoder → audio mixer. '
+                'The device may resample audio to 48 kHz unless a USB DAC '
+                'with exclusive output is used.',
+                style: TextStyle(
+                  color: palette.textMuted,
+                  fontSize: 11.5,
+                  height: 1.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _sourceName(SongModel song) => switch (song.source) {
+    SongSource.jioSaavn => 'Source A',
+    SongSource.youtube => 'Source B',
+    SongSource.radio => 'Lossless radio',
+    SongSource.local => 'Local file',
+  };
+}
+
+class _PathRow extends StatelessWidget {
+  const _PathRow(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(
+            width: 105,
+            child: Text(
+              label,
+              style: TextStyle(color: palette.textMuted, fontSize: 11),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(color: palette.textSecondary, fontSize: 11),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -323,77 +1134,579 @@ class _LyricsPanel extends StatefulWidget {
 }
 
 class _LyricsPanelState extends State<_LyricsPanel> {
-  late Future<LyricsModel> _lyrics;
+  LyricsModel? _primary;
+  List<LyricsModel> _variants = const <LyricsModel>[];
+  bool _loading = true;
+  bool _failed = false;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
     super.initState();
-    _lyrics = context.read<MusicApiService>().fetchLyrics(widget.song);
+    _load(widget.song);
   }
 
   @override
   void didUpdateWidget(covariant _LyricsPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.song.id != widget.song.id) {
-      _lyrics = context.read<MusicApiService>().fetchLyrics(widget.song);
+      _primary = null;
+      _variants = const <LyricsModel>[];
+      _loading = true;
+      _failed = false;
+      _load(widget.song);
+    }
+  }
+
+  Future<void> _load(SongModel song) async {
+    final generation = ++_loadGeneration;
+    final api = context.read<MusicApiService>();
+
+    bool stillCurrent() =>
+        mounted && generation == _loadGeneration && song.id == widget.song.id;
+
+    LyricsModel? primary;
+    try {
+      primary = await api.fetchLyrics(song);
+      if (!stillCurrent()) return;
+      setState(() {
+        _primary = primary;
+        if (primary != null && !primary.isEmpty) _loading = false;
+      });
+    } catch (_) {
+      // The full variant fetch below can still recover through catalogue or
+      // Source A fallbacks, so do not show an error yet.
+    }
+
+    try {
+      final bundle = await api.fetchLyricsVariants(song);
+      if (!stillCurrent()) return;
+      setState(() {
+        _variants = bundle.variants;
+        _loading = false;
+        _failed = bundle.isEmpty && (primary?.isEmpty ?? true);
+      });
+    } catch (_) {
+      if (!stillCurrent()) return;
+      setState(() {
+        _loading = false;
+        _failed = _primary?.isEmpty ?? true;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    return FutureBuilder<LyricsModel>(
-      future: _lyrics,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text('Lyrics are unavailable right now.', style: TextStyle(color: palette.textMuted)));
-        }
-        final lyrics = snapshot.data ?? const LyricsModel();
-        if (lyrics.syncedLines.isNotEmpty) {
-          final active = _activeLine(lyrics.syncedLines, widget.position);
-          return ListView.builder(
-            key: PageStorageKey<String>('synced-${widget.song.id}'),
-            padding: const EdgeInsets.fromLTRB(28, 22, 28, 28),
-            itemCount: lyrics.syncedLines.length,
-            itemBuilder: (context, index) => AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 180),
-              style: TextStyle(
-                fontSize: index == active ? 22 : 17,
-                height: 1.45,
-                fontWeight: index == active ? FontWeight.w800 : FontWeight.w500,
-                color: index == active ? palette.accent : palette.textMuted.withValues(alpha: 0.55),
-              ),
+    final settings = context.watch<AppSettingsService>();
+    final override = settings.lyricsLanguageOverrideFor(widget.song.id);
+    final loadedVariants = _variants
+        .where((variant) => !variant.isEmpty)
+        .toList(growable: false);
+    final variants = loadedVariants.isNotEmpty
+        ? loadedVariants
+        : (_primary != null && !_primary!.isEmpty
+              ? <LyricsModel>[_primary!]
+              : const <LyricsModel>[]);
+    if (_loading && variants.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_failed && variants.isEmpty) {
+      return Center(
+        child: Text(
+          'Lyrics are unavailable right now.',
+          style: TextStyle(color: palette.textMuted),
+        ),
+      );
+    }
+    {
+      final selected = selectLyricsVariant(
+        variants: variants,
+        song: widget.song,
+        preference: settings.lyricsLanguage,
+        override: override.isEmpty ? null : override,
+      );
+      final languageLabel = selected == null
+          ? lyricsLanguageLabel(
+              override.isEmpty ? settings.lyricsLanguage : override,
+            )
+          : selected.languageLabel;
+      return Stack(
+        children: <Widget>[
+          if (selected == null || selected.isEmpty)
+            Center(
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(lyrics.syncedLines[index].text, textAlign: TextAlign.center),
+                padding: const EdgeInsets.all(28),
+                child: Text(
+                  'No lyrics available in “$languageLabel” for this track.\n'
+                  'Tap the language button to try another one.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: palette.textMuted, height: 1.5),
+                ),
+              ),
+            )
+          else if (selected.hasSynced)
+            _SyncedLyricsView(
+              key: ValueKey<String>(
+                '${widget.song.id}:${selected.languageLabel}:${selected.source}:'
+                '${selected.syncedLines.isEmpty ? '' : selected.syncedLines.first.text}',
+              ),
+              lyrics: selected,
+              song: widget.song,
+              position: widget.position,
+            )
+          else
+            Column(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 46, 24, 8),
+                  child: Row(
+                    children: <Widget>[
+                      Icon(
+                        Icons.sync_disabled_rounded,
+                        size: 15,
+                        color: palette.textMuted,
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          'This lyrics version has no timing data, so it cannot auto-scroll.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: palette.textMuted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(28, 8, 28, 28),
+                    child: Text(
+                      selected.plainLyrics,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 17,
+                        height: 1.75,
+                        color: palette.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          Positioned(
+            top: 4,
+            right: 12,
+            child: TextButton.icon(
+              onPressed: () => _pickLanguage(context, variants, settings),
+              icon: const Icon(Icons.translate_rounded, size: 17),
+              label: Text(languageLabel),
+              style: TextButton.styleFrom(
+                foregroundColor: palette.accent,
+                backgroundColor: palette.surface.withValues(alpha: 0.85),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
               ),
             ),
-          );
-        }
-        if (lyrics.plainLyrics.trim().isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Text('No lyrics found for this track.', textAlign: TextAlign.center, style: TextStyle(color: palette.textMuted)),
-            ),
-          );
-        }
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(28, 22, 28, 28),
-          child: Text(
-            lyrics.plainLyrics,
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 17, height: 1.75, color: palette.textSecondary),
           ),
+        ],
+      );
+    }
+  }
+
+  Future<void> _pickLanguage(
+    BuildContext context,
+    List<LyricsModel> variants,
+    AppSettingsService settings,
+  ) async {
+    final usage = context.read<UsageService>();
+    final usable = variants
+        .where((variant) => !variant.isEmpty)
+        .toList(growable: false);
+    final availableLanguages = <String>{
+      for (final variant in usable)
+        if (!variant.isRomanized) variant.language.toLowerCase(),
+    };
+    final availableCodes = <String>{
+      for (final variant in usable)
+        variant.isRomanized ? 'romanized' : variant.language.toLowerCase(),
+    };
+    final override = settings.lyricsLanguageOverrideFor(widget.song.id);
+    final current = override.isEmpty ? settings.lyricsLanguage : override;
+    const languageCodes = <String>[
+      'english',
+      'hindi',
+      'telugu',
+      'tamil',
+      'kannada',
+      'malayalam',
+      'bengali',
+      'punjabi',
+      'gujarati',
+      'marathi',
+      'urdu',
+    ];
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: context.palette.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.62,
+          maxChildSize: 0.9,
+          builder: (sheetContext, scrollController) => ListView(
+            controller: scrollController,
+            children: <Widget>[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 4, 20, 2),
+                child: Text(
+                  'Lyrics language',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: Text(
+                  'Choose the script or language this song\'s lyrics should use. '
+                  'Available versions play instantly; others fall back to the '
+                  'original or a romanized version.',
+                  style: TextStyle(
+                    color: sheetContext.palette.textMuted,
+                    fontSize: 11.5,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const _LanguageSectionLabel(text: 'AVAILABLE FOR THIS TRACK'),
+              ListTile(
+                leading: const Icon(Icons.tune_rounded),
+                title: const Text('Follow default setting'),
+                subtitle: Text(lyricsLanguageLabel(settings.lyricsLanguage)),
+                trailing: current == settings.lyricsLanguage
+                    ? Icon(
+                        Icons.check_rounded,
+                        color: sheetContext.palette.accent,
+                      )
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, '__default__'),
+              ),
+              for (final variant in usable)
+                ListTile(
+                  leading: Icon(
+                    variant.hasSynced
+                        ? Icons.lyrics_rounded
+                        : Icons.notes_rounded,
+                  ),
+                  title: Text(variant.languageLabel),
+                  subtitle: Text(variant.displayLabel),
+                  trailing:
+                      current ==
+                          (variant.isRomanized
+                              ? 'romanized'
+                              : variant.language.toLowerCase())
+                      ? Icon(
+                          Icons.check_rounded,
+                          color: sheetContext.palette.accent,
+                        )
+                      : null,
+                  onTap: () => Navigator.pop(
+                    sheetContext,
+                    variant.isRomanized ? 'romanized' : variant.language,
+                  ),
+                ),
+              const Divider(height: 18),
+              const _LanguageSectionLabel(text: 'ALL LANGUAGES'),
+              ListTile(
+                leading: const Icon(Icons.abc_rounded),
+                title: const Text('Romanized (Latin letters)'),
+                subtitle: Text(
+                  availableCodes.contains('romanized')
+                      ? 'Provided by the source'
+                      : 'Generated from the original script',
+                  style: TextStyle(
+                    color: sheetContext.palette.textMuted,
+                    fontSize: 11.5,
+                  ),
+                ),
+                trailing: current == 'romanized'
+                    ? Icon(
+                        Icons.check_rounded,
+                        color: sheetContext.palette.accent,
+                      )
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, 'romanized'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.music_note_rounded),
+                title: const Text('Original language'),
+                trailing: current == 'original'
+                    ? Icon(
+                        Icons.check_rounded,
+                        color: sheetContext.palette.accent,
+                      )
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, 'original'),
+              ),
+              for (final code in languageCodes)
+                ListTile(
+                  leading: Icon(
+                    availableLanguages.contains(code)
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.language_rounded,
+                    color: availableLanguages.contains(code)
+                        ? sheetContext.palette.mint
+                        : null,
+                  ),
+                  title: Text(lyricsLanguageLabel(code)),
+                  subtitle: availableLanguages.contains(code)
+                      ? Text(
+                          'Available for this song',
+                          style: TextStyle(
+                            color: sheetContext.palette.mint,
+                            fontSize: 11,
+                          ),
+                        )
+                      : Text(
+                          'Not available — shows original/romanized',
+                          style: TextStyle(
+                            color: sheetContext.palette.textMuted,
+                            fontSize: 11,
+                          ),
+                        ),
+                  trailing: current == code
+                      ? Icon(
+                          Icons.check_rounded,
+                          color: sheetContext.palette.accent,
+                        )
+                      : null,
+                  onTap: () => Navigator.pop(sheetContext, code),
+                ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected == null) return;
+    if (selected == '__default__') {
+      await settings.setLyricsLanguageOverride(widget.song.id, null);
+    } else {
+      await settings.setLyricsLanguageOverride(widget.song.id, selected);
+      unawaited(
+        usage.recordSongEvent('lyrics_check', widget.song, detail: selected),
+      );
+    }
+  }
+}
+
+class _LanguageSectionLabel extends StatelessWidget {
+  const _LanguageSectionLabel({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: context.palette.textMuted,
+          fontSize: 9.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.5,
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncedLyricsView extends StatefulWidget {
+  const _SyncedLyricsView({
+    super.key,
+    required this.lyrics,
+    required this.song,
+    required this.position,
+  });
+
+  final LyricsModel lyrics;
+  final SongModel song;
+  final Duration position;
+
+  @override
+  State<_SyncedLyricsView> createState() => _SyncedLyricsViewState();
+}
+
+class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
+  /// Fixed row height keeps scroll offsets exact, which is what makes the
+  /// auto-scroll smooth (no measuring, no jumping).
+  static const double _rowHeight = 62;
+
+  final ScrollController _controller = ScrollController();
+  Timer? _resumeTimer;
+  bool _userScrolling = false;
+  int _lastIndex = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastIndex = _activeIndex(widget.lyrics.syncedLines, widget.position);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _lastIndex = _activeIndex(widget.lyrics.syncedLines, widget.position);
+      _animateTo(_lastIndex, immediate: true);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _SyncedLyricsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final index = _activeIndex(widget.lyrics.syncedLines, widget.position);
+    if (oldWidget.song.id != widget.song.id ||
+        oldWidget.lyrics != widget.lyrics) {
+      _resumeTimer?.cancel();
+      _userScrolling = false;
+      _lastIndex = index;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _lastIndex = _activeIndex(widget.lyrics.syncedLines, widget.position);
+        _animateTo(_lastIndex, immediate: true);
+      });
+      return;
+    }
+    if (index != _lastIndex) {
+      _lastIndex = index;
+      _animateTo(index);
+    }
+  }
+
+  /// The user takes control the moment they drag; auto-scroll resumes by
+  /// itself after a short pause (like most music apps) or instantly on tap.
+  bool _onUserScroll(ScrollNotification notification) {
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      setState(() => _userScrolling = true);
+      _resumeTimer?.cancel();
+    } else if (notification is ScrollEndNotification && _userScrolling) {
+      _resumeTimer?.cancel();
+      _resumeTimer = Timer(const Duration(seconds: 5), () {
+        if (!mounted) return;
+        setState(() => _userScrolling = false);
+        _animateTo(
+          _activeIndex(widget.lyrics.syncedLines, widget.position),
+          immediate: true,
         );
-      },
+      });
+    }
+    return false;
+  }
+
+  void _resumeNow() {
+    _resumeTimer?.cancel();
+    setState(() => _userScrolling = false);
+    _animateTo(
+      _activeIndex(widget.lyrics.syncedLines, widget.position),
+      immediate: true,
     );
   }
 
-  int _activeLine(List<LyricLine> lines, Duration position) {
+  void _animateTo(int index, {bool immediate = false}) {
+    if ((_userScrolling && !immediate) ||
+        !_controller.hasClients ||
+        index < 0) {
+      return;
+    }
+    final position = _controller.position;
+    final viewport = position.viewportDimension;
+    final target = (index * _rowHeight) - (viewport * 0.38) + (_rowHeight / 2);
+    final clamped = target.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if ((position.pixels - clamped).abs() < 2) return;
+    _controller.animateTo(
+      clamped,
+      duration: Duration(milliseconds: immediate ? 260 : 420),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _resumeTimer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final lines = widget.lyrics.syncedLines;
+    final active = _activeIndex(lines, widget.position);
+    return Stack(
+      children: <Widget>[
+        NotificationListener<ScrollNotification>(
+          onNotification: _onUserScroll,
+          child: ListView.builder(
+            controller: _controller,
+            padding: const EdgeInsets.fromLTRB(24, 40, 24, 40),
+            itemExtent: _rowHeight,
+            itemCount: lines.length,
+            itemBuilder: (context, index) {
+              final isActive = index == active;
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  if (_userScrolling) _resumeNow();
+                },
+                child: Center(
+                  child: AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOut,
+                    style: TextStyle(
+                      fontSize: isActive ? 21 : 16.5,
+                      height: 1.3,
+                      fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                      color: isActive
+                          ? palette.accent
+                          : palette.textMuted.withValues(alpha: 0.5),
+                    ),
+                    child: Text(
+                      lines[index].text,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        if (_userScrolling)
+          Positioned(
+            bottom: 10,
+            right: 18,
+            child: FilledButton.tonalIcon(
+              onPressed: _resumeNow,
+              icon: const Icon(Icons.sync_rounded, size: 16),
+              label: const Text('Resume auto-scroll'),
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                textStyle: const TextStyle(fontSize: 11),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  int _activeIndex(List<LyricLine> lines, Duration position) {
     var active = 0;
     for (var i = 0; i < lines.length; i++) {
       if (lines[i].time <= position) {
@@ -406,63 +1719,451 @@ class _LyricsPanelState extends State<_LyricsPanel> {
   }
 }
 
-class _QueueSheet extends StatelessWidget {
+class _QueueSheet extends StatefulWidget {
   const _QueueSheet();
 
   @override
-  Widget build(BuildContext context) {
-    final player = context.watch<PlayerController>();
-    final palette = context.palette;
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.72,
-        child: Column(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 2, 12, 12),
-              child: Row(
-                children: <Widget>[
-                  const Expanded(
-                    child: Text('Up next', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-                  ),
-                  Text('${player.queue.length} tracks', style: TextStyle(color: palette.textMuted, fontSize: 12)),
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: player.queue.length <= 1 ? null : player.clearUpNext,
-                    child: const Text('Clear up next'),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: player.queue.isEmpty
-                  ? Center(child: Text('Queue is empty.', style: TextStyle(color: palette.textMuted)))
-                  : ReorderableListView.builder(
-                      itemCount: player.queue.length,
-                      onReorder: (oldIndex, newIndex) {
-                        if (newIndex > oldIndex) newIndex--;
-                        player.reorderQueue(oldIndex, newIndex);
-                      },
-                      itemBuilder: (context, index) {
-                        final song = player.queue[index];
-                        final active = index == player.currentIndex;
-                        return ListTile(
-                          key: ValueKey<String>('$index-${song.id}'),
-                          leading: CoverArt(song: song, size: 44, radius: 12),
-                          title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          titleTextStyle: TextStyle(color: active ? palette.accent : palette.textPrimary, fontWeight: active ? FontWeight.w700 : FontWeight.w500),
-                          trailing: ReorderableDragStartListener(
-                            index: index,
-                            child: Icon(Icons.drag_handle_rounded, color: palette.textMuted),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
+  State<_QueueSheet> createState() => _QueueSheetState();
+}
+
+class _QueueSheetState extends State<_QueueSheet> {
+  static const double _minExtent = 0.10;
+  static const double _maxExtent = 0.80;
+
+  final DraggableScrollableController _sheetController =
+      DraggableScrollableController();
+  double? _headerStartExtent;
+  double _headerDragDistance = 0;
+
+  @override
+  void dispose() {
+    _sheetController.dispose();
+    super.dispose();
+  }
+
+  void _startHeaderDrag(DragStartDetails details) {
+    _headerStartExtent = _sheetController.isAttached
+        ? _sheetController.size
+        : null;
+    _headerDragDistance = 0;
+  }
+
+  void _updateHeaderDrag(DragUpdateDetails details) {
+    if (!_sheetController.isAttached) return;
+    _headerDragDistance += details.delta.dy;
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final minExtent = context.read<AppSettingsService>().oneHandModeEnabled
+        ? _minExtent
+        : 0.10;
+    final next = (_sheetController.size - details.delta.dy / screenHeight)
+        .clamp(minExtent, _maxExtent)
+        .toDouble();
+    _sheetController.jumpTo(next);
+  }
+
+  void _settleHeaderDrag(DragEndDetails details) {
+    if (!mounted || !_sheetController.isAttached || _headerStartExtent == null) {
+      return;
+    }
+    final oneHandModeEnabled = context
+        .read<AppSettingsService>()
+        .oneHandModeEnabled;
+    final velocity = details.primaryVelocity ?? 0;
+    final current = _sheetController.size;
+    if (oneHandModeEnabled) {
+      if (current <= _minExtent + 0.015 &&
+          (_headerDragDistance > 38 || velocity > 520) &&
+          (ModalRoute.of(context)?.isCurrent ?? false)) {
+        Navigator.of(context).pop();
+      }
+      // Above the minimum, leave the sheet exactly where the user released it.
+      return;
+    }
+
+    const minExtent = 0.10;
+    final double target;
+    if (velocity > 520 || _headerDragDistance > 38) {
+      target = minExtent;
+    } else if (velocity < -520 || _headerDragDistance < -38) {
+      target = _maxExtent;
+    } else {
+      target = current < (minExtent + _maxExtent) / 2
+          ? minExtent
+          : _maxExtent;
+    }
+    unawaited(
+      _sheetController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
       ),
     );
   }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final player = context.watch<PlayerController>();
+    final oneHandModeEnabled = context
+        .watch<AppSettingsService>()
+        .oneHandModeEnabled;
+    final queueMinExtent = _minExtent;
+    final queue = player.queue;
+    final currentIndex = player.currentIndex ?? -1;
+    final upcomingStart = (currentIndex + 1).clamp(0, queue.length).toInt();
+    final upcoming = upcomingStart >= queue.length
+        ? const <SongModel>[]
+        : queue.sublist(upcomingStart);
+
+    return _SheetSnapHaptics(
+      stopExtents: oneHandModeEnabled
+          ? const <double>[_minExtent]
+          : const <double>[],
+      child: DraggableScrollableSheet(
+        controller: _sheetController,
+        initialChildSize: _maxExtent,
+        minChildSize: queueMinExtent,
+        maxChildSize: _maxExtent,
+        snap: false,
+        shouldCloseOnMinExtent: true,
+        expand: false,
+        builder: (context, scrollController) {
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              color: palette.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              border: Border.all(
+                color: palette.outline.withValues(alpha: 0.75),
+              ),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: 22,
+                  offset: const Offset(0, -5),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  children: <Widget>[
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onVerticalDragStart: _startHeaderDrag,
+                      onVerticalDragUpdate: _updateHeaderDrag,
+                      onVerticalDragEnd: _settleHeaderDrag,
+                      child: Column(
+                        children: <Widget>[
+                          const SizedBox(height: 10),
+                          Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: palette.outline,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 7, 4, 8),
+                            child: Row(
+                              children: <Widget>[
+                                const Expanded(
+                                  child: Text(
+                                    'Up next',
+                                    style: TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  upcoming.isEmpty
+                                      ? 'Nothing queued'
+                                      : '${upcoming.length} next',
+                                  style: TextStyle(
+                                    color: palette.textMuted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                TextButton.icon(
+                                  onPressed: upcoming.isEmpty
+                                      ? null
+                                      : () => player.clearUpNext(),
+                                  icon: const Icon(
+                                    Icons.clear_all_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Clear'),
+                                ),
+                                IconButton(
+                                  tooltip: 'Close queue',
+                                  onPressed: () => Navigator.pop(context),
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: upcoming.isEmpty
+                          ? ListView(
+                              controller: scrollController,
+                              physics: const AlwaysScrollableScrollPhysics(
+                                parent: ClampingScrollPhysics(),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 28,
+                              ),
+                              children: const <Widget>[
+                                SizedBox(height: 220, child: _EmptyUpNext()),
+                              ],
+                            )
+                          : ReorderableListView.builder(
+                              scrollController: scrollController,
+                              physics: const AlwaysScrollableScrollPhysics(
+                                parent: ClampingScrollPhysics(),
+                              ),
+                              buildDefaultDragHandles: false,
+                              itemCount: upcoming.length,
+                              // onReorderItem already reports the final
+                              // index after removing the dragged row.
+                              onReorderItem: (oldIndex, newIndex) {
+                                player.reorderQueue(
+                                  upcomingStart + oldIndex,
+                                  upcomingStart + newIndex,
+                                );
+                              },
+                              itemBuilder: (context, index) {
+                                final song = upcoming[index];
+                                final globalIndex = upcomingStart + index;
+                                final recommended = player.recommendationIds
+                                    .contains(song.id);
+                                final reason = recommended
+                                    ? player.recommendationReasonFor(song)
+                                    : '';
+                                return ReorderableDelayedDragStartListener(
+                                  key: ValueKey<String>('up-next-${song.id}'),
+                                  index: index,
+                                  child: SongTile(
+                                    song: song,
+                                    subtitleOverride: recommended
+                                        ? <String>[
+                                            'Recommended',
+                                            if (reason.isNotEmpty) reason,
+                                          ].join(' • ')
+                                        : null,
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: <Widget>[
+                                        if (recommended)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              right: 2,
+                                            ),
+                                            child: Icon(
+                                              Icons.auto_awesome_rounded,
+                                              size: 16,
+                                              color: palette.accent,
+                                            ),
+                                          ),
+                                        const Icon(Icons.drag_handle_rounded),
+                                      ],
+                                    ),
+                                    onTap: () =>
+                                        player.playAtQueueIndex(globalIndex),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SheetSnapHaptics extends StatefulWidget {
+  const _SheetSnapHaptics({required this.stopExtents, required this.child});
+
+  final List<double> stopExtents;
+  final Widget child;
+
+  @override
+  State<_SheetSnapHaptics> createState() => _SheetSnapHapticsState();
+}
+
+class _SheetSnapHapticsState extends State<_SheetSnapHaptics> {
+  static const double _tolerance = 0.012;
+  static const Duration _settleDelay = Duration(milliseconds: 110);
+
+  Timer? _settleTimer;
+  double? _pendingStop;
+
+  @override
+  void dispose() {
+    _settleTimer?.cancel();
+    super.dispose();
+  }
+
+  bool _handleExtent(DraggableScrollableNotification notification) {
+    double? stop;
+    for (final candidate in widget.stopExtents) {
+      if ((notification.extent - candidate).abs() <= _tolerance) {
+        stop = candidate;
+        break;
+      }
+    }
+    if (stop == null) {
+      _pendingStop = null;
+      _settleTimer?.cancel();
+      return false;
+    }
+    if (_pendingStop == stop) return false;
+    _pendingStop = stop;
+    _settleTimer?.cancel();
+    _settleTimer = Timer(_settleDelay, () {
+      if (mounted && _pendingStop == stop) {
+        unawaited(HapticFeedback.mediumImpact());
+      }
+    });
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      NotificationListener<DraggableScrollableNotification>(
+        onNotification: _handleExtent,
+        child: widget.child,
+      );
+}
+
+class _EmptyUpNext extends StatelessWidget {
+  const _EmptyUpNext();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
+        Icon(Icons.queue_music_rounded, size: 46, color: palette.textMuted),
+        const SizedBox(height: 12),
+        const Text(
+          'Nothing is queued next',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Songs you queue—and recommendations when autoplay is on—will '
+          'play from this list in this exact order.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: palette.textMuted, height: 1.4),
+        ),
+      ],
+    );
+  }
+}
+
+/// Bottom sheet that shows an in-flight lyric-video render and offers to stop
+/// it. Reachable from the player's export button and from the mini player, so
+/// the percentage is always one tap away even after closing the player.
+Future<void> showExportProgress(BuildContext context) async {
+  final manager = context.read<VideoExportManager>();
+  final stop = await showModalBottomSheet<bool>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+            child: AnimatedBuilder(
+              animation: manager,
+              builder: (context, _) {
+                final phase = switch (manager.state) {
+                  VideoExportState.preparing => 'Preparing',
+                  VideoExportState.saving => 'Saving',
+                  _ => 'Rendering',
+                };
+                return Text(
+                  '$phase lyric video',
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: AnimatedBuilder(
+              animation: manager,
+              builder: (context, _) {
+                if (!manager.isBusy) {
+                  return const Text(
+                    'Finished — check Downloads for the video.',
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    LinearProgressIndicator(
+                      value: manager.percent == 0 ? null : manager.progress,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '${manager.percent}% complete · ${manager.songTitle ?? ''}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      switch (manager.state) {
+                        VideoExportState.preparing =>
+                          'Preparing audio and lyrics; progress continues while you use the app.',
+                        VideoExportState.saving =>
+                          'Saving the finished video; you can stop until it is complete.',
+                        _ => 'The video keeps rendering while you use the app.',
+                      },
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.palette.textMuted,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.stop_circle_outlined),
+            title: const Text('Stop exporting'),
+            subtitle: const Text('The partial file is discarded.'),
+            onTap: () => Navigator.of(sheetContext).pop(true),
+          ),
+          ListTile(
+            leading: const Icon(Icons.play_arrow_rounded),
+            title: const Text('Keep rendering'),
+            onTap: () => Navigator.of(sheetContext).pop(false),
+          ),
+          const SizedBox(height: 6),
+        ],
+      ),
+    ),
+  );
+  if (stop == true) await manager.cancel();
 }

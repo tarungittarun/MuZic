@@ -83,15 +83,18 @@ class AppTheme {
   );
 
   static const AppPalette lightPalette = AppPalette(
-    background: Color(0xFFF5F6FA),
-    surface: Color(0xFFFFFFFF),
-    surfaceRaised: Color(0xFFEAECF4),
-    textPrimary: Color(0xFF191A24),
-    textSecondary: Color(0xFF565968),
-    textMuted: Color(0xFF747786),
-    outline: Color(0x1F1A1B26),
+    // Light mode is a layered lavender/grey stage, not a white page: cards
+    // sit on a tinted background, raised controls sit one shade deeper, and
+    // borders/shadows separate every surface.
+    background: Color(0xFFE9E7F3),
+    surface: Color(0xFFFAF8FF),
+    surfaceRaised: Color(0xFFDCD8EC),
+    textPrimary: Color(0xFF201A33),
+    textSecondary: Color(0xFF554E6E),
+    textMuted: Color(0xFF7D7597),
+    outline: Color(0x2E3B315E),
     accent: Color(0xFF684CC0),
-    mint: Color(0xFF147B6B),
+    mint: Color(0xFF0E7C6B),
   );
 
   static ThemeData get dark => _build(darkPalette, Brightness.dark);
@@ -112,11 +115,30 @@ class AppTheme {
       extensions: <ThemeExtension<dynamic>>[palette],
       scaffoldBackgroundColor: palette.background,
       appBarTheme: AppBarTheme(
-        backgroundColor: palette.background,
+        backgroundColor:
+            brightness == Brightness.light ? palette.surface : palette.background,
         foregroundColor: palette.textPrimary,
         surfaceTintColor: Colors.transparent,
-        elevation: 0,
+        elevation: brightness == Brightness.light ? 1 : 0,
+        shadowColor: Colors.black.withValues(alpha: 0.08),
         centerTitle: false,
+      ),
+      cardTheme: CardThemeData(
+        color: palette.surface,
+        elevation: brightness == Brightness.light ? 2 : 0,
+        shadowColor: Colors.black.withValues(
+          alpha: brightness == Brightness.light ? 0.13 : 0.28,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: palette.outline, width: 0.7),
+        ),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: palette.surfaceRaised.withValues(alpha: 0.65),
+        selectedColor: palette.accent.withValues(alpha: 0.22),
+        side: BorderSide(color: palette.outline, width: 0.7),
+        labelStyle: TextStyle(color: palette.textPrimary),
       ),
       iconTheme: IconThemeData(color: palette.textSecondary),
       textTheme: ThemeData(brightness: brightness).textTheme.apply(
