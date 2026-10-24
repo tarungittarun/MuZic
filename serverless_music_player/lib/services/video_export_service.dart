@@ -63,7 +63,7 @@ class VideoExportService {
         throw StateError('Export stopped.');
       }
       final lines = <Map<String, Object?>>[
-        for (final line in lyrics?.syncedLines ?? const <LyricLine>[])
+        for (final line in lyrics.syncedLines)
           <String, Object?>{
             'timeMs': line.time.inMilliseconds,
             'text': line.text,
@@ -84,9 +84,7 @@ class VideoExportService {
           'title': song.title,
           'artist': song.artist,
           'durationMs': song.duration?.inMilliseconds ??
-              (lyrics?.syncedLines.isNotEmpty == true
-                  ? lyrics!.syncedLines.last.time.inMilliseconds + 6000
-                  : 0),
+              (lyrics.syncedLines.last.time.inMilliseconds + 6000),
           'lyrics': jsonEncode(lines),
           'outputName': _outputName(song),
         },

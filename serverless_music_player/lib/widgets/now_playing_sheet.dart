@@ -310,7 +310,9 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
           return null;
         }
       },
-      cancelPreparation: () => downloads.cancelTemporaryAudioDownload(song.id),
+      cancelPreparation: () async {
+        downloads.cancelTemporaryAudioDownload(song.id);
+      },
       cleanupAudio: downloads.deleteTemporaryAudio,
     );
 
@@ -993,8 +995,6 @@ class _PlayerActionButton extends StatelessWidget {
     required this.color,
     required this.onTap,
     this.selected = false,
-    this.enabled = true,
-    this.trailing,
   });
 
   final IconData icon;
@@ -1003,12 +1003,9 @@ class _PlayerActionButton extends StatelessWidget {
   final Color color;
   final VoidCallback onTap;
   final bool selected;
-  final bool enabled;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    final tint = enabled ? color : color.withValues(alpha: 0.42);
     return SizedBox(
       width: 84,
       height: 68,
@@ -1018,19 +1015,19 @@ class _PlayerActionButton extends StatelessWidget {
           color: selected ? color.withValues(alpha: 0.10) : Colors.transparent,
           borderRadius: BorderRadius.circular(16),
           child: InkWell(
-            onTap: enabled ? onTap : null,
+            onTap: onTap,
             borderRadius: BorderRadius.circular(16),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                trailing ?? Icon(icon, size: 21, color: tint),
+                Icon(icon, size: 21, color: color),
                 const SizedBox(height: 3),
                 Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: tint,
+                    color: color,
                     fontSize: 9.5,
                     fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                   ),
@@ -1576,6 +1573,7 @@ class _LanguageSectionLabel extends StatelessWidget {
 
 class _SyncedLyricsView extends StatefulWidget {
   const _SyncedLyricsView({
+    super.key,
     required this.lyrics,
     required this.song,
     required this.position,
