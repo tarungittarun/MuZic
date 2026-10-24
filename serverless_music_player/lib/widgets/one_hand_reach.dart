@@ -45,10 +45,10 @@ class _VerticalReachLockPhysics extends ScrollPhysics {
       _VerticalReachLockPhysics(parent: buildParent(ancestor));
 }
 
-/// Page-specific reachability: three firm pull-downs at the top of the
-/// currently visible page translate it into thumb reach. The page retains its
-/// normal full-height viewport; scrolling back up hands the space back without
-/// trapping the page in a smaller scroll area.
+/// Page-specific reachability: two firm pull-downs at the top of the
+/// currently visible page translate it down by half a screen. The page retains
+/// its normal full-height viewport; scrolling back up hands the space back
+/// without trapping the page in a smaller scroll area.
 class OneHandReach extends StatefulWidget {
   const OneHandReach({required this.visible, required this.child, super.key});
 
@@ -227,7 +227,7 @@ class _OneHandReachState extends State<OneHandReach>
       _pullDownCount++;
     }
 
-    if (_pullDownCount >= 3 && _maxDrop > 0) {
+    if (_pullDownCount >= 2 && _maxDrop > 0) {
       _pullDownCount = 0;
       _pullWindowStart = null;
       _active = true;
@@ -293,7 +293,7 @@ class _OneHandReachState extends State<OneHandReach>
         onNotification: _handleScrollNotification,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            _maxDrop = constraints.maxHeight * 0.42;
+            _maxDrop = constraints.maxHeight * 0.50;
             return ClipRect(
               child: AnimatedBuilder(
                 animation: _dropController,

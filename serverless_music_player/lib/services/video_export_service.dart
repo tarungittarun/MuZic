@@ -101,6 +101,7 @@ class VideoExportService {
       logError('video', 'export failed', <String, Object?>{
         'song': song.title,
         'error': '${error.code}: ${error.message}',
+        'details': '${error.details}',
       });
       throw StateError(error.message ?? 'Video export failed.');
     } finally {

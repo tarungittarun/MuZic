@@ -48,8 +48,9 @@ class DownloadService {
       _activeTransfers['video:$songId']?.cancel('Stopped by the user.');
 
   Future<void> deleteTemporaryAudio(String path) async {
-    final temp = await getTemporaryDirectory();
-    final exportDirectory = Directory(p.join(temp.path, 'muzic_video_audio'));
+    final support = await getApplicationSupportDirectory();
+    final exportDirectory =
+        Directory(p.join(support.path, 'muzic_video_audio'));
     final normalizedPath = p.normalize(path);
     final normalizedDirectory = p.normalize(exportDirectory.path);
     if (!p.isWithin(normalizedDirectory, normalizedPath)) return;
@@ -244,11 +245,14 @@ class DownloadService {
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
-    final temp = await getTemporaryDirectory();
+    // Cache can be reclaimed by Android while a long export is still using
+    // the source. Keep this private, export-only input in app support storage
+    // and remove it through deleteTemporaryAudio when the job finishes.
+    final support = await getApplicationSupportDirectory();
     if (isCancelled?.call() == true) {
       throw const DownloadCancelledException();
     }
-    final directory = Directory(p.join(temp.path, 'muzic_video_audio'));
+    final directory = Directory(p.join(support.path, 'muzic_video_audio'));
     await directory.create(recursive: true);
     if (isCancelled?.call() == true) {
       throw const DownloadCancelledException();

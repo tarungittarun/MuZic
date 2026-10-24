@@ -25,6 +25,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 import org.json.JSONArray
 import java.io.File
+import java.io.FileNotFoundException
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -38,13 +39,18 @@ class VideoExporter(private val context: Context) {
 
     data class LyricLine(val timeMs: Long, val text: String)
 
-    private val width = 720
-    private val height = 720
+    private val width = 540
+    private val height = 540
 
-    // 24 fps is visually identical for a lyrics video and cuts a fifth of the
-    // frames to draw and encode. 2.2 Mbps still looks clean at this size.
-    private val fps = 24
-    private val videoBitrate = 2_200_000
+    // A 540 px square at 20 fps keeps lyrics crisp while substantially
+    // reducing the per-frame CPU work on mid-range phones. The smaller frame
+    // and lower frame rate cut pixel conversion work by about half versus
+    // 720 px at 24 fps; 1.5 Mbps remains clean at this output size.
+    private val fps = 20
+    private val videoBitrate = 1_500_000
+
+    /** Thrown when the requested soundtrack disappears before it can be read. */
+    class MissingAudio : RuntimeException("The audio file is not available.")
 
     /** Thrown when the user stops the export from the UI. */
     class Cancelled : RuntimeException("Export cancelled")
@@ -61,7 +67,15 @@ class VideoExporter(private val context: Context) {
         onProgress: (Double) -> Unit,
     ): String {
         val extractor = MediaExtractor()
-        extractor.setDataSource(audioPath)
+        try {
+            extractor.setDataSource(audioPath)
+        } catch (_: FileNotFoundException) {
+            runCatching { extractor.release() }
+            throw MissingAudio()
+        } catch (error: Exception) {
+            runCatching { extractor.release() }
+            throw error
+        }
         var audioTrackIndex = -1
         var inputFormat: MediaFormat? = null
         for (index in 0 until extractor.trackCount) {

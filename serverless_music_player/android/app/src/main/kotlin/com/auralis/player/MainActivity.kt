@@ -28,6 +28,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -685,42 +686,63 @@ class MainActivity : AudioServiceActivity() {
         // Claim the job before starting its worker so a rapid second tap cannot
         // start a second encoder before the background thread gets scheduled.
         videoExportRunning = true
-        // The render is CPU bound for tens of seconds: keep it off the UI thread
-        // and off the platform thread so the app stays fully usable (and the
-        // sheet can be closed) while it runs. SAF downloads arrive as content://
-        // URIs, so copy those bytes into private cache before MediaExtractor.
+        // Keep the CPU-bound render off the UI/platform threads so the app
+        // stays usable while it runs. SAF downloads arrive as content:// URIs;
+        // stage those in persistent private storage rather than cache, which
+        // Android may reclaim during a long export. Also accept file:// paths
+        // from local-file providers.
         Thread({
             var temporaryAudio: File? = null
+            var audioStage = "resolve_source"
+            val audioUri = Uri.parse(requestedAudioPath)
+            val audioSourceType = when (audioUri.scheme?.lowercase()) {
+                "content" -> "content_uri"
+                "file" -> "file_uri"
+                else -> "file_path"
+            }
             try {
-                val audioFile = if (requestedAudioPath.startsWith("content://")) {
-                    val uri = Uri.parse(requestedAudioPath)
-                    val tempDirectory = File(cacheDir, "muzic_video_audio")
-                    if (!tempDirectory.exists() && !tempDirectory.mkdirs() && !tempDirectory.exists()) {
-                        throw IllegalStateException("Could not prepare video audio cache.")
-                    }
-                    val cached = File.createTempFile("audio_", ".cache", tempDirectory)
-                    temporaryAudio = cached
-                    val input = contentResolver.openInputStream(uri)
-                        ?: throw java.io.FileNotFoundException("The selected audio URI is unavailable.")
-                    input.use { source ->
-                        FileOutputStream(cached).use { output ->
-                            val buffer = ByteArray(64 * 1024)
-                            while (true) {
-                                if (videoExportCancel.get()) throw VideoExporter.Cancelled()
-                                val count = source.read(buffer)
-                                if (count < 0) break
-                                output.write(buffer, 0, count)
+                val audioFile = when (audioSourceType) {
+                    "content_uri" -> {
+                        audioStage = "prepare_private_audio"
+                        val tempDirectory = File(filesDir, "muzic_video_audio")
+                        if (!tempDirectory.exists() && !tempDirectory.mkdirs() && !tempDirectory.exists()) {
+                            throw IllegalStateException("Could not prepare private video audio storage.")
+                        }
+                        val staged = File.createTempFile("audio_", ".cache", tempDirectory)
+                        temporaryAudio = staged
+                        audioStage = "copy_content_uri"
+                        val input = contentResolver.openInputStream(audioUri)
+                            ?: throw java.io.FileNotFoundException("The selected audio URI is unavailable.")
+                        input.use { source ->
+                            FileOutputStream(staged).use { output ->
+                                val buffer = ByteArray(64 * 1024)
+                                while (true) {
+                                    if (videoExportCancel.get()) throw VideoExporter.Cancelled()
+                                    val count = source.read(buffer)
+                                    if (count < 0) break
+                                    output.write(buffer, 0, count)
+                                }
                             }
                         }
+                        staged
                     }
-                    cached
-                } else {
-                    File(requestedAudioPath)
+                    "file_uri" -> {
+                        audioStage = "resolve_file_uri"
+                        File(audioUri.path ?: throw java.io.FileNotFoundException(
+                            "The selected file URI is unavailable.",
+                        ))
+                    }
+                    else -> File(requestedAudioPath)
                 }
-                if (!audioFile.exists() || audioFile.length() <= 0L) {
+                audioStage = "validate_audio"
+                if (!audioFile.exists() || !audioFile.isFile ||
+                    !audioFile.canRead() || audioFile.length() <= 0L
+                ) {
                     throw java.io.FileNotFoundException("The audio file is not available.")
                 }
                 if (videoExportCancel.get()) throw VideoExporter.Cancelled()
+                audioStage = "media_export"
+                var lastProgressAt = 0L
                 val path = VideoExporter(this).export(
                     audioPath = audioFile.absolutePath,
                     artworkPath = artworkPath,
@@ -731,14 +753,45 @@ class MainActivity : AudioServiceActivity() {
                     outputName = outputName,
                     isCancelled = { videoExportCancel.get() },
                 ) { progress ->
-                    runOnUiThread { videoProgressSink?.success(progress) }
+                    val now = SystemClock.elapsedRealtime()
+                    val boundedProgress = progress.coerceIn(0.0, 1.0)
+                    // The renderer reports every frame. Sending a platform
+                    // message for each one adds needless UI-thread work, so
+                    // update at most 4 times per second, plus the final value.
+                    if (boundedProgress >= 1.0 || now - lastProgressAt >= 250L) {
+                        lastProgressAt = now
+                        runOnUiThread { videoProgressSink?.success(boundedProgress) }
+                    }
                 }
                 runOnUiThread { result.success(path) }
             } catch (e: VideoExporter.Cancelled) {
                 runOnUiThread { result.error("cancelled", "Export stopped.", null) }
+            } catch (_: VideoExporter.MissingAudio) {
+                runOnUiThread {
+                    result.error(
+                        "missing_audio",
+                        "The audio file is not available.",
+                        mapOf("stage" to "media_extractor", "sourceType" to audioSourceType),
+                    )
+                }
             } catch (e: java.io.FileNotFoundException) {
                 runOnUiThread {
-                    result.error("missing_audio", "The audio file is not available.", null)
+                    if (audioStage == "copy_content_uri" ||
+                        audioStage == "resolve_file_uri" ||
+                        audioStage == "validate_audio"
+                    ) {
+                        result.error(
+                            "missing_audio",
+                            "The audio file is not available.",
+                            mapOf("stage" to audioStage, "sourceType" to audioSourceType),
+                        )
+                    } else {
+                        result.error(
+                            "export_failed",
+                            e.message ?: "Could not prepare the video export.",
+                            mapOf("stage" to audioStage),
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread {

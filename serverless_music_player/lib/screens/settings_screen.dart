@@ -117,11 +117,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   title: const Text('One-hand mode'),
                   subtitle: Text(
-                    'One-hand reachability on each page: pull down '
-                    'firmly three times at the top and that page drops '
-                    'into thumb reach. Player and Up next sheets also use '
-                    'compact reach stops. Turn this off for normal, direct '
-                    'sheet dismissal.',
+                    'Pull down firmly twice at the top of a main page to move it '
+                    'down by half a screen. Player, album and Up next sheets '
+                    'stay freely draggable to your chosen height. Turn this off '
+                    'for normal page placement.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   onChanged: settings.setOneHandModeEnabled,

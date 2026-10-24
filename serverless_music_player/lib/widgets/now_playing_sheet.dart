@@ -37,7 +37,7 @@ class NowPlayingSheet extends StatefulWidget {
 
 class _NowPlayingSheetState extends State<NowPlayingSheet>
     with TickerProviderStateMixin {
-  static const double _playerMinExtent = 0.50;
+  static const double _playerMinExtent = 0.10;
 
   bool _showLyrics = false;
   bool _showVisualizer = false;
@@ -376,7 +376,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     final oneHandModeEnabled = context
         .watch<AppSettingsService>()
         .oneHandModeEnabled;
-    final playerMinExtent = oneHandModeEnabled ? _playerMinExtent : 0.10;
+    final playerMinExtent = _playerMinExtent;
     final palette = context.palette;
     final song = player.currentSong;
     if (song == null) return const SizedBox.shrink();
@@ -406,7 +406,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
           initialChildSize: 0.94,
           minChildSize: playerMinExtent,
           maxChildSize: 0.94,
-          snap: oneHandModeEnabled,
+          snap: false,
           shouldCloseOnMinExtent: !oneHandModeEnabled,
           expand: false,
           builder: (context, scrollController) {
@@ -1772,7 +1772,7 @@ class _QueueSheet extends StatefulWidget {
 }
 
 class _QueueSheetState extends State<_QueueSheet> {
-  static const double _minExtent = 0.30;
+  static const double _minExtent = 0.10;
   static const double _maxExtent = 0.80;
 
   final DraggableScrollableController _sheetController =
@@ -1825,8 +1825,8 @@ class _QueueSheetState extends State<_QueueSheet> {
         movement.dy >= movement.dx.abs() * 1.2 &&
         _sheetController.size <= _minExtent + 0.015 &&
         _queueIsAtTop()) {
-      // The first downward gesture settles at the 30% detent. Only a fresh
-      // downward gesture, started from that detent, dismisses the queue.
+      // Keep the free-drag minimum open; a fresh downward gesture from that
+      // minimum dismisses the queue.
       _dismissRequested = true;
       Navigator.of(context).pop();
     }
@@ -1862,6 +1862,7 @@ class _QueueSheetState extends State<_QueueSheet> {
 
   void _settleHeaderDrag(DragEndDetails details) {
     if (!mounted ||
+        context.read<AppSettingsService>().oneHandModeEnabled ||
         _dismissRequested ||
         !_sheetController.isAttached ||
         _headerStartExtent == null) {
@@ -1898,7 +1899,7 @@ class _QueueSheetState extends State<_QueueSheet> {
     final oneHandModeEnabled = context
         .watch<AppSettingsService>()
         .oneHandModeEnabled;
-    final queueMinExtent = oneHandModeEnabled ? _minExtent : 0.10;
+    final queueMinExtent = _minExtent;
     final queue = player.queue;
     final currentIndex = player.currentIndex ?? -1;
     final upcomingStart = (currentIndex + 1).clamp(0, queue.length).toInt();
@@ -1921,7 +1922,7 @@ class _QueueSheetState extends State<_QueueSheet> {
           initialChildSize: _maxExtent,
           minChildSize: queueMinExtent,
           maxChildSize: _maxExtent,
-          snap: oneHandModeEnabled,
+          snap: false,
           shouldCloseOnMinExtent: !oneHandModeEnabled,
           expand: false,
           builder: (context, scrollController) {

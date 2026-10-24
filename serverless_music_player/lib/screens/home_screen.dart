@@ -1046,7 +1046,9 @@ class _AlbumSheet extends StatelessWidget {
       child: DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.72,
+        minChildSize: 0.25,
         maxChildSize: 0.92,
+        snap: false,
         builder: (context, scrollController) => FutureBuilder<List<SongModel>>(
           future: songsFuture,
           builder: (context, snapshot) {
