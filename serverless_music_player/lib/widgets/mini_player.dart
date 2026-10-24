@@ -22,9 +22,11 @@ class MiniPlayer extends StatelessWidget {
     if (song == null) return const SizedBox.shrink();
     final sleepTimer = context.watch<SleepTimerService>();
     final export = context.watch<VideoExportManager>();
-    final exportPhase = export.state == VideoExportState.preparing
-        ? 'Preparing'
-        : 'Rendering';
+    final exportPhase = switch (export.state) {
+      VideoExportState.preparing => 'Preparing',
+      VideoExportState.saving => 'Saving',
+      _ => 'Rendering',
+    };
 
     final warning = sleepTimer.isWarningActive;
     return Column(

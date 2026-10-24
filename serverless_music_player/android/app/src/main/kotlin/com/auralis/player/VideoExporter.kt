@@ -26,6 +26,8 @@ import android.text.TextUtils
 import org.json.JSONArray
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.IOException
+import java.io.OutputStream
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -64,8 +66,10 @@ class VideoExporter(private val context: Context) {
         durationMsHint: Long,
         outputName: String,
         isCancelled: () -> Boolean = { false },
+        onStage: (String) -> Unit = {},
         onProgress: (Double) -> Unit,
     ): String {
+        onStage("media_extractor")
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(audioPath)
@@ -92,6 +96,7 @@ class VideoExporter(private val context: Context) {
         }
         extractor.selectTrack(audioTrackIndex)
 
+        onStage("codec_setup")
         val mime = inputFormat.getString(MediaFormat.KEY_MIME)!!
         val sampleRate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
         val channelCount = min(
@@ -163,18 +168,41 @@ class VideoExporter(private val context: Context) {
         )
         videoEncoder.start()
 
-        val outputFile = createOutputFile(outputName)
+        fun releaseAfterOutputSetupFailure() {
+            runCatching { extractor.release() }
+            runCatching { decoder.stop() }
+            runCatching { decoder.release() }
+            runCatching { audioEncoder?.stop() }
+            runCatching { audioEncoder?.release() }
+            runCatching { videoEncoder.stop() }
+            runCatching { videoEncoder.release() }
+        }
+
+        onStage("prepare_output")
+        val outputFile = try {
+            createOutputFile(outputName)
+        } catch (error: Exception) {
+            releaseAfterOutputSetupFailure()
+            throw error
+        }
         var completed = false
-        val muxer = MediaMuxer(
-            outputFile.absolutePath,
-            MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
-        )
+        val muxer = try {
+            MediaMuxer(
+                outputFile.absolutePath,
+                MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
+            )
+        } catch (error: Exception) {
+            runCatching { outputFile.delete() }
+            releaseAfterOutputSetupFailure()
+            throw error
+        }
         var muxerStarted = false
         var muxerVideoTrack = -1
         var muxerAudioTrack = -1
         val pendingAudio = ArrayList<Pair<ByteArray, MediaCodec.BufferInfo>>()
         val pendingVideo = ArrayList<Pair<ByteArray, MediaCodec.BufferInfo>>()
 
+        onStage("prepare_renderer")
         val frameBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(frameBitmap)
         val artwork = loadArtwork(artworkPath)
@@ -189,6 +217,7 @@ class VideoExporter(private val context: Context) {
             durationUs,
         )
 
+        onStage("prepare_muxer")
         val info = MediaCodec.BufferInfo()
         val frameDurationUs = 1_000_000L / fps
         var nextFrameUs = 0L
@@ -220,6 +249,7 @@ class VideoExporter(private val context: Context) {
             muxerAudioTrack = muxer.addTrack(inputFormat)
         }
 
+        onStage("render_frames")
         try {
             while (!audioOutputDone || !videoOutputDone) {
                 if (isCancelled()) throw Cancelled()
@@ -456,7 +486,14 @@ class VideoExporter(private val context: Context) {
                     startMuxerIfReady()
                 }
             }
-            onProgress(1.0)
+            onStage("finalize_muxer")
+            if (!muxerStarted) {
+                throw IOException("The video muxer did not start.")
+            }
+            muxer.stop()
+            muxerStarted = false
+            // Must be set before finally: its cleanup deletes incomplete renders.
+            completed = true
         } finally {
             runCatching { decoder.stop() }
             runCatching { decoder.release() }
@@ -466,15 +503,23 @@ class VideoExporter(private val context: Context) {
             runCatching { videoEncoder.release() }
             runCatching { if (muxerStarted) muxer.stop() }
             runCatching { muxer.release() }
-            artwork?.recycle()
-            renderer.release()
+            runCatching { artwork?.recycle() }
+            runCatching { renderer.release() }
             // A cancelled or failed render must not leave a half-written MP4
             // behind, otherwise the gallery shows a broken video.
             if (!completed) runCatching { if (outputFile.exists()) outputFile.delete() }
         }
-        completed = true
-        return publishToGallery(outputFile).also {
-            if (outputFile.exists()) outputFile.delete()
+        return try {
+            onStage("publish_gallery")
+            onProgress(0.99)
+            if (isCancelled()) throw Cancelled()
+            val published = publishToGallery(outputFile, isCancelled)
+            onProgress(1.0)
+            published
+        } finally {
+            // This is only staging. Keep the gallery/app export copy, never the
+            // intermediate file created for MediaMuxer.
+            runCatching { if (outputFile.exists()) outputFile.delete() }
         }
     }
 
@@ -592,12 +637,12 @@ class VideoExporter(private val context: Context) {
     }
 
     private fun createOutputFile(name: String): File {
-        val root = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
-            ?: context.filesDir
-        val directory = File(root, "exports")
+        // Keep MediaMuxer's scratch output on internal app storage, then copy
+        // only the completed video to the user-visible Movies collection below.
+        val directory = File(context.filesDir, "video_exports")
         if (!directory.exists() && !directory.mkdirs() && !directory.exists()) {
             throw IllegalStateException(
-                "Could not create the lyric-video output folder: ${directory.absolutePath}"
+                "Could not prepare private video export storage."
             )
         }
         // Long song titles plus long artist credit lists can exceed Android's
@@ -619,8 +664,8 @@ class VideoExporter(private val context: Context) {
         return File(directory, candidate)
     }
 
-    /** Copies the finished MP4 into the shared Movies collection. */
-    private fun publishToGallery(file: File): String {
+    /** Copies the finished MP4 to shared Movies storage (or a retained app export on older Android). */
+    private fun publishToGallery(file: File, isCancelled: () -> Boolean): String {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Video.Media.DISPLAY_NAME, file.name)
@@ -634,18 +679,72 @@ class VideoExporter(private val context: Context) {
             val uri = context.contentResolver.insert(
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                 values,
-            )
-            if (uri != null) {
-                context.contentResolver.openOutputStream(uri)?.use { output ->
-                    file.inputStream().use { input -> input.copyTo(output) }
+            ) ?: throw IOException("Could not create the Movies video entry.")
+            try {
+                val output = context.contentResolver.openOutputStream(uri)
+                    ?: throw IOException("Could not open the Movies video entry.")
+                output.use { destination ->
+                    copyWithCancellation(file, destination, isCancelled)
                 }
-                values.clear()
-                values.put(MediaStore.Video.Media.IS_PENDING, 0)
-                context.contentResolver.update(uri, values, null, null)
+                if (isCancelled()) throw Cancelled()
+                val finalized = ContentValues().apply {
+                    put(MediaStore.Video.Media.IS_PENDING, 0)
+                }
+                if (context.contentResolver.update(uri, finalized, null, null) <= 0) {
+                    throw IOException("Could not finalize the Movies video entry.")
+                }
+                if (isCancelled()) throw Cancelled()
                 return uri.toString()
+            } catch (error: Exception) {
+                runCatching { context.contentResolver.delete(uri, null, null) }
+                throw error
             }
         }
-        return file.absolutePath
+
+        // On pre-scoped-storage Android versions retain a copy in the app's
+        // Movies folder. Returning the internal staging path and deleting it
+        // would report success while leaving no video behind.
+        val root = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+            ?: context.filesDir
+        val directory = File(root, "MuZic")
+        if (!directory.exists() && !directory.mkdirs() && !directory.exists()) {
+            throw IOException("Could not create the MuZic Movies folder.")
+        }
+        val baseName = file.nameWithoutExtension
+        val extension = file.extension.ifEmpty { "mp4" }
+        var candidate = File(directory, file.name)
+        var suffix = 2
+        while (candidate.exists()) {
+            candidate = File(directory, "$baseName ($suffix).$extension")
+            suffix++
+        }
+        return try {
+            candidate.outputStream().use { destination ->
+                copyWithCancellation(file, destination, isCancelled)
+            }
+            if (isCancelled()) throw Cancelled()
+            candidate.absolutePath
+        } catch (error: Exception) {
+            runCatching { candidate.delete() }
+            throw error
+        }
+    }
+
+    private fun copyWithCancellation(
+        file: File,
+        output: OutputStream,
+        isCancelled: () -> Boolean,
+    ) {
+        val buffer = ByteArray(64 * 1024)
+        file.inputStream().use { input ->
+            while (true) {
+                if (isCancelled()) throw Cancelled()
+                val count = input.read(buffer)
+                if (count < 0) break
+                output.write(buffer, 0, count)
+            }
+        }
+        output.flush()
     }
 
     /** Draws cover art, waveform and the current lyric line for a timestamp. */

@@ -77,6 +77,32 @@ class VideoExportManager extends ChangeNotifier {
     _state = VideoExportState.preparing;
     notifyListeners();
 
+    final stopwatch = Stopwatch()..start();
+    var stage = 'prepare_audio';
+    var lastProgressMilestone = -1;
+    void reportStage(String nextStage) {
+      stage = nextStage;
+      logInfo('video', 'export stage', <String, Object?>{
+        'song': song.title,
+        'stage': stage,
+        'progressPercent': percent,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
+      });
+    }
+
+    void reportProgress() {
+      final milestone = percent ~/ 10;
+      if (milestone <= lastProgressMilestone) return;
+      lastProgressMilestone = milestone;
+      logInfo('video', 'export progress', <String, Object?>{
+        'song': song.title,
+        'stage': stage,
+        'progressPercent': percent,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
+      });
+    }
+
+    reportStage(stage);
     await _progressSubscription?.cancel();
     try {
       if (_cancelRequested) {
@@ -88,6 +114,7 @@ class VideoExportManager extends ChangeNotifier {
         final preparationProgress = value.clamp(0.0, 1.0).toDouble() * 0.4;
         if (preparationProgress > _progress) {
           _progress = preparationProgress;
+          reportProgress();
           notifyListeners();
         }
       }, () => _cancelRequested);
@@ -128,6 +155,8 @@ class VideoExportManager extends ChangeNotifier {
 
       // Keep one continuous percentage across audio preparation and encoding.
       _progress = _progress < 0.4 ? 0.4 : _progress;
+      reportStage('load_lyrics');
+      reportProgress();
       notifyListeners();
       final lyricsFuture = loadLyrics();
       final lyrics = await Future.any<LyricsModel?>(<Future<LyricsModel?>>[
@@ -138,16 +167,22 @@ class VideoExportManager extends ChangeNotifier {
         _reset();
         return null;
       }
-
       _state = VideoExportState.rendering;
       _isRendering = true;
       _progress = _progress < 0.42 ? 0.42 : _progress;
+      reportStage('media_export');
+      reportProgress();
       _progressSubscription = _service.progress.listen((value) {
         if (!isBusy || !_isRendering) return;
         final renderProgress = 0.42 +
             value.clamp(0.0, 1.0).toDouble() * 0.58;
         if (renderProgress >= _progress) {
           _progress = renderProgress.clamp(0.0, 1.0).toDouble();
+          if (value >= 0.99 && _state == VideoExportState.rendering) {
+            _state = VideoExportState.saving;
+            reportStage('publish_gallery');
+          }
+          reportProgress();
           notifyListeners();
         }
       });
@@ -166,19 +201,31 @@ class VideoExportManager extends ChangeNotifier {
       _lastResult = result;
       _progress = 1;
       _state = VideoExportState.done;
+      reportStage('completed');
+      reportProgress();
       logInfo('video', 'export finished', <String, Object?>{
         'song': song.title,
         'path': result.path,
+        'progressPercent': percent,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
       });
       notifyListeners();
       return result;
     } catch (error) {
       if (_cancelRequested) {
-        logInfo('video', 'export cancelled', <String, Object?>{'song': song.title});
+        logInfo('video', 'export cancelled', <String, Object?>{
+          'song': song.title,
+          'stage': stage,
+          'progressPercent': percent,
+          'elapsedMs': stopwatch.elapsedMilliseconds,
+        });
         _reset();
       } else {
         logError('video', 'export failed', <String, Object?>{
           'song': song.title,
+          'stage': stage,
+          'progressPercent': percent,
+          'elapsedMs': stopwatch.elapsedMilliseconds,
           'error': '$error',
         });
         _state = VideoExportState.failed;

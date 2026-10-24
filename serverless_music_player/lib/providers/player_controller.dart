@@ -377,7 +377,7 @@ class PlayerController extends ChangeNotifier {
     final affinity = _recommendationArtistAffinity(seed);
     for (final artist in affinity.topArtists.take(6)) {
       addSongs(
-        _musicApi.searchJioSaavn('$artist songs', limit: 18),
+        _musicApi.searchSaavnWithYouTubeFallback('$artist songs', limit: 18),
         'artist',
         laneBoost: 3,
       );
@@ -404,7 +404,7 @@ class PlayerController extends ChangeNotifier {
 
     for (final search in _usage.topSearches.take(2)) {
       addSongs(
-        _musicApi.searchJioSaavn(search.query, limit: 16),
+        _musicApi.searchSaavnWithYouTubeFallback(search.query, limit: 16),
         'search',
         laneBoost: 1,
       );

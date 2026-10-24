@@ -41,13 +41,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
 
   bool _showLyrics = false;
   bool _showVisualizer = false;
-  bool _sheetDismissRequested = false;
   bool _controlActionTapped = false;
-  int? _sheetPointer;
-  Offset? _sheetPointerStartPosition;
-  double? _sheetPointerStartExtent;
-  bool _sheetPointerStartedAtScrollTop = false;
-  ScrollController? _sheetScrollController;
   Timer? _controlResetTimer;
 
   final VisualizerService _visualizer = VisualizerService();
@@ -82,51 +76,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     _sheetController.dispose();
     _visualizer.dispose();
     super.dispose();
-  }
-
-  bool _isScrollAtTop(ScrollController? controller) =>
-      controller == null ||
-      !controller.hasClients ||
-      controller.position.extentBefore <= 0.5;
-
-  void _handleSheetPointerDown(PointerDownEvent event) {
-    _sheetPointer = event.pointer;
-    _sheetPointerStartPosition = event.position;
-    _sheetPointerStartExtent = _sheetController.isAttached
-        ? _sheetController.size
-        : null;
-    _sheetPointerStartedAtScrollTop = _isScrollAtTop(_sheetScrollController);
-    _sheetDismissRequested = false;
-  }
-
-  void _handleSheetPointerMove(PointerMoveEvent event) {
-    if (!context.read<AppSettingsService>().oneHandModeEnabled ||
-        _sheetPointer != event.pointer ||
-        _sheetDismissRequested) {
-      return;
-    }
-    final start = _sheetPointerStartPosition;
-    final startExtent = _sheetPointerStartExtent;
-    if (start == null || startExtent == null) return;
-    final movement = event.position - start;
-    if (startExtent <= _playerMinExtent + 0.01 &&
-        _sheetPointerStartedAtScrollTop &&
-        movement.dy >= 72 &&
-        movement.dy >= movement.dx.abs() * 1.2 &&
-        _sheetController.isAttached &&
-        _sheetController.size <= _playerMinExtent + 0.015 &&
-        _isScrollAtTop(_sheetScrollController)) {
-      _sheetDismissRequested = true;
-      Navigator.of(context).pop();
-    }
-  }
-
-  void _handleSheetPointerEnd(PointerEvent event) {
-    if (_sheetPointer != event.pointer) return;
-    _sheetPointer = null;
-    _sheetPointerStartPosition = null;
-    _sheetPointerStartExtent = null;
-    _sheetDismissRequested = false;
   }
 
   bool _handleControlStripScroll(ScrollNotification notification) {
@@ -391,361 +340,354 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
         .clamp(screenHeight * 0.30, screenHeight * 0.64)
         .toDouble();
 
-    return Listener(
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: _handleSheetPointerDown,
-      onPointerMove: _handleSheetPointerMove,
-      onPointerUp: _handleSheetPointerEnd,
-      onPointerCancel: _handleSheetPointerEnd,
-      child: _SheetSnapHaptics(
-        stopExtents: oneHandModeEnabled
-            ? const <double>[_playerMinExtent]
-            : const <double>[],
-        child: DraggableScrollableSheet(
-          controller: _sheetController,
-          initialChildSize: 0.94,
-          minChildSize: playerMinExtent,
-          maxChildSize: 0.94,
-          snap: false,
-          shouldCloseOnMinExtent: !oneHandModeEnabled,
-          expand: false,
-          builder: (context, scrollController) {
-            _sheetScrollController = scrollController;
-            return ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(30),
-              ),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: <Color>[
-                      Color.alphaBlend(
-                        palette.accent.withValues(alpha: 0.10),
-                        palette.background,
-                      ),
+    return _SheetSnapHaptics(
+      stopExtents: oneHandModeEnabled
+          ? const <double>[_playerMinExtent]
+          : const <double>[],
+      child: DraggableScrollableSheet(
+        controller: _sheetController,
+        initialChildSize: 0.94,
+        minChildSize: playerMinExtent,
+        maxChildSize: 0.94,
+        snap: false,
+        shouldCloseOnMinExtent: true,
+        expand: false,
+        builder: (context, scrollController) {
+          return ClipRRect(
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(30),
+            ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: <Color>[
+                    Color.alphaBlend(
+                      palette.accent.withValues(alpha: 0.10),
                       palette.background,
-                      Color.alphaBlend(
-                        palette.mint.withValues(alpha: 0.05),
-                        palette.background,
-                      ),
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-                child: SafeArea(
-                  top: false,
-                  child: CustomScrollView(
-                    controller: scrollController,
-                    physics: const AlwaysScrollableScrollPhysics(
-                      parent: ClampingScrollPhysics(),
                     ),
-                    slivers: <Widget>[
-                      SliverToBoxAdapter(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            const SizedBox(height: 10),
-                            Container(
-                              width: 42,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: palette.outline,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
+                    palette.background,
+                    Color.alphaBlend(
+                      palette.mint.withValues(alpha: 0.05),
+                      palette.background,
+                    ),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: SafeArea(
+                top: false,
+                child: CustomScrollView(
+                  controller: scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: ClampingScrollPhysics(),
+                  ),
+                  slivers: <Widget>[
+                    SliverToBoxAdapter(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          const SizedBox(height: 10),
+                          Container(
+                            width: 42,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: palette.outline,
+                              borderRadius: BorderRadius.circular(4),
                             ),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(18, 8, 12, 4),
-                              child: Row(
-                                children: <Widget>[
-                                  IconButton(
-                                    tooltip: 'Close player',
-                                    onPressed: () => Navigator.pop(context),
-                                    icon: const Icon(
-                                      Icons.keyboard_arrow_down_rounded,
-                                      size: 30,
-                                    ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(18, 8, 12, 4),
+                            child: Row(
+                              children: <Widget>[
+                                IconButton(
+                                  tooltip: 'Close player',
+                                  onPressed: () => Navigator.pop(context),
+                                  icon: const Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    size: 30,
                                   ),
-                                  Expanded(
-                                    child: Column(
-                                      children: <Widget>[
-                                        Text(
-                                          'NOW PLAYING',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            letterSpacing: 2,
-                                            color: palette.textMuted,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 3),
-                                        const Text(
-                                          AppInfo.displayName,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  _buildDownloadButton(context, player, song),
-                                  Consumer<VideoExportManager>(
-                                    builder: (context, export, _) {
-                                      if (!export.isBusy) {
-                                        return IconButton(
-                                          tooltip: 'Export lyric video',
-                                          onPressed: () => _exportVideo(song),
-                                          icon: const Icon(
-                                            Icons.movie_creation_outlined,
-                                          ),
-                                        );
-                                      }
-                                      final percent = export.percent;
-                                      final phase =
-                                          export.state == VideoExportState.preparing
-                                              ? 'Preparing'
-                                              : 'Rendering';
-                                      return Tooltip(
-                                        message:
-                                            '$phase lyric video · $percent% — tap to stop',
-                                        child: InkWell(
-                                          borderRadius: BorderRadius.circular(
-                                            24,
-                                          ),
-                                          onTap: () =>
-                                              _confirmStopExport(export),
-                                          child: SizedBox(
-                                            width: 48,
-                                            height: 48,
-                                            child: Stack(
-                                              alignment: Alignment.center,
-                                              children: <Widget>[
-                                                SizedBox(
-                                                  width: 34,
-                                                  height: 34,
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                        value: percent == 0
-                                                            ? null
-                                                            : export.progress,
-                                                        strokeWidth: 2.5,
-                                                      ),
-                                                ),
-                                                Text(
-                                                  '$percent%',
-                                                  style: TextStyle(
-                                                    fontSize: 9,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Theme.of(
-                                                      context,
-                                                    ).colorScheme.onSurface,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                  IconButton(
-                                    tooltip: _showVisualizer
-                                        ? 'Hide live waveform'
-                                        : 'Show live waveform',
-                                    onPressed: () => _toggleVisualizer(player),
-                                    icon: AnimatedRhythmIcon(
-                                      active:
-                                          _showVisualizer && player.isPlaying,
-                                      color: _showVisualizer
-                                          ? palette.accent
-                                          : palette.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: Column(
-                          children: <Widget>[
-                            Expanded(
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final available = (constraints.maxHeight - 10)
-                                      .clamp(0.0, double.infinity)
-                                      .toDouble();
-                                  final displayHeight = available < cardHeight
-                                      ? available
-                                      : cardHeight;
-                                  final artworkOrLyrics = _showLyrics
-                                      ? Stack(
-                                          fit: StackFit.expand,
-                                          children: <Widget>[
-                                            _LyricsPanel(
-                                              key: ValueKey<String>(
-                                                'lyrics-${song.id}',
-                                              ),
-                                              song: song,
-                                              position: player.position,
-                                            ),
-                                            Positioned(
-                                              right: 14,
-                                              bottom: 14,
-                                              child: IconButton(
-                                                tooltip: 'Show artwork',
-                                                onPressed: () => setState(
-                                                  () => _showLyrics = false,
-                                                ),
-                                                style: IconButton.styleFrom(
-                                                  foregroundColor:
-                                                      palette.accent,
-                                                  backgroundColor: palette
-                                                      .surface
-                                                      .withValues(alpha: 0.88),
-                                                ),
-                                                icon: const Icon(
-                                                  Icons.album_rounded,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        )
-                                      : MediaArtworkCard(
-                                          key: ValueKey<String>(
-                                            'card-${song.id}',
-                                          ),
-                                          song: song,
-                                          onLyricsTap: () =>
-                                              _toggleLyrics(song),
-                                        );
-                                  return Center(
-                                    child: SizedBox(
-                                      width: double.infinity,
-                                      height: displayHeight,
-                                      child: Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                          16,
-                                          4,
-                                          16,
-                                          6,
-                                        ),
-                                        child: AnimatedSwitcher(
-                                          duration: const Duration(
-                                            milliseconds: 220,
-                                          ),
-                                          child: KeyedSubtree(
-                                            key: ValueKey<String>(
-                                              _showLyrics
-                                                  ? 'lyrics-${song.id}'
-                                                  : 'card-${song.id}',
-                                            ),
-                                            child: artworkOrLyrics,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                            if (_showVisualizer)
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  24,
-                                  4,
-                                  24,
-                                  6,
                                 ),
-                                child: Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.fromLTRB(
-                                    14,
-                                    10,
-                                    14,
-                                    10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: palette.surface.withValues(
-                                      alpha: 0.92,
-                                    ),
-                                    borderRadius: BorderRadius.circular(18),
-                                    border: Border.all(
-                                      color: palette.outline.withValues(
-                                        alpha: 0.6,
-                                      ),
-                                    ),
-                                  ),
+                                Expanded(
                                   child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
                                     children: <Widget>[
-                                      Row(
-                                        children: <Widget>[
-                                          AnimatedRhythmIcon(
-                                            active: player.isPlaying,
-                                            color: palette.accent,
-                                            size: 16,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            'LIVE WAVEFORM',
-                                            style: TextStyle(
-                                              fontSize: 9,
-                                              letterSpacing: 1.6,
-                                              fontWeight: FontWeight.w800,
-                                              color: palette.textMuted,
-                                            ),
-                                          ),
-                                          const Spacer(),
-                                          Text(
-                                            'On for every song',
-                                            style: TextStyle(
-                                              fontSize: 9,
-                                              color: palette.textMuted,
-                                            ),
-                                          ),
-                                        ],
+                                      Text(
+                                        'NOW PLAYING',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          letterSpacing: 2,
+                                          color: palette.textMuted,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
-                                      const SizedBox(height: 8),
-                                      VisualizerBars(
-                                        bands: _visualizer.bands,
+                                      const SizedBox(height: 3),
+                                      const Text(
+                                        AppInfo.displayName,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
-                              ),
-                            MediaTransportControls(
-                              leadingControl: _QualityChip(
-                                song: song,
-                                onBeforeTap: _markControlActionTapped,
-                              ),
-                              isPlaying: player.isPlaying,
-                              isBusy:
-                                  player.isBuffering || player.isResolving,
-                              position: player.position,
-                              duration: player.duration,
-                              onPlayPause: player.togglePlayback,
-                              onNext: player.next,
-                              onPrevious: player.previous,
-                              onSeek: player.seek,
+                                _buildDownloadButton(context, player, song),
+                                Consumer<VideoExportManager>(
+                                  builder: (context, export, _) {
+                                    if (!export.isBusy) {
+                                      return IconButton(
+                                        tooltip: 'Export lyric video',
+                                        onPressed: () => _exportVideo(song),
+                                        icon: const Icon(
+                                          Icons.movie_creation_outlined,
+                                        ),
+                                      );
+                                    }
+                                    final percent = export.percent;
+                                    final phase = switch (export.state) {
+                                      VideoExportState.preparing => 'Preparing',
+                                      VideoExportState.saving => 'Saving',
+                                      _ => 'Rendering',
+                                    };
+                                    return Tooltip(
+                                      message:
+                                          '$phase lyric video · $percent% — tap to stop',
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(
+                                          24,
+                                        ),
+                                        onTap: () =>
+                                            _confirmStopExport(export),
+                                        child: SizedBox(
+                                          width: 48,
+                                          height: 48,
+                                          child: Stack(
+                                            alignment: Alignment.center,
+                                            children: <Widget>[
+                                              SizedBox(
+                                                width: 34,
+                                                height: 34,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      value: percent == 0
+                                                          ? null
+                                                          : export.progress,
+                                                      strokeWidth: 2.5,
+                                                    ),
+                                              ),
+                                              Text(
+                                                '$percent%',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).colorScheme.onSurface,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                IconButton(
+                                  tooltip: _showVisualizer
+                                      ? 'Hide live waveform'
+                                      : 'Show live waveform',
+                                  onPressed: () => _toggleVisualizer(player),
+                                  icon: AnimatedRhythmIcon(
+                                    active:
+                                        _showVisualizer && player.isPlaying,
+                                    color: _showVisualizer
+                                        ? palette.accent
+                                        : palette.textSecondary,
+                                  ),
+                                ),
+                              ],
                             ),
-                            _buildControlStrip(context, player, song, palette),
-                            const SizedBox(height: 8),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Column(
+                        children: <Widget>[
+                          Expanded(
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final available = (constraints.maxHeight - 10)
+                                    .clamp(0.0, double.infinity)
+                                    .toDouble();
+                                final displayHeight = available < cardHeight
+                                    ? available
+                                    : cardHeight;
+                                final artworkOrLyrics = _showLyrics
+                                    ? Stack(
+                                        fit: StackFit.expand,
+                                        children: <Widget>[
+                                          _LyricsPanel(
+                                            key: ValueKey<String>(
+                                              'lyrics-${song.id}',
+                                            ),
+                                            song: song,
+                                            position: player.position,
+                                          ),
+                                          Positioned(
+                                            right: 14,
+                                            bottom: 14,
+                                            child: IconButton(
+                                              tooltip: 'Show artwork',
+                                              onPressed: () => setState(
+                                                () => _showLyrics = false,
+                                              ),
+                                              style: IconButton.styleFrom(
+                                                foregroundColor:
+                                                    palette.accent,
+                                                backgroundColor: palette
+                                                    .surface
+                                                    .withValues(alpha: 0.88),
+                                              ),
+                                              icon: const Icon(
+                                                Icons.album_rounded,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : MediaArtworkCard(
+                                        key: ValueKey<String>(
+                                          'card-${song.id}',
+                                        ),
+                                        song: song,
+                                        onLyricsTap: () =>
+                                            _toggleLyrics(song),
+                                      );
+                                return Center(
+                                  child: SizedBox(
+                                    width: double.infinity,
+                                    height: displayHeight,
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        4,
+                                        16,
+                                        6,
+                                      ),
+                                      child: AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 220,
+                                        ),
+                                        child: KeyedSubtree(
+                                          key: ValueKey<String>(
+                                            _showLyrics
+                                                ? 'lyrics-${song.id}'
+                                                : 'card-${song.id}',
+                                          ),
+                                          child: artworkOrLyrics,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          if (_showVisualizer)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                24,
+                                4,
+                                24,
+                                6,
+                              ),
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.fromLTRB(
+                                  14,
+                                  10,
+                                  14,
+                                  10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: palette.surface.withValues(
+                                    alpha: 0.92,
+                                  ),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(
+                                    color: palette.outline.withValues(
+                                      alpha: 0.6,
+                                    ),
+                                  ),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Row(
+                                      children: <Widget>[
+                                        AnimatedRhythmIcon(
+                                          active: player.isPlaying,
+                                          color: palette.accent,
+                                          size: 16,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'LIVE WAVEFORM',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            letterSpacing: 1.6,
+                                            fontWeight: FontWeight.w800,
+                                            color: palette.textMuted,
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        Text(
+                                          'On for every song',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            color: palette.textMuted,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    VisualizerBars(
+                                      bands: _visualizer.bands,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          MediaTransportControls(
+                            leadingControl: _QualityChip(
+                              song: song,
+                              onBeforeTap: _markControlActionTapped,
+                            ),
+                            isPlaying: player.isPlaying,
+                            isBusy:
+                                player.isBuffering || player.isResolving,
+                            position: player.position,
+                            duration: player.duration,
+                            onPlayPause: player.togglePlayback,
+                            onNext: player.next,
+                            onPrevious: player.previous,
+                            onSeek: player.seek,
+                          ),
+                          _buildControlStrip(context, player, song, palette),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            );
-          },
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -1777,67 +1719,13 @@ class _QueueSheetState extends State<_QueueSheet> {
 
   final DraggableScrollableController _sheetController =
       DraggableScrollableController();
-  ScrollController? _queueScrollController;
-  Offset? _pointerStart;
-  int? _pointerId;
-  double? _pointerStartExtent;
-  bool _pointerStartedAtListTop = false;
   double? _headerStartExtent;
   double _headerDragDistance = 0;
-  bool _dismissRequested = false;
 
   @override
   void dispose() {
     _sheetController.dispose();
     super.dispose();
-  }
-
-  bool _queueIsAtTop() =>
-      _queueScrollController == null ||
-      !_queueScrollController!.hasClients ||
-      _queueScrollController!.position.extentBefore <= 0.5;
-
-  void _handlePointerDown(PointerDownEvent event) {
-    _pointerId = event.pointer;
-    _pointerStart = event.position;
-    _pointerStartExtent = _sheetController.isAttached
-        ? _sheetController.size
-        : null;
-    _pointerStartedAtListTop = _queueIsAtTop();
-    _dismissRequested = false;
-  }
-
-  void _handlePointerMove(PointerMoveEvent event) {
-    if (!context.read<AppSettingsService>().oneHandModeEnabled ||
-        _pointerId != event.pointer ||
-        _dismissRequested) {
-      return;
-    }
-    final start = _pointerStart;
-    final startExtent = _pointerStartExtent;
-    if (start == null || startExtent == null || !_sheetController.isAttached) {
-      return;
-    }
-    final movement = event.position - start;
-    if (startExtent <= _minExtent + 0.01 &&
-        _pointerStartedAtListTop &&
-        movement.dy >= 72 &&
-        movement.dy >= movement.dx.abs() * 1.2 &&
-        _sheetController.size <= _minExtent + 0.015 &&
-        _queueIsAtTop()) {
-      // Keep the free-drag minimum open; a fresh downward gesture from that
-      // minimum dismisses the queue.
-      _dismissRequested = true;
-      Navigator.of(context).pop();
-    }
-  }
-
-  void _handlePointerEnd(PointerEvent event) {
-    if (_pointerId != event.pointer) return;
-    _pointerId = null;
-    _pointerStart = null;
-    _pointerStartExtent = null;
-    _dismissRequested = false;
   }
 
   void _startHeaderDrag(DragStartDetails details) {
@@ -1861,18 +1749,25 @@ class _QueueSheetState extends State<_QueueSheet> {
   }
 
   void _settleHeaderDrag(DragEndDetails details) {
-    if (!mounted ||
-        context.read<AppSettingsService>().oneHandModeEnabled ||
-        _dismissRequested ||
-        !_sheetController.isAttached ||
-        _headerStartExtent == null) {
+    if (!mounted || !_sheetController.isAttached || _headerStartExtent == null) {
       return;
     }
+    final oneHandModeEnabled = context
+        .read<AppSettingsService>()
+        .oneHandModeEnabled;
     final velocity = details.primaryVelocity ?? 0;
     final current = _sheetController.size;
-    final minExtent = context.read<AppSettingsService>().oneHandModeEnabled
-        ? _minExtent
-        : 0.10;
+    if (oneHandModeEnabled) {
+      if (current <= _minExtent + 0.015 &&
+          (_headerDragDistance > 38 || velocity > 520) &&
+          (ModalRoute.of(context)?.isCurrent ?? false)) {
+        Navigator.of(context).pop();
+      }
+      // Above the minimum, leave the sheet exactly where the user released it.
+      return;
+    }
+
+    const minExtent = 0.10;
     final double target;
     if (velocity > 520 || _headerDragDistance > 38) {
       target = minExtent;
@@ -1907,190 +1802,182 @@ class _QueueSheetState extends State<_QueueSheet> {
         ? const <SongModel>[]
         : queue.sublist(upcomingStart);
 
-    return Listener(
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: _handlePointerDown,
-      onPointerMove: _handlePointerMove,
-      onPointerUp: _handlePointerEnd,
-      onPointerCancel: _handlePointerEnd,
-      child: _SheetSnapHaptics(
-        stopExtents: oneHandModeEnabled
-            ? const <double>[_minExtent]
-            : const <double>[],
-        child: DraggableScrollableSheet(
-          controller: _sheetController,
-          initialChildSize: _maxExtent,
-          minChildSize: queueMinExtent,
-          maxChildSize: _maxExtent,
-          snap: false,
-          shouldCloseOnMinExtent: !oneHandModeEnabled,
-          expand: false,
-          builder: (context, scrollController) {
-            _queueScrollController = scrollController;
-            return DecoratedBox(
-              decoration: BoxDecoration(
-                color: palette.surface,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(28),
-                ),
-                border: Border.all(
-                  color: palette.outline.withValues(alpha: 0.75),
-                ),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.22),
-                    blurRadius: 22,
-                    offset: const Offset(0, -5),
-                  ),
-                ],
+    return _SheetSnapHaptics(
+      stopExtents: oneHandModeEnabled
+          ? const <double>[_minExtent]
+          : const <double>[],
+      child: DraggableScrollableSheet(
+        controller: _sheetController,
+        initialChildSize: _maxExtent,
+        minChildSize: queueMinExtent,
+        maxChildSize: _maxExtent,
+        snap: false,
+        shouldCloseOnMinExtent: true,
+        expand: false,
+        builder: (context, scrollController) {
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              color: palette.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
               ),
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(28),
+              border: Border.all(
+                color: palette.outline.withValues(alpha: 0.75),
+              ),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: 22,
+                  offset: const Offset(0, -5),
                 ),
-                child: SafeArea(
-                  top: false,
-                  child: Column(
-                    children: <Widget>[
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onVerticalDragStart: _startHeaderDrag,
-                        onVerticalDragUpdate: _updateHeaderDrag,
-                        onVerticalDragEnd: _settleHeaderDrag,
-                        child: Column(
-                          children: <Widget>[
-                            const SizedBox(height: 10),
-                            Container(
-                              width: 40,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: palette.outline,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  children: <Widget>[
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onVerticalDragStart: _startHeaderDrag,
+                      onVerticalDragUpdate: _updateHeaderDrag,
+                      onVerticalDragEnd: _settleHeaderDrag,
+                      child: Column(
+                        children: <Widget>[
+                          const SizedBox(height: 10),
+                          Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: palette.outline,
+                              borderRadius: BorderRadius.circular(4),
                             ),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(12, 7, 4, 8),
-                              child: Row(
-                                children: <Widget>[
-                                  const Expanded(
-                                    child: Text(
-                                      'Up next',
-                                      style: TextStyle(
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                  Text(
-                                    upcoming.isEmpty
-                                        ? 'Nothing queued'
-                                        : '${upcoming.length} next',
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 7, 4, 8),
+                            child: Row(
+                              children: <Widget>[
+                                const Expanded(
+                                  child: Text(
+                                    'Up next',
                                     style: TextStyle(
-                                      color: palette.textMuted,
-                                      fontSize: 12,
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w800,
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
-                                  TextButton.icon(
-                                    onPressed: upcoming.isEmpty
-                                        ? null
-                                        : () => player.clearUpNext(),
-                                    icon: const Icon(
-                                      Icons.clear_all_rounded,
-                                      size: 18,
-                                    ),
-                                    label: const Text('Clear'),
+                                ),
+                                Text(
+                                  upcoming.isEmpty
+                                      ? 'Nothing queued'
+                                      : '${upcoming.length} next',
+                                  style: TextStyle(
+                                    color: palette.textMuted,
+                                    fontSize: 12,
                                   ),
-                                  IconButton(
-                                    tooltip: 'Close queue',
-                                    onPressed: () => Navigator.pop(context),
-                                    icon: const Icon(Icons.close_rounded),
+                                ),
+                                const SizedBox(width: 6),
+                                TextButton.icon(
+                                  onPressed: upcoming.isEmpty
+                                      ? null
+                                      : () => player.clearUpNext(),
+                                  icon: const Icon(
+                                    Icons.clear_all_rounded,
+                                    size: 18,
                                   ),
-                                ],
-                              ),
+                                  label: const Text('Clear'),
+                                ),
+                                IconButton(
+                                  tooltip: 'Close queue',
+                                  onPressed: () => Navigator.pop(context),
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      Expanded(
-                        child: upcoming.isEmpty
-                            ? ListView(
-                                controller: scrollController,
-                                physics: const AlwaysScrollableScrollPhysics(
-                                  parent: ClampingScrollPhysics(),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 28,
-                                ),
-                                children: const <Widget>[
-                                  SizedBox(height: 220, child: _EmptyUpNext()),
-                                ],
-                              )
-                            : ReorderableListView.builder(
-                                scrollController: scrollController,
-                                physics: const AlwaysScrollableScrollPhysics(
-                                  parent: ClampingScrollPhysics(),
-                                ),
-                                buildDefaultDragHandles: false,
-                                itemCount: upcoming.length,
-                                // onReorderItem already reports the final
-                                // index after removing the dragged row.
-                                onReorderItem: (oldIndex, newIndex) {
-                                  player.reorderQueue(
-                                    upcomingStart + oldIndex,
-                                    upcomingStart + newIndex,
-                                  );
-                                },
-                                itemBuilder: (context, index) {
-                                  final song = upcoming[index];
-                                  final globalIndex = upcomingStart + index;
-                                  final recommended = player.recommendationIds
-                                      .contains(song.id);
-                                  final reason = recommended
-                                      ? player.recommendationReasonFor(song)
-                                      : '';
-                                  return ReorderableDelayedDragStartListener(
-                                    key: ValueKey<String>('up-next-${song.id}'),
-                                    index: index,
-                                    child: SongTile(
-                                      song: song,
-                                      subtitleOverride: recommended
-                                          ? <String>[
-                                              'Recommended',
-                                              if (reason.isNotEmpty) reason,
-                                            ].join(' • ')
-                                          : null,
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: <Widget>[
-                                          if (recommended)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                right: 2,
-                                              ),
-                                              child: Icon(
-                                                Icons.auto_awesome_rounded,
-                                                size: 16,
-                                                color: palette.accent,
-                                              ),
-                                            ),
-                                          const Icon(Icons.drag_handle_rounded),
-                                        ],
-                                      ),
-                                      onTap: () =>
-                                          player.playAtQueueIndex(globalIndex),
-                                    ),
-                                  );
-                                },
+                    ),
+                    Expanded(
+                      child: upcoming.isEmpty
+                          ? ListView(
+                              controller: scrollController,
+                              physics: const AlwaysScrollableScrollPhysics(
+                                parent: ClampingScrollPhysics(),
                               ),
-                      ),
-                    ],
-                  ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 28,
+                              ),
+                              children: const <Widget>[
+                                SizedBox(height: 220, child: _EmptyUpNext()),
+                              ],
+                            )
+                          : ReorderableListView.builder(
+                              scrollController: scrollController,
+                              physics: const AlwaysScrollableScrollPhysics(
+                                parent: ClampingScrollPhysics(),
+                              ),
+                              buildDefaultDragHandles: false,
+                              itemCount: upcoming.length,
+                              // onReorderItem already reports the final
+                              // index after removing the dragged row.
+                              onReorderItem: (oldIndex, newIndex) {
+                                player.reorderQueue(
+                                  upcomingStart + oldIndex,
+                                  upcomingStart + newIndex,
+                                );
+                              },
+                              itemBuilder: (context, index) {
+                                final song = upcoming[index];
+                                final globalIndex = upcomingStart + index;
+                                final recommended = player.recommendationIds
+                                    .contains(song.id);
+                                final reason = recommended
+                                    ? player.recommendationReasonFor(song)
+                                    : '';
+                                return ReorderableDelayedDragStartListener(
+                                  key: ValueKey<String>('up-next-${song.id}'),
+                                  index: index,
+                                  child: SongTile(
+                                    song: song,
+                                    subtitleOverride: recommended
+                                        ? <String>[
+                                            'Recommended',
+                                            if (reason.isNotEmpty) reason,
+                                          ].join(' • ')
+                                        : null,
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: <Widget>[
+                                        if (recommended)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              right: 2,
+                                            ),
+                                            child: Icon(
+                                              Icons.auto_awesome_rounded,
+                                              size: 16,
+                                              color: palette.accent,
+                                            ),
+                                          ),
+                                        const Icon(Icons.drag_handle_rounded),
+                                      ],
+                                    ),
+                                    onTap: () =>
+                                        player.playAtQueueIndex(globalIndex),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
                 ),
               ),
-            );
-          },
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -2194,11 +2081,19 @@ Future<void> showExportProgress(BuildContext context) async {
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-            child: Text(
-              manager.state == VideoExportState.preparing
-                  ? 'Preparing lyric video'
-                  : 'Rendering lyric video',
-              style: Theme.of(sheetContext).textTheme.titleMedium,
+            child: AnimatedBuilder(
+              animation: manager,
+              builder: (context, _) {
+                final phase = switch (manager.state) {
+                  VideoExportState.preparing => 'Preparing',
+                  VideoExportState.saving => 'Saving',
+                  _ => 'Rendering',
+                };
+                return Text(
+                  '$phase lyric video',
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
+                );
+              },
             ),
           ),
           Padding(
@@ -2224,9 +2119,13 @@ Future<void> showExportProgress(BuildContext context) async {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      manager.state == VideoExportState.preparing
-                          ? 'Preparing audio and lyrics; progress continues while you use the app.'
-                          : 'The video keeps rendering while you use the app.',
+                      switch (manager.state) {
+                        VideoExportState.preparing =>
+                          'Preparing audio and lyrics; progress continues while you use the app.',
+                        VideoExportState.saving =>
+                          'Saving the finished video; you can stop until it is complete.',
+                        _ => 'The video keeps rendering while you use the app.',
+                      },
                       style: TextStyle(
                         fontSize: 12,
                         color: context.palette.textMuted,

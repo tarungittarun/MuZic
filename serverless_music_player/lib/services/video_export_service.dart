@@ -47,7 +47,16 @@ class VideoExportService {
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
+    final stopwatch = Stopwatch()..start();
+    var stage = 'validate_lyrics';
     if (lyrics == null || !lyrics.hasSynced) {
+      logError('video', 'export input validation failed', <String, Object?>{
+        'song': song.title,
+        'stage': stage,
+        'progressPercent': 40,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
+        'error': 'Lyrics are unavailable for this track.',
+      });
       throw StateError('Lyrics are unavailable for this track.');
     }
     _cancelRequested = false;
@@ -55,6 +64,13 @@ class VideoExportService {
     _artworkCancelToken = artworkCancelToken;
     StreamSubscription<double>? subscription;
     try {
+      stage = 'download_artwork';
+      logInfo('video', 'export stage', <String, Object?>{
+        'song': song.title,
+        'stage': stage,
+        'progressPercent': 40,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
+      });
       final artworkPath = await _downloadArtwork(
         song,
         cancelToken: artworkCancelToken,
@@ -62,6 +78,15 @@ class VideoExportService {
       if (_cancelRequested || isCancelled?.call() == true) {
         throw StateError('Export stopped.');
       }
+      stage = 'media_export';
+      logInfo('video', 'export stage', <String, Object?>{
+        'song': song.title,
+        'stage': stage,
+        'progressPercent': 42,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
+        'lyricLineCount': lyrics.syncedLines.length,
+        'hasArtwork': artworkPath != null,
+      });
       final lines = <Map<String, Object?>>[
         for (final line in lyrics.syncedLines)
           <String, Object?>{
@@ -91,19 +116,47 @@ class VideoExportService {
       );
       logInfo('video', 'export finished', <String, Object?>{
         'song': song.title,
+        'stage': 'completed',
+        'progressPercent': 100,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
         'path': path,
         'lyricLines': lines.length,
       });
       return VideoExportResult(path: path ?? '', shared: path != null);
-    } on MissingPluginException {
-      throw StateError('Video export is unavailable on this device.');
-    } on PlatformException catch (error) {
+    } on MissingPluginException catch (error) {
       logError('video', 'export failed', <String, Object?>{
         'song': song.title,
-        'error': '${error.code}: ${error.message}',
-        'details': '${error.details}',
+        'stage': stage,
+        'progressPercent': 42,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
+        'error': '$error',
+      });
+      throw StateError('Video export is unavailable on this device.');
+    } on PlatformException catch (error) {
+      final details = error.details;
+      final detailMap = details is Map ? details : const <Object?, Object?>{};
+      final rawProgress = detailMap['progress'];
+      logError('video', 'export failed', <String, Object?>{
+        'song': song.title,
+        'stage': detailMap['stage']?.toString() ?? stage,
+        'progressPercent': rawProgress is num ? (rawProgress * 100).round() : 42,
+        'elapsedMs': detailMap['elapsedMs'] is num
+            ? detailMap['elapsedMs']
+            : stopwatch.elapsedMilliseconds,
+        'errorCode': error.code,
+        'error': error.message ?? '$error',
+        'nativeDetails': details,
       });
       throw StateError(error.message ?? 'Video export failed.');
+    } catch (error) {
+      logError('video', 'export failed', <String, Object?>{
+        'song': song.title,
+        'stage': stage,
+        'progressPercent': 42,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
+        'error': '$error',
+      });
+      rethrow;
     } finally {
       await subscription?.cancel();
       if (identical(_artworkCancelToken, artworkCancelToken)) {

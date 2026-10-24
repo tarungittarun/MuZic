@@ -319,11 +319,13 @@ class MusicApiService {
     return <SongModel>[...relevant, ...rest];
   }
 
-  /// Trending songs from JioSaavn (used by the Discover home shelves).
+  /// Trending songs from the primary catalogue, with an independent search
+  /// fallback when the chart endpoint is unavailable or returns no tracks.
   Future<List<SongModel>> fetchTrending({
     int limit = 20,
     String language = 'english',
   }) async {
+    if (limit <= 0) return const <SongModel>[];
     final stopwatch = Stopwatch()..start();
     final uri = Uri.https(_saavnHost, '/api.php', <String, String>{
       '__call': 'content.getTrending',
@@ -337,7 +339,11 @@ class MusicApiService {
     try {
       final response =
           await _http.get(uri, headers: _saavnHeaders).timeout(_timeout);
-      if (response.statusCode != 200) return const <SongModel>[];
+      if (response.statusCode != 200) {
+        throw http.ClientException(
+          'Trending chart returned HTTP ${response.statusCode}.',
+        );
+      }
       final decoded = jsonDecode(response.body);
       final rows = decoded is Iterable
           ? decoded.toList(growable: false)
@@ -347,19 +353,51 @@ class MusicApiService {
           .whereType<SongModel>()
           .take(limit)
           .toList(growable: false);
-      logInfo('api', 'fetchTrending', <String, Object?>{
-        'language': language,
-        'results': songs.length,
-        'ms': stopwatch.elapsedMilliseconds,
-      });
-      return songs;
+      if (songs.isNotEmpty) {
+        logInfo('api', 'fetchTrending', <String, Object?>{
+          'language': language,
+          'results': songs.length,
+          'ms': stopwatch.elapsedMilliseconds,
+        });
+        return songs;
+      }
+      logWarn('api', 'trending chart returned no tracks; trying fallback',
+          <String, Object?>{'language': language});
     } catch (error) {
-      logWarn('api', 'fetchTrending failed', <String, Object?>{
+      logWarn('api', 'trending chart failed; trying fallback',
+          <String, Object?>{
+        'language': language,
         'error': '$error',
         'ms': stopwatch.elapsedMilliseconds,
       });
-      return const <SongModel>[];
     }
+
+    final fallbackQuery = 'trending $language songs India';
+    final fallback = await searchYouTube(fallbackQuery, limit: limit);
+    logInfo('api', 'trending fallback completed', <String, Object?>{
+      'language': language,
+      'results': fallback.length,
+      'ms': stopwatch.elapsedMilliseconds,
+    });
+    return fallback;
+  }
+
+  /// Keep the catalogue as the normal recommendation source, but recover
+  /// from its outage or an empty query using the independent search source.
+  Future<List<SongModel>> searchSaavnWithYouTubeFallback(
+    String query, {
+    int limit = 18,
+  }) async {
+    try {
+      final primary = await searchJioSaavn(query, limit: limit);
+      if (primary.isNotEmpty) return primary;
+      logWarn('api', 'catalogue search returned no tracks; trying fallback',
+          <String, Object?>{'query': query});
+    } catch (error) {
+      logWarn('api', 'catalogue search unavailable; trying fallback',
+          <String, Object?>{'query': query, 'error': '$error'});
+    }
+    return searchYouTube(query, limit: limit);
   }
 
   /// Artist matches for a query. Used to open an artist library with that
