@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../services/local_files_service.dart';
 import '../services/usage_service.dart';
 import '../services/video_library_service.dart';
 import '../theme/app_theme.dart';
+import 'lyric_video_player_screen.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/muzic_home_button.dart';
 import '../widgets/song_tile.dart';
@@ -389,9 +391,8 @@ class _LyricVideosPage extends StatelessWidget {
         icon: Icons.movie_creation_outlined,
         title: 'No lyric videos yet',
         message:
-            'Export one from the player: the movie icon next '
-            'to the waveform button. Videos are saved to '
-            'Movies/MuZic.',
+            'Export one from the player: the movie icon next to the waveform '
+            'button. Your lyric videos appear here and play inside MuZic.',
       );
     }
     return ListView(
@@ -450,107 +451,138 @@ class _LyricVideoTile extends StatelessWidget {
         : '${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}';
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 3, 8, 3),
-      child: Row(
-        children: <Widget>[
-          Stack(
-            children: <Widget>[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: SizedBox(
-                  width: 54,
-                  height: 54,
-                  child: (video.artworkPath != null &&
-                          File(video.artworkPath!).existsSync())
-                      ? Image.file(File(video.artworkPath!), fit: BoxFit.cover)
-                      : Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: <Color>[
-                                palette.accent.withValues(alpha: 0.35),
-                                palette.mint.withValues(alpha: 0.25),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                          ),
-                          child: const Icon(Icons.movie_rounded, size: 22),
-                        ),
-                ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            final player = context.read<PlayerController>();
+            if (player.isPlaying) unawaited(player.togglePlayback());
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => LyricVideoPlayerScreen(video: video),
               ),
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.65),
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(6),
-                      bottomRight: Radius.circular(14),
+            );
+          },
+          child: Row(
+            children: <Widget>[
+              Stack(
+                children: <Widget>[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: SizedBox(
+                      width: 54,
+                      height: 54,
+                      child: (video.artworkPath != null &&
+                              File(video.artworkPath!).existsSync())
+                          ? Image.file(File(video.artworkPath!), fit: BoxFit.cover)
+                          : Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: <Color>[
+                                    palette.accent.withValues(alpha: 0.35),
+                                    palette.mint.withValues(alpha: 0.25),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                              child: const Icon(Icons.movie_rounded, size: 22),
+                            ),
                     ),
                   ),
-                  child: const Icon(Icons.play_arrow_rounded,
-                      size: 11, color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  video.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 13.5, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  video.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 11.5, color: palette.textMuted),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: <Widget>[
-                    Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: palette.accent.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(20),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
                       ),
-                      child: Text(
-                        'MP4 · lyric video${durationLabel == null ? '' : ' · $durationLabel'}',
-                        style: TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w700,
-                          color: palette.accent,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.65),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(6),
+                          bottomRight: Radius.circular(14),
                         ),
                       ),
+                      child: const Icon(
+                        Icons.play_arrow_rounded,
+                        size: 11,
+                        color: Colors.white,
+                      ),
                     ),
-                    const SizedBox(width: 8),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
                     Text(
-                      stamp,
-                      style: TextStyle(fontSize: 10, color: palette.textMuted),
+                      video.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      video.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11.5, color: palette.textMuted),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: <Widget>[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: palette.accent.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'MP4 · lyric video${durationLabel == null ? '' : ' · $durationLabel'}',
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                              color: palette.accent,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          stamp,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: palette.textMuted,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
+              ),
+              IconButton(
+                tooltip: 'Remove from library',
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 19,
+                  color: palette.textMuted,
+                ),
+                onPressed: () => _confirmRemove(context, video),
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: 'Remove from library',
-            icon: Icon(Icons.delete_outline_rounded,
-                size: 19, color: palette.textMuted),
-            onPressed: () => _confirmRemove(context, video),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -562,8 +594,8 @@ class _LyricVideoTile extends StatelessWidget {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Remove lyric video?'),
         content: const Text(
-          'This only removes the entry from MuZic. The video stays in your '
-          'phone\'s Movies/MuZic folder.',
+          'This removes the entry from MuZic. '
+          'The video itself stays where it was saved.',
         ),
         actions: <Widget>[
           TextButton(

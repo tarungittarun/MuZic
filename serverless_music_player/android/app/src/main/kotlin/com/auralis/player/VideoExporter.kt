@@ -18,17 +18,22 @@ import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.text.Layout
+import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import androidx.documentfile.provider.DocumentFile
 import org.json.JSONArray
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.OutputStream
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -41,15 +46,16 @@ class VideoExporter(private val context: Context) {
 
     data class LyricLine(val timeMs: Long, val text: String)
 
-    private val width = 540
-    private val height = 540
+    private data class CachedLyricLayout(val layout: StaticLayout)
 
-    // A 540 px square at 20 fps keeps lyrics crisp while substantially
-    // reducing the per-frame CPU work on mid-range phones. The smaller frame
-    // and lower frame rate cut pixel conversion work by about half versus
-    // 720 px at 24 fps; 1.5 Mbps remains clean at this output size.
+    private val width = 540
+    private val height = 960
+
+    // A 540×960 portrait frame keeps captions comfortably below the artwork
+    // and fills a phone screen. Twenty frames per second and a modest bitrate
+    // keep the added portrait pixels practical on mid-range phones.
     private val fps = 20
-    private val videoBitrate = 1_500_000
+    private val videoBitrate = 1_800_000
 
     /** Thrown when the requested soundtrack disappears before it can be read. */
     class MissingAudio : RuntimeException("The audio file is not available.")
@@ -65,6 +71,7 @@ class VideoExporter(private val context: Context) {
         lyrics: List<LyricLine>,
         durationMsHint: Long,
         outputName: String,
+        outputFolderUri: String? = null,
         isCancelled: () -> Boolean = { false },
         onStage: (String) -> Unit = {},
         onProgress: (Double) -> Unit,
@@ -506,19 +513,25 @@ class VideoExporter(private val context: Context) {
             runCatching { artwork?.recycle() }
             runCatching { renderer.release() }
             // A cancelled or failed render must not leave a half-written MP4
-            // behind, otherwise the gallery shows a broken video.
+            // behind, otherwise the video list may show a broken entry.
             if (!completed) runCatching { if (outputFile.exists()) outputFile.delete() }
         }
         return try {
-            onStage("publish_gallery")
+            onStage(
+                if (outputFolderUri.isNullOrBlank()) {
+                    "publish_gallery"
+                } else {
+                    "publish_custom_folder"
+                },
+            )
             onProgress(0.99)
             if (isCancelled()) throw Cancelled()
-            val published = publishToGallery(outputFile, isCancelled)
+            val published = publishToGallery(outputFile, outputFolderUri, isCancelled)
             onProgress(1.0)
             published
         } finally {
-            // This is only staging. Keep the gallery/app export copy, never the
-            // intermediate file created for MediaMuxer.
+            // This is only staging. Keep the selected-folder/gallery/app copy,
+            // never the intermediate file created for MediaMuxer.
             runCatching { if (outputFile.exists()) outputFile.delete() }
         }
     }
@@ -638,7 +651,7 @@ class VideoExporter(private val context: Context) {
 
     private fun createOutputFile(name: String): File {
         // Keep MediaMuxer's scratch output on internal app storage, then copy
-        // only the completed video to the user-visible Movies collection below.
+        // only the completed video to the selected folder or shared Movies below.
         val directory = File(context.filesDir, "video_exports")
         if (!directory.exists() && !directory.mkdirs() && !directory.exists()) {
             throw IllegalStateException(
@@ -664,8 +677,48 @@ class VideoExporter(private val context: Context) {
         return File(directory, candidate)
     }
 
-    /** Copies the finished MP4 to shared Movies storage (or a retained app export on older Android). */
-    private fun publishToGallery(file: File, isCancelled: () -> Boolean): String {
+    /** Writes the finished MP4 directly into the persisted SAF folder selected in Settings. */
+    private fun publishToSelectedFolder(
+        file: File,
+        folderUri: String,
+        isCancelled: () -> Boolean,
+    ): String {
+        val treeUri = Uri.parse(folderUri)
+        val parent = DocumentFile.fromTreeUri(context, treeUri)
+        if (parent == null || !parent.canWrite()) {
+            throw IOException("The selected downloads folder cannot be written to.")
+        }
+        val baseName = file.nameWithoutExtension
+        val extension = file.extension.ifEmpty { "mp4" }
+        var candidateName = file.name
+        var suffix = 2
+        while (parent.findFile(candidateName) != null) {
+            candidateName = "$baseName ($suffix).$extension"
+            suffix++
+        }
+        val destination = parent.createFile("video/mp4", candidateName)
+            ?: throw IOException("Could not create the video in the selected downloads folder.")
+        try {
+            val output = context.contentResolver.openOutputStream(destination.uri)
+                ?: throw IOException("Could not open the video in the selected downloads folder.")
+            output.use { stream -> copyWithCancellation(file, stream, isCancelled) }
+            if (isCancelled()) throw Cancelled()
+            return destination.uri.toString()
+        } catch (error: Exception) {
+            runCatching { destination.delete() }
+            throw error
+        }
+    }
+
+    /** Publishes the finished MP4 to the selected downloads folder, or the existing Movies location. */
+    private fun publishToGallery(
+        file: File,
+        outputFolderUri: String?,
+        isCancelled: () -> Boolean,
+    ): String {
+        if (!outputFolderUri.isNullOrBlank()) {
+            return publishToSelectedFolder(file, outputFolderUri, isCancelled)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Video.Media.DISPLAY_NAME, file.name)
@@ -761,27 +814,38 @@ class VideoExporter(private val context: Context) {
         private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 34f
+            textSize = 32f
+            textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         private val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#B8B5C8")
-            textSize = 24f
+            textSize = 23f
+            textAlign = Paint.Align.CENTER
         }
         private val lyricPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 32f
+            textSize = 34f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         private val nextLyricPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#7A7690")
-            textSize = 24f
+            color = Color.parseColor("#C2BED1")
+            textSize = 25f
         }
         private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#8B7CFF")
         }
         private val progressPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val artRect = RectF(60f, 90f, w - 60f, 90f + (w - 120f))
+        private val artRect = RectF(60f, 72f, w - 60f, 72f + (w - 120f))
+        private val lyricMaxWidth = w - 96
+        private val activeLyricTop = h * 0.71f
+        private val activeLyricHeight = h * 0.13f
+        private val nextLyricTop = h * 0.85f
+        private val nextLyricHeight = h * 0.08f
+        private var cachedActiveIndex = Int.MIN_VALUE
+        private var cachedActiveLayout: CachedLyricLayout? = null
+        private var cachedNextIndex = Int.MIN_VALUE
+        private var cachedNextLayout: CachedLyricLayout? = null
 
         init {
             backgroundPaint.shader = LinearGradient(
@@ -799,10 +863,9 @@ class VideoExporter(private val context: Context) {
             )
         }
 
-        // Everything that never changes (gradient, cover art, title, artist) is
-        // painted once into this layer and blitted per frame. Redrawing the
-        // gradient and scaling the artwork 24 times a second was the single
-        // most expensive part of an export.
+        // The gradient, cover and track metadata never change. Draw them once
+        // and blit the layer on each frame instead of repeating the expensive
+        // artwork scaling during the render.
         private val staticLayer: Bitmap =
             Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { layer ->
                 val layerCanvas = Canvas(layer)
@@ -824,17 +887,19 @@ class VideoExporter(private val context: Context) {
                     layerCanvas.drawRect(artRect, barPaint)
                 }
                 layerCanvas.restore()
+
                 val ellipsis = TextUtils.TruncateAt.END
+                val textWidth = (w - 120).toFloat()
                 layerCanvas.drawText(
-                    TextUtils.ellipsize(title, titlePaint, (w - 120).toFloat(), ellipsis).toString(),
-                    60f,
-                    artRect.bottom + 48f,
+                    TextUtils.ellipsize(title, titlePaint, textWidth, ellipsis).toString(),
+                    w / 2f,
+                    artRect.bottom + 46f,
                     titlePaint,
                 )
                 layerCanvas.drawText(
-                    TextUtils.ellipsize(artist, artistPaint, (w - 120).toFloat(), ellipsis).toString(),
-                    60f,
-                    artRect.bottom + 84f,
+                    TextUtils.ellipsize(artist, artistPaint, textWidth, ellipsis).toString(),
+                    w / 2f,
+                    artRect.bottom + 78f,
                     artistPaint,
                 )
             }
@@ -846,26 +911,31 @@ class VideoExporter(private val context: Context) {
         fun draw(positionMs: Long, rms: Double) {
             canvas.drawBitmap(staticLayer, 0f, 0f, null)
 
-            var activeIndex = 0
+            var activeIndex = -1
             for (index in lines.indices) {
                 if (lines[index].timeMs <= positionMs) activeIndex = index else break
             }
             val activeText = lines.getOrNull(activeIndex)?.text ?: title
-            val nextText = lines.getOrNull(activeIndex + 1)?.text ?: ""
+            val nextIndex = activeIndex + 1
+            val nextText = lines.getOrNull(nextIndex)?.text.orEmpty()
 
-            val ellipsis = TextUtils.TruncateAt.END
+            val activeLayout = activeLayoutFor(activeIndex, activeText)
+            drawCenteredLayout(activeLayout, activeLyricTop, activeLyricHeight)
+            if (nextText.isNotEmpty()) {
+                val nextLayout = nextLayoutFor(nextIndex, nextText)
+                drawCenteredLayout(nextLayout, nextLyricTop, nextLyricHeight)
+            }
 
-            // Live waveform driven by the decoded audio's RMS level.
+            // Live waveform driven by the decoded audio's RMS level. Keeping
+            // its height bounded leaves a clean gap above the lyric captions.
             val bars = 24
             val gap = 6f
             val barWidth = (w - 120f - gap * (bars - 1)) / bars
-            val baseline = h - 210f
+            val baseline = h * 0.685f
             val level = rms.coerceIn(0.02, 1.0)
             for (index in 0 until bars) {
-                val shape = abs(
-                    kotlin.math.sin(index * 0.7 + positionMs / 240.0),
-                )
-                val barHeight = (28f + 96f * level * shape).toFloat()
+                val shape = abs(kotlin.math.sin(index * 0.7 + positionMs / 240.0))
+                val barHeight = (8f + 52f * level * shape).toFloat()
                 val left = 60f + index * (barWidth + gap)
                 canvas.drawRoundRect(
                     left,
@@ -875,21 +945,6 @@ class VideoExporter(private val context: Context) {
                     6f,
                     6f,
                     barPaint,
-                )
-            }
-
-            canvas.drawText(
-                TextUtils.ellipsize(activeText, lyricPaint, (w - 100).toFloat(), ellipsis).toString(),
-                50f,
-                h - 130f,
-                lyricPaint,
-            )
-            if (nextText.isNotEmpty()) {
-                canvas.drawText(
-                    TextUtils.ellipsize(nextText, nextLyricPaint, (w - 100).toFloat(), ellipsis).toString(),
-                    50f,
-                    h - 88f,
-                    nextLyricPaint,
                 )
             }
 
@@ -918,6 +973,69 @@ class VideoExporter(private val context: Context) {
                 3f,
                 progressPaint,
             )
+        }
+
+        private fun activeLayoutFor(index: Int, text: String): CachedLyricLayout {
+            if (cachedActiveIndex != index || cachedActiveLayout == null) {
+                cachedActiveIndex = index
+                cachedActiveLayout = createWrappedLayout(
+                    text,
+                    lyricPaint,
+                    lyricMaxWidth,
+                    activeLyricHeight,
+                )
+            }
+            return cachedActiveLayout!!
+        }
+
+        private fun nextLayoutFor(index: Int, text: String): CachedLyricLayout {
+            if (cachedNextIndex != index || cachedNextLayout == null) {
+                cachedNextIndex = index
+                cachedNextLayout = createWrappedLayout(
+                    text,
+                    nextLyricPaint,
+                    lyricMaxWidth,
+                    nextLyricHeight,
+                )
+            }
+            return cachedNextLayout!!
+        }
+
+        private fun createWrappedLayout(
+            text: String,
+            sourcePaint: TextPaint,
+            maxWidth: Int,
+            maxHeight: Float,
+        ): CachedLyricLayout {
+            val paint = TextPaint(sourcePaint)
+            var textSize = sourcePaint.textSize
+            fun buildLayout(): StaticLayout {
+                paint.textSize = textSize
+                return StaticLayout.Builder.obtain(text, 0, text.length, paint, maxWidth)
+                    .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                    .setIncludePad(false)
+                    .setLineSpacing(0f, 1f)
+                    .build()
+            }
+            var layout = buildLayout()
+            while (layout.height.toFloat() > maxHeight && textSize > 14f) {
+                textSize = max(14f, textSize - 2f)
+                layout = buildLayout()
+            }
+            return CachedLyricLayout(layout)
+        }
+
+        private fun drawCenteredLayout(
+            cached: CachedLyricLayout,
+            top: Float,
+            height: Float,
+        ) {
+            val left = (w - lyricMaxWidth) / 2f
+            val y = top + ((height - cached.layout.height.toFloat()) / 2f).coerceAtLeast(0f)
+            canvas.save()
+            canvas.translate(left, y)
+            cached.layout.draw(canvas)
+            canvas.restore()
         }
     }
 }

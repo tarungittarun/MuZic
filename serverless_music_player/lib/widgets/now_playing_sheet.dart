@@ -187,10 +187,14 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     final api = context.read<MusicApiService>();
     final settings = context.read<AppSettingsService>();
     final videoLibrary = context.read<VideoLibraryService>();
+    final selectedDownloadsFolderUri = settings.hasCustomDownloadsFolder
+        ? settings.downloadsFolderUri
+        : null;
     var approximateLyricsTiming = false;
 
     final operation = manager.start(
       song: song,
+      outputFolderUri: selectedDownloadsFolderUri,
       prepareAudio: (onProgress, isCancelled) async {
         if (song.isLocalFile && song.localPath?.isNotEmpty == true) {
           onProgress(1);
@@ -272,9 +276,16 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
             const SnackBar(content: Text('Export stopped.')),
           );
         } else if (manager.error != null) {
-          final message = manager.error == 'Lyrics are unavailable for this track.'
-              ? 'Lyrics are unavailable, so a lyric video could not be created.'
-              : 'Could not export the video. Please try again.';
+          final error = manager.error?.toLowerCase() ?? '';
+          final String message;
+          if (manager.error == 'Lyrics are unavailable for this track.') {
+            message = 'Lyrics are unavailable, so a lyric video could not be created.';
+          } else if (error.contains('selected downloads folder')) {
+            message = 'Could not save to your selected downloads folder. '
+                'Check the folder setting and try again.';
+          } else {
+            message = 'Could not export the video. Please try again.';
+          }
           messenger.showSnackBar(SnackBar(content: Text(message)));
         }
         return;
@@ -287,9 +298,11 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
         artworkPath: song.localArtworkPath,
         durationMs: song.duration?.inMilliseconds,
       );
-      final location = result.path.startsWith('content://')
-          ? 'Movies/MuZic'
-          : result.path;
+      final location = selectedDownloadsFolderUri != null
+          ? 'your selected downloads folder'
+          : result.path.startsWith('content://')
+              ? 'Movies/MuZic'
+              : result.path;
       messenger.showSnackBar(
         SnackBar(
           content: Text(

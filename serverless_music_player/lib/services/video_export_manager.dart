@@ -59,6 +59,7 @@ class VideoExportManager extends ChangeNotifier {
       bool Function() isCancelled,
     ) prepareAudio,
     required Future<LyricsModel?> Function() loadLyrics,
+    String? outputFolderUri,
     Future<void> Function()? cancelPreparation,
     Future<void> Function(String path)? cleanupAudio,
   }) async {
@@ -192,6 +193,7 @@ class VideoExportManager extends ChangeNotifier {
         song: song,
         audioPath: audioPath,
         lyrics: lyrics,
+        outputFolderUri: outputFolderUri,
         isCancelled: () => _cancelRequested,
       );
       if (_cancelRequested) {

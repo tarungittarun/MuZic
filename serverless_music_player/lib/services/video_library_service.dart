@@ -7,10 +7,9 @@ import 'package:path_provider/path_provider.dart';
 
 /// A lyric video that was rendered on this device.
 ///
-/// Exports live next to the audio downloads but are a different kind of thing:
-/// they are not playable audio, they cannot be "cast" to the player, and they
-/// are usually shared or uploaded rather than played in app. Keeping a record
-/// lets the Downloads tab show them separately.
+/// Lyric videos are stored separately from audio downloads, can be played in
+/// the app, and can also be shared from the device. Keeping a record lets the
+/// Downloads tab list them alongside—but distinct from—audio.
 class VideoExportRecord {
   const VideoExportRecord({
     required this.id,
@@ -126,8 +125,8 @@ class VideoLibraryService extends ChangeNotifier {
     return record;
   }
 
-  /// Removes the record. The file itself stays in the gallery/Movies folder —
-  /// deleting a user's video from the gallery is not this list's job.
+  /// Removes the record. The video itself stays in its saved folder; deleting
+  /// a user's video from shared storage is not this list's job.
   Future<void> remove(String id) async {
     _videos = _videos.where((video) => video.id != id).toList();
     await _persist();

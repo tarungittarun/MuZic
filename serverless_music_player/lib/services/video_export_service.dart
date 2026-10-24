@@ -16,7 +16,7 @@ import 'app_log.dart';
 class VideoExportResult {
   const VideoExportResult({required this.path, required this.shared});
 
-  /// MediaStore URI (`content://…`) on Android 10+, or a file path.
+  /// A MediaStore or SAF URI (`content://…`) on Android, or a file path.
   final String path;
   final bool shared;
 }
@@ -44,6 +44,7 @@ class VideoExportService {
     required SongModel song,
     required String audioPath,
     required LyricsModel? lyrics,
+    String? outputFolderUri,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
@@ -112,6 +113,7 @@ class VideoExportService {
               (lyrics.syncedLines.last.time.inMilliseconds + 6000),
           'lyrics': jsonEncode(lines),
           'outputName': _outputName(song),
+          'outputFolderUri': outputFolderUri,
         },
       );
       logInfo('video', 'export finished', <String, Object?>{

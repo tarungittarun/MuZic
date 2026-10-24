@@ -14,6 +14,7 @@ class _FakeVideoExportService extends VideoExportService {
       StreamController<double>.broadcast(sync: true);
   bool cancelled = false;
   int exportCount = 0;
+  String? lastOutputFolderUri;
 
   @override
   Stream<double> get progress => progressController.stream;
@@ -23,10 +24,12 @@ class _FakeVideoExportService extends VideoExportService {
     required SongModel song,
     required String audioPath,
     required LyricsModel? lyrics,
+    String? outputFolderUri,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
     exportCount++;
+    lastOutputFolderUri = outputFolderUri;
     progressController.add(0.5);
     onProgress?.call(0.5);
     return const VideoExportResult(path: 'content://video/result', shared: true);
@@ -59,6 +62,7 @@ void main() {
 
       final result = await manager.start(
         song: _song,
+        outputFolderUri: 'content://downloads/tree/muzic',
         prepareAudio: (onProgress, isCancelled) async {
           onProgress(0.5);
           return '/tmp/example-audio.m4a';
@@ -70,10 +74,28 @@ void main() {
       );
 
       expect(result?.path, 'content://video/result');
+      expect(service.lastOutputFolderUri, 'content://downloads/tree/muzic');
       expect(manager.state, VideoExportState.done);
       expect(manager.percent, 100);
       expect(cleanedPath, '/tmp/example-audio.m4a');
       expect(service.cancelled, isFalse);
+    });
+
+    test('keeps the default output when no downloads folder is selected', () async {
+      final service = _FakeVideoExportService();
+      final manager = VideoExportManager(service: service);
+      addTearDown(() async {
+        manager.dispose();
+        await service.progressController.close();
+      });
+
+      await manager.start(
+        song: _song,
+        prepareAudio: (onProgress, isCancelled) async => '/tmp/example-audio.m4a',
+        loadLyrics: () async => null,
+      );
+
+      expect(service.lastOutputFolderUri, isNull);
     });
 
     test('cancels audio preparation without starting the encoder', () async {

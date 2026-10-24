@@ -682,6 +682,9 @@ class MainActivity : AudioServiceActivity() {
         val artist = call.argument<String>("artist") ?: ""
         val durationMs = call.argument<Int>("durationMs")?.toLong() ?: 0L
         val outputName = call.argument<String>("outputName") ?: "muzic_video"
+        val outputFolderUri = call.argument<String>("outputFolderUri")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
         val lyrics = parseLyrics(call.argument<String>("lyrics") ?: "[]")
         if (requestedAudioPath.isNullOrEmpty()) {
             result.error(
@@ -773,6 +776,7 @@ class MainActivity : AudioServiceActivity() {
                     lyrics = lyrics,
                     durationMsHint = durationMs,
                     outputName = outputName,
+                    outputFolderUri = outputFolderUri,
                     isCancelled = { videoExportCancel.get() },
                     onStage = { stage -> exportStage = stage },
                 ) { progress ->
