@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' show FontFeature;
-
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -89,7 +87,7 @@ class _LyricVideoPlayerScreenState extends State<LyricVideoPlayerScreen> {
                 widget.video.artist,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11, color: Colors.white70),
+                style: const TextStyle(fontSize: 11, color: Colors.white70),
               ),
           ],
         ),
