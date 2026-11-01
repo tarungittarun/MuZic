@@ -82,16 +82,16 @@ jobs:
 
       - name: Build arm64 debug APK
         env:
-          # Flutter's target-platform selects the engine, while AGP's ABI
-          # filter also excludes other architectures bundled by plugins.
+          # Flutter's target-platform selects the engine; the ABI split also
+          # keeps native libraries bundled by plugins to arm64 only.
           ORG_GRADLE_PROJECT_muzicArm64Debug: 'true'
-        run: flutter build apk --debug --target-platform=android-arm64
+        run: flutter build apk --debug --target-platform=android-arm64 --split-per-abi
 
       - name: Verify APK, package ID, and version
         shell: bash
         run: |
           set -euo pipefail
-          apk="build/app/outputs/flutter-apk/app-debug.apk"
+          apk="build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk"
           test -s "$apk"
           size=$(stat -c%s "$apk")
           if [[ "$size" -lt 5242880 ]]; then
@@ -103,8 +103,10 @@ jobs:
             echo "::error title=debug-apk-abi::APK does not contain arm64-v8a libraries"
             exit 1
           fi
-          if grep -Eq '^lib/(armeabi-v7a|x86|x86_64)/' <<<"$apk_entries"; then
-            echo "::error title=debug-apk-abi::APK unexpectedly contains non-arm64 native libraries"
+          non_arm64_libs=$(grep -E '^lib/(armeabi-v7a|x86|x86_64)/' <<<"$apk_entries" || true)
+          if [[ -n "$non_arm64_libs" ]]; then
+            non_arm64_summary=${non_arm64_libs//$'\n'/, }
+            echo "::error title=debug-apk-abi::APK unexpectedly contains non-arm64 native libraries: ${non_arm64_summary}"
             exit 1
           fi
           BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
@@ -141,7 +143,7 @@ jobs:
         uses: actions/upload-artifact@v7.0.2
         with:
           name: muzic-arm64-debug-apk
-          path: serverless_music_player/build/app/outputs/flutter-apk/app-debug.apk
+          path: serverless_music_player/build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
