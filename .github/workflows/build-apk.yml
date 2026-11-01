@@ -81,6 +81,10 @@ jobs:
         run: flutter pub get
 
       - name: Build arm64 debug APK
+        env:
+          # Flutter's target-platform selects the engine, while AGP's ABI
+          # filter also excludes other architectures bundled by plugins.
+          ORG_GRADLE_PROJECT_muzicArm64Debug: 'true'
         run: flutter build apk --debug --target-platform=android-arm64
 
       - name: Verify APK, package ID, and version

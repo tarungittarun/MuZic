@@ -8,6 +8,8 @@ def keystoreProperties = new Properties()
 def releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
     taskName.toLowerCase().contains('release')
 }
+def arm64DebugRequested = project.hasProperty('muzicArm64Debug') &&
+    project.property('muzicArm64Debug').toString().toBoolean()
 def keystorePropertiesFile = rootProject.file('key.properties')
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
@@ -36,6 +38,13 @@ android {
         // the pubspec, so every earlier APK installed as 1.0.0 (code 1).
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        if (arm64DebugRequested) {
+            // Keep the shareable debug artifact to one native ABI instead of
+            // packaging Flutter and plugin binaries for every architecture.
+            ndk {
+                abiFilters "arm64-v8a"
+            }
+        }
     }
 
     splits {
