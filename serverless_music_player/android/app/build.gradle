@@ -8,8 +8,8 @@ def keystoreProperties = new Properties()
 def releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
     taskName.toLowerCase().contains('release')
 }
-def arm64DebugRequested = project.hasProperty('muzicArm64Debug') &&
-    project.property('muzicArm64Debug').toString().toBoolean()
+def arm64ProfileRequested = project.hasProperty('muzicArm64Profile') &&
+    project.property('muzicArm64Profile').toString().toBoolean()
 def keystorePropertiesFile = rootProject.file('key.properties')
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
@@ -42,9 +42,9 @@ android {
 
     splits {
         abi {
-            enable = releaseTaskRequested || arm64DebugRequested
+            enable = releaseTaskRequested || arm64ProfileRequested
             reset()
-            if (arm64DebugRequested && !releaseTaskRequested) {
+            if (arm64ProfileRequested && !releaseTaskRequested) {
                 include "arm64-v8a"
             } else {
                 include "armeabi-v7a", "arm64-v8a"
@@ -96,6 +96,14 @@ android {
         debug {
             minifyEnabled = false
             shrinkResources = false
+        }
+        profile {
+            // Profile mode compiles Dart ahead-of-time like release, but stays
+            // installable with the disposable debug key while release signing
+            // is being rotated. Inherit release shrinking and ProGuard rules.
+            initWith release
+            debuggable = true
+            signingConfig = signingConfigs.debug
         }
     }
 }

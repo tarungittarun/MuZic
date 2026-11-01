@@ -50,11 +50,11 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # A debug-signed arm64 APK is produced for direct download. It uses
-  # Android's disposable debug key, never the compromised historical release
-  # key, and remains available even while secure release signing is rotated.
-  build-debug:
-    name: Build installable arm64 debug APK
+  # A profile-mode arm64 APK uses ahead-of-time Dart compilation and release
+  # shrinking, but the disposable debug key, so it is installable while the
+  # compromised historical release key is kept out of use.
+  build-profile:
+    name: Build installable arm64 profile APK
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -80,33 +80,33 @@ jobs:
       - name: Resolve Dart and Flutter packages
         run: flutter pub get
 
-      - name: Build arm64 debug APK
+      - name: Build arm64 profile APK
         env:
           # Flutter's target-platform selects the engine; the ABI split also
           # keeps native libraries bundled by plugins to arm64 only.
-          ORG_GRADLE_PROJECT_muzicArm64Debug: 'true'
-        run: flutter build apk --debug --target-platform=android-arm64 --split-per-abi
+          ORG_GRADLE_PROJECT_muzicArm64Profile: 'true'
+        run: flutter build apk --profile --target-platform=android-arm64 --split-per-abi
 
-      - name: Verify APK, package ID, and version
+      - name: Verify profile APK, package ID, and version
         shell: bash
         run: |
           set -euo pipefail
-          apk="build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk"
+          apk="build/app/outputs/flutter-apk/app-arm64-v8a-profile.apk"
           test -s "$apk"
           size=$(stat -c%s "$apk")
           if [[ "$size" -lt 5242880 ]]; then
-            echo "::error title=debug-apk-too-small::debug APK is only ${size} bytes"
+            echo "::error title=profile-apk-too-small::profile APK is only ${size} bytes"
             exit 1
           fi
           apk_entries=$(unzip -Z1 "$apk")
           if ! grep -q '^lib/arm64-v8a/' <<<"$apk_entries"; then
-            echo "::error title=debug-apk-abi::APK does not contain arm64-v8a libraries"
+            echo "::error title=profile-apk-abi::APK does not contain arm64-v8a libraries"
             exit 1
           fi
           non_arm64_libs=$(grep -E '^lib/(armeabi-v7a|x86|x86_64)/' <<<"$apk_entries" || true)
           if [[ -n "$non_arm64_libs" ]]; then
             non_arm64_summary=${non_arm64_libs//$'\n'/, }
-            echo "::error title=debug-apk-abi::APK unexpectedly contains non-arm64 native libraries: ${non_arm64_summary}"
+            echo "::error title=profile-apk-abi::APK unexpectedly contains non-arm64 native libraries: ${non_arm64_summary}"
             exit 1
           fi
           BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
@@ -116,7 +116,7 @@ jobs:
           name=$(printf '%s\n' "$BADGING" | sed -nE "s/^package:.*versionName='([^']*)'.*/\1/p")
           code=$(printf '%s\n' "$BADGING" | sed -nE "s/^package:.*versionCode='([0-9]+)'.*/\1/p")
           if [[ -z "$app_id" || -z "$name" || -z "$code" ]]; then
-            echo "::error title=debug-apk-metadata::APK manifest metadata is incomplete"
+            echo "::error title=profile-apk-metadata::APK manifest metadata is incomplete"
             exit 1
           fi
           PUBSPEC_VERSION=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}')
@@ -127,23 +127,24 @@ jobs:
             exit 1
           fi
           if [[ "$name" != "$BASE_NAME" || $((code % 1000)) -ne "$BASE_CODE" ]]; then
-            echo "::error title=debug-apk-version::manifest does not match pubspec ${PUBSPEC_VERSION}"
+            echo "::error title=profile-apk-version::manifest does not match pubspec ${PUBSPEC_VERSION}"
             exit 1
           fi
           {
-            echo '## Installable debug APK verified'
+            echo '## Installable profile APK verified'
             echo "APK bytes: ${size}"
             echo "Package: ${app_id}"
             echo "Version: ${name}+${code}"
             echo 'Architecture: arm64-v8a only'
-            echo "This APK uses Android's debug signing key, not a release key. It cannot update an APK signed with a different key; remove the older installation before installing this development build."
+            echo 'Build mode: profile (AOT compilation, release shrinking, debug signing key)'
+            echo "This APK uses Android's debug signing key, not a release key. It cannot update an APK signed with a different key; remove the older installation before installing this build."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload arm64 debug APK artifact
+      - name: Upload arm64 profile APK artifact
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: muzic-arm64-debug-apk
-          path: serverless_music_player/build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
+          name: muzic-arm64-profile-apk
+          path: serverless_music_player/build/app/outputs/flutter-apk/app-arm64-v8a-profile.apk
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
