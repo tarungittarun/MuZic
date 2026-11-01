@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/song_model.dart';
+import 'app_log.dart';
 
 class UsageEvent {
   const UsageEvent({
@@ -99,7 +100,7 @@ class UsageService extends ChangeNotifier {
   }
 
   int get searches => _count('search');
-  int get playStarts => _count('play');
+  int get playStarts => _count('play') + _count('recommendation_play');
   int get favoritesAdded => _count('favorite_added');
   int get downloads => _count('download');
   int get queueAdds => _count('queue_add');
@@ -127,6 +128,20 @@ class UsageService extends ChangeNotifier {
   List<UsageEvent> get recentEvents =>
       _allEvents.take(100).toList(growable: false);
 
+  /// Recent listener actions, excluding events caused by autoplay.
+  /// Filter before limiting so recommendations cannot crowd actions out.
+  List<UsageEvent> get recentActivityEvents => _allEvents
+      .where((event) => !event.type.startsWith('recommendation'))
+      .take(100)
+      .toList(growable: false);
+
+  /// Recommendations and their automatic starts live in a separate section.
+  List<UsageEvent> get recentRecommendations => _allEvents
+      .where((event) => event.type.startsWith('recommendation'))
+      .take(100)
+      .toList(growable: false);
+
+  /// Most-played tracks from explicit starts; autoplay starts stay separate.
   List<UsageTrackSummary> get topTracks {
     final aggregates = <String, UsageTrackSummary>{};
     for (final event in _allEvents) {
@@ -143,6 +158,34 @@ class UsageService extends ChangeNotifier {
     final result = aggregates.values.toList()
       ..sort((a, b) => b.plays.compareTo(a.plays));
     return result.take(5).toList(growable: false);
+  }
+
+  /// Songs MuZic has already auto-recommended recently, newest first.
+  ///
+  /// Spotify-like radio should rotate: it must not hand back the same eight
+  /// songs every time the listener starts a similar track.
+  List<String> get recentRecommendationIds {
+    final result = <String>[];
+    final seen = <String>{};
+    for (final event in _allEvents) {
+      if (event.type != 'recommendation' || event.songId.isEmpty) continue;
+      if (seen.add(event.songId)) result.add(event.songId);
+      if (result.length >= 120) break;
+    }
+    return result;
+  }
+
+  /// How many times each song has already been auto-recommended.
+  ///
+  /// This is the memory behind the rule that the same song may be
+  /// recommended at most three times, even after it leaves the recent list.
+  Map<String, int> get recommendationCounts {
+    final counts = <String, int>{};
+    for (final event in _allEvents) {
+      if (event.type != 'recommendation' || event.songId.isEmpty) continue;
+      counts[event.songId] = (counts[event.songId] ?? 0) + 1;
+    }
+    return counts;
   }
 
   List<UsageQuerySummary> get topSearches {
@@ -235,7 +278,9 @@ class UsageService extends ChangeNotifier {
   Future<void> _enqueue(Future<void> Function() action) {
     final pending = _recordQueue.then((_) => action());
     _recordQueue = pending.catchError((Object error) {
-      debugPrint('Could not save local usage: $error');
+      logWarn('usage', 'could not save local usage', <String, Object?>{
+        'error': '$error',
+      });
     });
     return _recordQueue;
   }

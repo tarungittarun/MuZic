@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../services/app_settings_service.dart';
+import '../services/sleep_timer_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/one_hand_reach.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
+import 'settings_screen.dart';
 import 'usage_dashboard_screen.dart';
 
 class MainShell extends StatefulWidget {
@@ -14,20 +19,120 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
+  static const double _destinationWidth = 94;
+
   int _tab = 0;
+  int _searchFocusTick = 0;
+  int _homeResetTick = 0;
+  final ScrollController _navScrollController = ScrollController();
+
+  /// The bottom row starts with Search centred and Library/Settings/Usage
+  /// running off to its right. Selecting (or swiping) scrolls the row left
+  /// until the chosen destination is the centred one.
+  void _centreDestination(int index) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_navScrollController.hasClients) return;
+      final target = (index * _destinationWidth)
+          .clamp(0.0, _navScrollController.position.maxScrollExtent);
+      _navScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  DateTime? _lastSearchTapAt;
+
+  void _selectTab(int index) {
+    if (index == 0) {
+      final now = DateTime.now();
+      final doubleTap = _lastSearchTapAt != null &&
+          now.difference(_lastSearchTapAt!) < const Duration(milliseconds: 400);
+      if (_tab == 0 || doubleTap) {
+        // Already on Search, or a deliberate double-tap from another page:
+        // go straight into the search box with the keyboard open and the
+        // existing text selected for replacement.
+        _lastSearchTapAt = null;
+        setState(() {
+          _tab = 0;
+          _searchFocusTick++;
+        });
+        _centreDestination(0);
+        return;
+      }
+      _lastSearchTapAt = now;
+    }
+    setState(() => _tab = index);
+    _centreDestination(index);
+  }
+
+  void _goHome() {
+    setState(() {
+      _tab = 0;
+      _homeResetTick++;
+    });
+    _centreDestination(0);
+  }
+
+  /// Android Back from Library, Settings, or Usage returns to Search instead
+  /// of dismissing the app. Keep the current Search query/results intact.
+  void _returnToSearch() {
+    if (_tab == 0) return;
+    setState(() {
+      _tab = 0;
+      _lastSearchTapAt = null;
+    });
+    _centreDestination(0);
+  }
+
+  @override
+  void dispose() {
+    _navScrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    return Scaffold(
+    final sleepTimer = context.watch<SleepTimerService>();
+    // Any touch anywhere in the app counts as "the user is still here".
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => sleepTimer.registerActivity(),
+      child: _scaffold(palette, sleepTimer),
+    );
+  }
+
+  Widget _scaffold(AppPalette palette, SleepTimerService sleepTimer) {
+    // One UI one-hand mode gives the bottom navigation taller, easier
+    // thumb targets. Turning it off restores the compact bar.
+    final oneHand = context.watch<AppSettingsService>().oneHandModeEnabled;
+    final scaffold = Scaffold(
       body: SafeArea(
         bottom: false,
         child: IndexedStack(
           index: _tab,
-          children: const <Widget>[
-            HomeScreen(),
-            LibraryScreen(),
-            UsageDashboardScreen(),
+          children: <Widget>[
+            OneHandReach(
+              visible: _tab == 0,
+              child: HomeScreen(
+                searchFocusTick: _searchFocusTick,
+                homeResetTick: _homeResetTick,
+              ),
+            ),
+            OneHandReach(
+              visible: _tab == 1,
+              child: LibraryScreen(onHome: _goHome),
+            ),
+            OneHandReach(
+              visible: _tab == 2,
+              child: SettingsScreen(embedded: true, onHome: _goHome),
+            ),
+            OneHandReach(
+              visible: _tab == 3,
+              child: UsageDashboardScreen(onHome: _goHome),
+            ),
           ],
         ),
       ),
@@ -42,30 +147,139 @@ class _MainShellState extends State<MainShell> {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               const MiniPlayer(),
-              NavigationBar(
-                height: 64,
-                selectedIndex: _tab,
-                onDestinationSelected: (value) => setState(() => _tab = value),
-                destinations: const <NavigationDestination>[
-                  NavigationDestination(
-                    icon: Icon(Icons.search_rounded),
-                    selectedIcon: Icon(Icons.search_rounded),
-                    label: 'Discover',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.library_music_outlined),
-                    selectedIcon: Icon(Icons.library_music_rounded),
-                    label: 'Library',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.insights_outlined),
-                    selectedIcon: Icon(Icons.insights_rounded),
-                    label: 'Usage',
-                  ),
-                ],
+              SizedBox(
+                height: oneHand ? 74 : 64,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Centre the first destination (Search) by padding
+                    // both ends by half the spare width; the remaining
+                    // destinations extend to the right and the row scrolls
+                    // left to bring each one to the centre.
+                    final sidePadding =
+                        (constraints.maxWidth - _destinationWidth) / 2;
+                    return SingleChildScrollView(
+                      controller: _navScrollController,
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      padding: EdgeInsets.symmetric(horizontal: sidePadding),
+                      child: Row(
+                        children: <Widget>[
+                          _BottomDestination(
+                            icon: Icons.search_rounded,
+                            label: 'Search',
+                            selected: _tab == 0,
+                            oneHand: oneHand,
+                            onTap: () => _selectTab(0),
+                          ),
+                          _BottomDestination(
+                            icon: Icons.library_music_rounded,
+                            label: 'Library',
+                            selected: _tab == 1,
+                            oneHand: oneHand,
+                            onTap: () => _selectTab(1),
+                          ),
+                          _BottomDestination(
+                            icon: Icons.settings_rounded,
+                            label: 'Settings',
+                            selected: _tab == 2,
+                            oneHand: oneHand,
+                            onTap: () => _selectTab(2),
+                          ),
+                          _BottomDestination(
+                            icon: Icons.insights_rounded,
+                            label: 'Usage',
+                            selected: _tab == 3,
+                            oneHand: oneHand,
+                            onTap: () => _selectTab(3),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+    return PopScope<Object?>(
+      canPop: _tab == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _tab != 0) _returnToSearch();
+      },
+      child: scaffold,
+    );
+  }
+}
+
+class _BottomDestination extends StatelessWidget {
+  const _BottomDestination({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.oneHand = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool oneHand;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return SizedBox(
+      width: _MainShellState._destinationWidth,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: oneHand ? 6 : 4,
+              ),
+              decoration: BoxDecoration(
+                gradient: selected
+                    ? LinearGradient(
+                        colors: <Color>[
+                          palette.accent.withValues(alpha: 0.30),
+                          palette.mint.withValues(alpha: 0.22),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : null,
+                color: selected ? null : Colors.transparent,
+                borderRadius: BorderRadius.circular(18),
+                border: selected
+                    ? Border.all(
+                        color: palette.accent.withValues(alpha: 0.35),
+                        width: 0.7,
+                      )
+                    : null,
+              ),
+              child: Icon(
+                icon,
+                size: oneHand ? 24 : 22,
+                color: selected ? palette.accent : palette.textMuted,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? palette.accent : palette.textMuted,
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -15,6 +15,9 @@ class AudioPlayerService {
     String? remoteUrl,
     String? localPath,
   }) {
+    // Every source carries a MediaItem tag: just_audio_background turns it
+    // (plus the player's state) into the system media notification - the
+    // lock-screen / notification-shade / Quick Settings player.
     final artUri = _artUri(song);
     final tag = MediaItem(
       id: song.id,
@@ -25,6 +28,10 @@ class AudioPlayerService {
       extras: <String, dynamic>{'source': song.source.name},
     );
     if (localPath != null) {
+      // Custom-folder downloads are Android content URIs, not file paths.
+      if (localPath.startsWith('content://')) {
+        return AudioSource.uri(Uri.parse(localPath), tag: tag);
+      }
       return AudioSource.file(localPath, tag: tag);
     }
     final url = remoteUrl ?? song.streamUrl;
@@ -43,10 +50,17 @@ class AudioPlayerService {
       sources,
       initialIndex: initialIndex,
       initialPosition: initialPosition,
+      // Don't block the search tap while the CDN negotiates/warms up. Let
+      // play() start the fetch so PlayerController can watch buffering and
+      // recover a stream that never becomes ready.
+      preload: false,
     );
   }
 
   Future<void> append(AudioSource source) => player.addAudioSource(source);
+
+  Future<void> insert(int index, AudioSource source) =>
+      player.insertAudioSource(index, source);
 
   Future<void> move(int from, int to) => player.moveAudioSource(from, to);
 

@@ -1,0 +1,72 @@
+name: Analyze and test
+
+on:
+  push:
+    # Docs-only pushes do not change the app; skip the run entirely.
+    paths-ignore:
+      - 'docs/**'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+  workflow_dispatch:
+
+# Pushing a branch with an open PR fires both the push and the pull_request
+# triggers; group by branch and cancel the stale run so the work is done once.
+concurrency:
+  group: analyze-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-test:
+    name: Analyze and test the Flutter app
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: serverless_music_player
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve Dart and Flutter packages
+        run: flutter pub get
+
+      - name: Analyze
+        shell: bash
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos --fatal-warnings 2>&1 | tee analyze_out.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo '## flutter analyze'
+            echo '```'
+            cat analyze_out.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          head -40 analyze_out.txt | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=analyze::${line}"
+          done
+          exit $status
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set +e
+          flutter test 2>&1 | tee test_out.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo '## flutter test'
+            echo '```'
+            tail -60 test_out.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          tail -40 test_out.txt | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=test::${line}"
+          done
+          exit $status

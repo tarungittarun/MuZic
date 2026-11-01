@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Downloaded songs are copied here byte-for-byte before sharing, so
+         the receiver gets the original file/quality. -->
+    <cache-path name="muzic_shared" path="muzic_shares/" />
+</paths>

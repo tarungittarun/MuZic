@@ -6,24 +6,78 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/song_model.dart';
 
 class LibraryService extends ChangeNotifier {
+  LibraryService({Future<void> Function()? initializeHive})
+      : _initializeHive = initializeHive;
+
+  final Future<void> Function()? _initializeHive;
+
   late Box<dynamic> _favorites;
   late Box<dynamic> _downloads;
   late Box<dynamic> _recents;
   late Box<dynamic> _playlists;
+  late Box<dynamic> _localTracks;
 
   Future<void> init() async {
-    await Hive.initFlutter();
+    final initializeHive = _initializeHive;
+    if (initializeHive == null) {
+      await Hive.initFlutter();
+    } else {
+      await initializeHive();
+    }
     _favorites = await Hive.openBox<dynamic>('favorites');
     _downloads = await Hive.openBox<dynamic>('downloads');
     _recents = await Hive.openBox<dynamic>('recently_played');
     _playlists = await Hive.openBox<dynamic>('playlists');
+    _localTracks = await Hive.openBox<dynamic>('local_tracks');
+  }
+
+  /// Songs imported from the device as local files (FLAC/WAV/AIFF/MP3...).
+  List<SongModel> get localSongs => _songsFrom(_localTracks.values)
+      .where((song) =>
+          song.localPath != null && File(song.localPath!).existsSync())
+      .toList(growable: false);
+
+  Future<void> saveLocalSong(SongModel song) async {
+    await _localTracks.put(song.id, song.toMap());
+    notifyListeners();
+  }
+
+  Future<void> removeLocalSong(String songId) async {
+    final song = _localTracks.get(songId);
+    await _localTracks.delete(songId);
+    if (song is Map) {
+      final path = SongModel.fromMap(song).localPath;
+      if (path != null) {
+        final file = File(path);
+        if (file.existsSync()) {
+          try {
+            await file.delete();
+          } on FileSystemException {
+            // Ignore: the file may be locked by the player.
+          }
+        }
+      }
+    }
+    notifyListeners();
   }
 
   bool isFavorite(String songId) => _favorites.containsKey(songId);
 
   bool isDownloaded(String songId) {
     final path = downloadedSong(songId)?.localPath;
-    return path != null && path.isNotEmpty && File(path).existsSync();
+    if (path == null || path.isEmpty) return false;
+    // Downloads in a user-picked folder use Android content URIs. Their
+    // validity is checked asynchronously by DownloadService.
+    if (path.startsWith('content://')) return true;
+    return File(path).existsSync();
+  }
+
+  bool hasUnavailableDownload(String songId) {
+    final saved = downloadedSong(songId);
+    if (saved == null) return false;
+    final path = saved.localPath;
+    if (path == null || path.isEmpty) return true;
+    return !path.startsWith('content://') && !File(path).existsSync();
   }
 
   SongModel? downloadedSong(String songId) {
@@ -38,10 +92,10 @@ class LibraryService extends ChangeNotifier {
 
   List<SongModel> get favoriteSongs => _songsFrom(_favorites.values);
 
-  List<SongModel> get downloadedSongs => _songsFrom(_downloads.values)
-      .where((song) =>
-          song.localPath != null && File(song.localPath!).existsSync())
-      .toList(growable: false);
+  /// Includes saved records even when the file has disappeared. Hiding those
+  /// rows made downloads look deleted and prevented listeners from restoring
+  /// an offline copy; the tile now marks unavailable files and offers retry.
+  List<SongModel> get downloadedSongs => _songsFrom(_downloads.values);
 
   List<SongModel> get recentSongs {
     final value = _recents.get('items', defaultValue: <dynamic>[]);
@@ -80,6 +134,16 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> saveDownload(SongModel song) async {
     await _downloads.put(song.id, song.toMap());
+    notifyListeners();
+  }
+
+  /// Keeps the library entry but drops a dead URI/path so the track can be
+  /// downloaded again instead of remaining falsely marked as offline-ready.
+  Future<void> markDownloadUnavailable(String songId) async {
+    final saved = downloadedSong(songId);
+    if (saved == null || saved.localPath == null) return;
+    final map = saved.toMap()..['localPath'] = null;
+    await _downloads.put(songId, map);
     notifyListeners();
   }
 

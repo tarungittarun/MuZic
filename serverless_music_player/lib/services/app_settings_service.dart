@@ -4,11 +4,94 @@ import 'package:hive_flutter/hive_flutter.dart';
 class AppSettingsService extends ChangeNotifier {
   static const String _boxName = 'app_settings';
   static const String _themeModeKey = 'theme_mode';
+  static const String _lyricsLanguageKey = 'lyrics_language';
+  static const String _lyricsOverridePrefix = 'lyrics_override:';
+  static const String _virtualizerEnabledKey = 'virtualizer_enabled';
+  static const String _virtualizerStrengthKey = 'virtualizer_strength';
+  static const String _bassEnabledKey = 'bass_boost_enabled';
+  static const String _bassStrengthKey = 'bass_boost_strength';
+  static const String _eqEnabledKey = 'equalizer_enabled';
+  static const String _eqPresetKey = 'equalizer_preset';
+  static const String _diagnosticsKey = 'diagnostics_capture';
+  static const String _regionKey = 'discover_region';
+  static const String _languagesKey = 'discover_languages';
+  static const String _sleepEnabledKey = 'sleep_timer_enabled';
+  static const String _sleepMinutesKey = 'sleep_timer_minutes';
+  static const String _autoplayRecommendationsKey =
+      'autoplay_recommendations';
+  static const String _recommendationStyleKey = 'recommendation_style';
+  static const String _liveVisualizerKey = 'live_visualizer_enabled';
+  static const String _downloadsFolderUriKey = 'downloads_folder_uri';
+  static const String _downloadsFolderNameKey = 'downloads_folder_name';
+  static const String _oneHandModeKey = 'one_hand_mode_enabled';
 
   late Box<dynamic> _settings;
   ThemeMode _themeMode = ThemeMode.dark;
+  String _lyricsLanguage = 'auto';
+  bool _virtualizerEnabled = false;
+  int _virtualizerStrength = 60;
+  bool _bassBoostEnabled = false;
+  int _bassBoostStrength = 50;
+  bool _equalizerEnabled = false;
+  int _equalizerPreset = 0;
+  bool _diagnosticsEnabled = false;
+  String _region = 'IN';
+  List<String> _languages = const <String>['hindi', 'english'];
+  bool _sleepTimerEnabled = false;
+  int _sleepTimerMinutes = 60;
+  bool _autoplayRecommendations = true;
+  String _recommendationStyle = 'balanced';
+  bool _liveVisualizerEnabled = false;
+  String _downloadsFolderUri = '';
+  String _downloadsFolderName = '';
+  bool _oneHandModeEnabled = true;
 
   ThemeMode get themeMode => _themeMode;
+
+  /// Default lyrics language preference: 'auto', 'original', 'romanized' or a
+  /// language name such as 'hindi'.
+  String get lyricsLanguage => _lyricsLanguage;
+
+  bool get virtualizerEnabled => _virtualizerEnabled;
+  int get virtualizerStrength => _virtualizerStrength;
+  bool get bassBoostEnabled => _bassBoostEnabled;
+  int get bassBoostStrength => _bassBoostStrength;
+  bool get equalizerEnabled => _equalizerEnabled;
+  int get equalizerPreset => _equalizerPreset;
+
+  /// Whether the user opted in to diagnostic capture. Off by default: nothing
+  /// is recorded or exported unless they explicitly turn it on.
+  bool get diagnosticsEnabled => _diagnosticsEnabled;
+
+  /// Region used for Discover recommendations (ISO country code).
+  String get region => _region;
+
+  /// Languages used for Discover recommendation shelves.
+  List<String> get languages => _languages;
+
+  /// Pause playback after this much inactivity (with a 5-minute warning).
+  bool get sleepTimerEnabled => _sleepTimerEnabled;
+  int get sleepTimerMinutes => _sleepTimerMinutes;
+
+  /// Whether related songs are automatically lined up after the queue.
+  bool get autoplayRecommendations => _autoplayRecommendations;
+
+  /// Recommendation mix: 'familiar', 'balanced' or 'discovery'.
+  String get recommendationStyle => _recommendationStyle;
+
+  /// Whether the Now Playing live waveform stays on. Once the user turns
+  /// it on, it applies to every song until they turn it off again.
+  bool get liveVisualizerEnabled => _liveVisualizerEnabled;
+
+  /// Optional user-chosen downloads folder (Android tree URI). Empty means
+  /// MuZic's default app storage, exactly as before.
+  String get downloadsFolderUri => _downloadsFolderUri;
+  String get downloadsFolderName => _downloadsFolderName;
+  bool get hasCustomDownloadsFolder => _downloadsFolderUri.isNotEmpty;
+
+  /// Samsung One UI-style reachability: key section controls move towards
+  /// the bottom/thumb area. On by default; users can turn it off here.
+  bool get oneHandModeEnabled => _oneHandModeEnabled;
 
   Future<void> init() async {
     _settings = await Hive.openBox<dynamic>(_boxName);
@@ -17,12 +100,179 @@ class AppSettingsService extends ChangeNotifier {
       (mode) => mode.name == saved,
       orElse: () => ThemeMode.dark,
     );
+    final savedLanguage =
+        _settings.get(_lyricsLanguageKey)?.toString().trim() ?? '';
+    _lyricsLanguage = savedLanguage.isEmpty ? 'auto' : savedLanguage;
+    _virtualizerEnabled = _settings.get(_virtualizerEnabledKey) == true;
+    _virtualizerStrength = _readInt(_virtualizerStrengthKey, 60);
+    _bassBoostEnabled = _settings.get(_bassEnabledKey) == true;
+    _bassBoostStrength = _readInt(_bassStrengthKey, 50);
+    _equalizerEnabled = _settings.get(_eqEnabledKey) == true;
+    _equalizerPreset = _readInt(_eqPresetKey, 0);
+    _diagnosticsEnabled = _settings.get(_diagnosticsKey) == true;
+    final savedRegion = _settings.get(_regionKey)?.toString().trim() ?? '';
+    _region = savedRegion.isEmpty ? 'IN' : savedRegion;
+    final savedLanguages = _settings.get(_languagesKey)?.toString() ?? '';
+    final parsed = savedLanguages
+        .split(',')
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    _languages = parsed.isEmpty ? const <String>['hindi', 'english'] : parsed;
+    _sleepTimerEnabled = _settings.get(_sleepEnabledKey) == true;
+    _liveVisualizerEnabled = _settings.get(_liveVisualizerKey) == true;
+    _downloadsFolderUri = _settings.get(_downloadsFolderUriKey)?.toString() ?? '';
+    _downloadsFolderName = _settings.get(_downloadsFolderNameKey)?.toString() ?? '';
+    _oneHandModeEnabled = _settings.get(_oneHandModeKey) != false;
+    _autoplayRecommendations =
+        _settings.get(_autoplayRecommendationsKey) != false;
+    final savedStyle = _settings.get(_recommendationStyleKey)?.toString();
+    _recommendationStyle = const <String>{'familiar', 'balanced', 'discovery'}
+            .contains(savedStyle)
+        ? savedStyle!
+        : 'balanced';
+    final sleepMinutes = _settings.get(_sleepMinutesKey);
+    _sleepTimerMinutes =
+        sleepMinutes is num && sleepMinutes.toInt() >= 5 ? sleepMinutes.toInt() : 60;
+  }
+
+  Future<void> setRecommendationStyle(String value) async {
+    final clean = const <String>{'familiar', 'balanced', 'discovery'}
+            .contains(value)
+        ? value
+        : 'balanced';
+    _recommendationStyle = clean;
+    await _settings.put(_recommendationStyleKey, clean);
+    notifyListeners();
+  }
+
+  Future<void> setLiveVisualizerEnabled(bool value) async {
+    if (value == _liveVisualizerEnabled) return;
+    _liveVisualizerEnabled = value;
+    await _settings.put(_liveVisualizerKey, value);
+    notifyListeners();
+  }
+
+  Future<void> setDownloadsFolder({required String uri, required String name}) async {
+    _downloadsFolderUri = uri.trim();
+    _downloadsFolderName = name.trim();
+    await _settings.put(_downloadsFolderUriKey, _downloadsFolderUri);
+    await _settings.put(_downloadsFolderNameKey, _downloadsFolderName);
+    notifyListeners();
+  }
+
+  Future<void> clearDownloadsFolder() => setDownloadsFolder(uri: '', name: '');
+
+  Future<void> setOneHandModeEnabled(bool value) async {
+    if (value == _oneHandModeEnabled) return;
+    _oneHandModeEnabled = value;
+    await _settings.put(_oneHandModeKey, value);
+    notifyListeners();
+  }
+
+  Future<void> setAutoplayRecommendations(bool value) async {
+    _autoplayRecommendations = value;
+    await _settings.put(_autoplayRecommendationsKey, value);
+    notifyListeners();
+  }
+
+  Future<void> setSleepTimer({bool? enabled, int? minutes}) async {
+    if (enabled != null) {
+      _sleepTimerEnabled = enabled;
+      await _settings.put(_sleepEnabledKey, enabled);
+    }
+    if (minutes != null) {
+      _sleepTimerMinutes = minutes.clamp(5, 480).toInt();
+      await _settings.put(_sleepMinutesKey, _sleepTimerMinutes);
+    }
+    notifyListeners();
+  }
+
+  Future<void> setRegion(String code) async {
+    _region = code;
+    await _settings.put(_regionKey, code);
+    notifyListeners();
+  }
+
+  Future<void> setLanguages(List<String> codes) async {
+    _languages = List<String>.unmodifiable(
+      codes.isEmpty ? const <String>['english'] : codes,
+    );
+    await _settings.put(_languagesKey, _languages.join(','));
+    notifyListeners();
+  }
+
+  int _readInt(String key, int fallback) {
+    final value = _settings.get(key);
+    if (value is num) return value.toInt().clamp(0, 100).toInt();
+    return fallback;
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
     if (mode == _themeMode) return;
     _themeMode = mode;
     await _settings.put(_themeModeKey, mode.name);
+    notifyListeners();
+  }
+
+  Future<void> setLyricsLanguage(String code) async {
+    final clean = code.trim().isEmpty ? 'auto' : code.trim();
+    if (clean == _lyricsLanguage) return;
+    _lyricsLanguage = clean;
+    await _settings.put(_lyricsLanguageKey, clean);
+    notifyListeners();
+  }
+
+  Future<void> setDiagnosticsEnabled(bool value) async {
+    _diagnosticsEnabled = value;
+    await _settings.put(_diagnosticsKey, value);
+    notifyListeners();
+  }
+
+  Future<void> setVirtualizer({required bool enabled, int? strength}) async {
+    _virtualizerEnabled = enabled;
+    if (strength != null) {
+      _virtualizerStrength = strength.clamp(0, 100).toInt();
+      await _settings.put(_virtualizerStrengthKey, _virtualizerStrength);
+    }
+    await _settings.put(_virtualizerEnabledKey, _virtualizerEnabled);
+    notifyListeners();
+  }
+
+  Future<void> setBassBoost({required bool enabled, int? strength}) async {
+    _bassBoostEnabled = enabled;
+    if (strength != null) {
+      _bassBoostStrength = strength.clamp(0, 100).toInt();
+      await _settings.put(_bassStrengthKey, _bassBoostStrength);
+    }
+    await _settings.put(_bassEnabledKey, _bassBoostEnabled);
+    notifyListeners();
+  }
+
+  Future<void> setEqualizer({required bool enabled, int? preset}) async {
+    _equalizerEnabled = enabled;
+    if (preset != null) {
+      _equalizerPreset = preset.clamp(0, 9).toInt();
+      await _settings.put(_eqPresetKey, _equalizerPreset);
+    }
+    await _settings.put(_eqEnabledKey, _equalizerEnabled);
+    notifyListeners();
+  }
+
+  /// Per-song lyrics language override ('' means follow the default).
+  String lyricsLanguageOverrideFor(String songId) {
+    final value = _settings.get('$_lyricsOverridePrefix$songId');
+    return value?.toString() ?? '';
+  }
+
+  Future<void> setLyricsLanguageOverride(String songId, String? code) async {
+    final key = '$_lyricsOverridePrefix$songId';
+    final clean = (code ?? '').trim();
+    if (clean.isEmpty) {
+      await _settings.delete(key);
+    } else {
+      await _settings.put(key, clean);
+    }
     notifyListeners();
   }
 }

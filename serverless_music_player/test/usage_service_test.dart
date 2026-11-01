@@ -1,13 +1,13 @@
 import 'dart:io';
 
-import 'package:auralis_player/models/song_model.dart';
-import 'package:auralis_player/services/usage_service.dart';
+import 'package:muzic/models/song_model.dart';
+import 'package:muzic/services/usage_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
 void main() {
   test('persists local activity, serializes counters, and clears history', () async {
-    final directory = await Directory.systemTemp.createTemp('auralis-usage-test-');
+    final directory = await Directory.systemTemp.createTemp('music-usage-test-');
     Hive.init(directory.path);
     final usage = UsageService();
     await usage.init();
@@ -29,12 +29,14 @@ void main() {
         source: SongSource.jioSaavn,
       );
       await usage.recordSongEvent('play', song);
+      await usage.recordSongEvent('recommendation', song);
+      await usage.recordSongEvent('recommendation_play', song);
       await usage.recordSongEvent('favorite_added', song);
       await usage.recordSongEvent('download', song);
       await usage.addListeningTime(const Duration(minutes: 3, seconds: 12));
 
       expect(usage.searches, 20);
-      expect(usage.playStarts, 1);
+      expect(usage.playStarts, 2);
       expect(usage.favoritesAdded, 1);
       expect(usage.downloads, 1);
       expect(usage.listeningTime, const Duration(minutes: 3, seconds: 12));
@@ -42,6 +44,17 @@ void main() {
       expect(usage.topSearches.first.searches, 20);
       expect(usage.topTracks.single.title, 'Calm Night');
       expect(usage.recentEvents, isNotEmpty);
+      expect(
+        usage.recentActivityEvents
+            .every((event) => !event.type.startsWith('recommendation')),
+        isTrue,
+      );
+      expect(
+        usage.recentRecommendations.map((event) => event.type),
+        containsAll(<String>['recommendation', 'recommendation_play']),
+      );
+      expect(usage.topTracks.single.plays, 1,
+          reason: 'Only listener-initiated starts belong in top tracks.');
 
       await usage.clear();
       expect(usage.searches, 0);

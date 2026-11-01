@@ -5,13 +5,18 @@ plugins {
 }
 
 def keystoreProperties = new Properties()
+def releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.toLowerCase().contains('release')
+}
+def arm64ProfileRequested = project.hasProperty('muzicArm64Profile') &&
+    project.property('muzicArm64Profile').toString().toBoolean()
 def keystorePropertiesFile = rootProject.file('key.properties')
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
 android {
-    namespace = "com.auralis.player"
+    namespace = "com.github.tarungittarun.muzic"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -25,19 +30,38 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.auralis.player"
+        applicationId = "com.github.tarungittarun.muzic"
         minSdk = 23
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // Take the version from pubspec.yaml (`version: 1.4.2+7`) through the
+        // Flutter Gradle extension. Hard-coding 1/1.0.0 here silently overrode
+        // the pubspec, so every earlier APK installed as 1.0.0 (code 1).
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
     }
 
     splits {
         abi {
-            enable = gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }
+            enable = releaseTaskRequested || arm64ProfileRequested
             reset()
-            include "armeabi-v7a", "arm64-v8a"
+            if (arm64ProfileRequested && !releaseTaskRequested) {
+                include "arm64-v8a"
+            } else {
+                include "armeabi-v7a", "arm64-v8a"
+            }
             universalApk = false
+        }
+    }
+
+    // Install-over guarantee: Flutter/AGP auto-offsets the versionCode per
+    // ABI, and the offset varied with how the build was invoked (a build
+    // once shipped arm64=2011, the next arm64=1012, which Android rejects
+    // as a downgrade). Pin every split output to 3000 + the pubspec build
+    // number instead: always higher than any earlier release (max 2011)
+    // and strictly increasing with every version bump, for both ABIs.
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            output.versionCodeOverride = 3000 + flutter.versionCode
         }
     }
 
@@ -48,17 +72,23 @@ android {
                 keyPassword = keystoreProperties['keyPassword']
                 storeFile = file(keystoreProperties['storeFile'])
                 storePassword = keystoreProperties['storePassword']
+                storeType = keystoreProperties['storeType'] ?: 'PKCS12'
             }
         }
     }
 
     buildTypes {
         release {
+            debuggable = false
             minifyEnabled = true
             shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.release
+            } else if (releaseTaskRequested) {
+                throw new GradleException(
+                    'Release builds require protected signing configuration; refusing to publish a debug-signed APK.'
+                )
             } else {
                 signingConfig = signingConfigs.debug
             }
@@ -67,9 +97,26 @@ android {
             minifyEnabled = false
             shrinkResources = false
         }
+        profile {
+            // Profile mode compiles Dart ahead-of-time like release, but stays
+            // installable with the disposable debug key while release signing
+            // is being rotated. Keep R8 off here because the profile variant's
+            // dependency graph currently fails minifyProfileWithR8.
+            initWith release
+            debuggable = true
+            minifyEnabled = false
+            shrinkResources = false
+            signingConfig = signingConfigs.debug
+        }
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // AndroidX media/core helpers used by the host app. Playback itself is
+    // provided by audio_service + just_audio_background.
+    implementation "androidx.documentfile:documentfile:1.0.1"
 }

@@ -1,4 +1,4 @@
-import 'package:auralis_player/models/song_model.dart';
+import 'package:muzic/models/song_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
