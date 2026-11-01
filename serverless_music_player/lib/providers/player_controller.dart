@@ -177,7 +177,7 @@ class PlayerController extends ChangeNotifier {
         _audio.player.playing &&
         stalledState;
 
-    if (!shouldWatch || song == null) {
+    if (!shouldWatch) {
       _cancelBufferingWatchdog();
       return;
     }

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/song_model.dart';
+import 'app_log.dart';
 
 class UsageEvent {
   const UsageEvent({

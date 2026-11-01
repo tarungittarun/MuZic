@@ -196,6 +196,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {
       if (!isCurrentSearch()) return;
       setState(() => _loading = false);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Search failed. Check your connection and try again.'),
