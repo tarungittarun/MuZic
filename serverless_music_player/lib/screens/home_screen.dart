@@ -155,13 +155,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final directVideoLink = MusicApiService.youtubeVideoIdFromUrl(text) != null;
     bool isCurrentSearch() => mounted && generation == _searchGeneration;
 
-    // The regular catalogue page only needs a screenful of results. Asking
-    // for 30 triggered several deep catalogue/album requests before any songs
-    // appeared, making otherwise successful searches look stuck.
+    // Search the regular results page with one broad provider page instead of
+    // the slower deep album-catalogue expansion. The callback renders the
+    // first available songs immediately while the independent source fills in.
     final songsFuture = api.search(
       text,
       source: _source,
-      limit: 24,
+      limit: 30,
+      expandCatalog: false,
       onUpdate: (songs) {
         if (!isCurrentSearch() || songs.isEmpty) return;
         setState(() {

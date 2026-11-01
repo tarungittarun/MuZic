@@ -51,6 +51,7 @@ class MusicApiService {
     String query, {
     SearchSource source = SearchSource.automatic,
     int limit = 18,
+    bool expandCatalog = true,
     void Function(List<SongModel> songs)? onUpdate,
   }) async {
     final cleanQuery = query.trim();
@@ -72,7 +73,7 @@ class MusicApiService {
       return songs;
     }
     if (source == SearchSource.jioSaavn) {
-      final songs = limit >= 30
+      final songs = expandCatalog && limit >= 30
           ? await _searchSaavnExpanded(cleanQuery, limit: limit)
           : await searchJioSaavn(cleanQuery, limit: limit);
       onUpdate?.call(songs);
@@ -81,7 +82,7 @@ class MusicApiService {
 
     var merged = const <SongModel>[];
     try {
-      merged = limit >= 30
+      merged = expandCatalog && limit >= 30
           ? await _searchSaavnExpanded(cleanQuery, limit: limit)
           : await searchJioSaavn(cleanQuery, limit: limit);
     } catch (_) {

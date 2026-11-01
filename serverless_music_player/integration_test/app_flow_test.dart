@@ -225,11 +225,20 @@ void main() {
           180,
           scrollable: searchList,
         );
-        final resultLabel = tester.widget<Text>(find.textContaining('results').first);
-        final count = int.tryParse(
-              RegExp(r'\d+').firstMatch(resultLabel.data ?? '')?.group(0) ?? '',
-            ) ??
-            0;
+        final resultCountLabel = find.textContaining('results').first;
+        final resultsDeadline =
+            DateTime.now().add(const Duration(seconds: 25));
+        var count = 0;
+        while (DateTime.now().isBefore(resultsDeadline)) {
+          await tester.pump(const Duration(milliseconds: 400));
+          if (resultCountLabel.evaluate().isEmpty) continue;
+          final label = tester.widget<Text>(resultCountLabel);
+          count = int.tryParse(
+                RegExp(r'\d+').firstMatch(label.data ?? '')?.group(0) ?? '',
+              ) ??
+              0;
+          if (count >= 30) break;
+        }
         expect(count, greaterThanOrEqualTo(30),
             reason: 'mainstream artist search returned fewer than 30 songs');
       });
