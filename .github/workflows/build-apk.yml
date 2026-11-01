@@ -97,9 +97,9 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
           "$BT/apksigner" verify "$apk"
           BADGING=$("$BT/aapt2" dump badging "$apk" | grep -m1 '^package:')
-          app_id=$(echo "$BADGING" | sed -n "s/.*name='\\([^']*\\)'.*/\\1/p")
-          name=$(echo "$BADGING" | sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p")
-          code=$(echo "$BADGING" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
+          app_id=$(printf '%s\n' "$BADGING" | sed -nE "s/^package: name='([^']+)'.*/\1/p")
+          name=$(printf '%s\n' "$BADGING" | sed -nE "s/^package:.*versionName='([^']*)'.*/\1/p")
+          code=$(printf '%s\n' "$BADGING" | sed -nE "s/^package:.*versionCode='([0-9]+)'.*/\1/p")
           if [[ -z "$app_id" || -z "$name" || -z "$code" ]]; then
             echo "::error title=debug-apk-metadata::APK manifest metadata is incomplete"
             exit 1
@@ -289,13 +289,13 @@ jobs:
           echo "pubspec=$PUBSPEC_VERSION" >> "$GITHUB_STEP_SUMMARY"
           echo "badging=$BADGING" >> "$GITHUB_STEP_SUMMARY"
           echo "::notice title=APK version::pubspec=${PUBSPEC_VERSION} ${BADGING}"
-          app_id=$(echo "$BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")
+          app_id=$(printf '%s\n' "$BADGING" | sed -nE "s/^package: name='([^']+)'.*/\1/p")
           if [ "$app_id" != "com.github.tarungittarun.muzic" ]; then
             echo "::error title=applicationId::expected com.github.tarungittarun.muzic but found ${app_id}"
             exit 1
           fi
-          code=$(echo "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
-          name=$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          code=$(printf '%s\n' "$BADGING" | sed -nE "s/^package:.*versionCode='([0-9]+)'.*/\1/p")
+          name=$(printf '%s\n' "$BADGING" | sed -nE "s/^package:.*versionName='([^']*)'.*/\1/p")
           # The Gradle file pins every split APK to 3000 + the pubspec
           # build number (install-over guarantee), so compare the base
           # inside that offset.
