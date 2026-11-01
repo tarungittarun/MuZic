@@ -151,7 +151,7 @@ jobs:
             echo "Package: ${app_id}"
             echo "Version: ${name}+${code}"
             echo 'Architecture: arm64-v8a only'
-            echo 'Build mode: profile (AOT compilation, release shrinking, debug signing key)'
+            echo 'Build mode: profile (Dart AOT compilation, debug signing key)'
             echo "This APK uses Android's debug signing key, not a release key. It cannot update an APK signed with a different key; remove the older installation before installing this build."
           } >> "$GITHUB_STEP_SUMMARY"
 

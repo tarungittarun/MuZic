@@ -100,9 +100,12 @@ android {
         profile {
             // Profile mode compiles Dart ahead-of-time like release, but stays
             // installable with the disposable debug key while release signing
-            // is being rotated. Inherit release shrinking and ProGuard rules.
+            // is being rotated. Keep R8 off here because the profile variant's
+            // dependency graph currently fails minifyProfileWithR8.
             initWith release
             debuggable = true
+            minifyEnabled = false
+            shrinkResources = false
             signingConfig = signingConfigs.debug
         }
     }
