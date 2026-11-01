@@ -123,34 +123,11 @@ jobs:
             echo "This APK uses Android's debug signing key, not a release key. It cannot update an APK signed with a different key; remove the older installation before installing this development build."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Encrypt debug APK for password-protected download
-        shell: bash
-        env:
-          MUZIC_ARTIFACT_PASSWORD: ${{ secrets.MUZIC_ARTIFACT_PASSWORD }}
-        run: |
-          set -euo pipefail
-          umask 077
-          if [[ -z "$MUZIC_ARTIFACT_PASSWORD" ]]; then
-            echo "::error title=artifact-password-missing::Set MUZIC_ARTIFACT_PASSWORD as a private Actions secret to publish the password-protected APK artifact. Do not put the password in source or chat."
-            echo 'Add MUZIC_ARTIFACT_PASSWORD under repository Settings > Secrets and variables > Actions, then rerun this workflow.' >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          apk="build/app/outputs/flutter-apk/app-debug.apk"
-          encrypted="build/app/outputs/flutter-apk/muzic-debug-apk.apk.gpg"
-          gpg --batch --yes --pinentry-mode loopback \
-            --passphrase-fd 3 --symmetric --cipher-algo AES256 \
-            --s2k-digest-algo SHA512 --output "$encrypted" "$apk" \
-            3<<<"$MUZIC_ARTIFACT_PASSWORD"
-          test -s "$encrypted"
-          rm -f "$apk"
-          sha256sum "$encrypted" | tee -a "$GITHUB_STEP_SUMMARY"
-          echo 'The uploaded file is AES-256 OpenPGP encrypted. The passphrase is supplied only through a private Actions secret and is never printed.' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload password-protected debug APK artifact
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v7.0.2
         with:
           name: muzic-debug-apk
-          path: serverless_music_player/build/app/outputs/flutter-apk/muzic-debug-apk.apk.gpg
+          path: serverless_music_player/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
