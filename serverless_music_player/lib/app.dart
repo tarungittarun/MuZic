@@ -17,8 +17,8 @@ import 'services/video_library_service.dart';
 import 'theme/app_theme.dart';
 import 'screens/main_shell.dart';
 
-class MusicApp extends StatelessWidget {
-  const MusicApp({
+class MuzicApp extends StatelessWidget {
+  const MuzicApp({
     required this.library,
     required this.musicApi,
     required this.audio,

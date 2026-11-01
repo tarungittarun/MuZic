@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:music_player/services/music_api_service.dart';
+import 'package:muzic/services/music_api_service.dart';
 
 Map<String, dynamic> _track(String id, String title, String album) =>
     <String, dynamic>{

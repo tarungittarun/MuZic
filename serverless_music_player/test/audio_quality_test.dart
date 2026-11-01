@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/models/audio_quality.dart';
-import 'package:music_player/models/song_model.dart';
-import 'package:music_player/services/lossless_radio_service.dart';
+import 'package:muzic/models/audio_quality.dart';
+import 'package:muzic/models/song_model.dart';
+import 'package:muzic/services/lossless_radio_service.dart';
 
 SongModel _song({
   required SongSource source,

@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/services/video_library_service.dart';
+import 'package:muzic/services/video_library_service.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
@@ -9,7 +9,7 @@ void main() {
   late File store;
 
   setUp(() async {
-    temp = await Directory.systemTemp.createTemp('muzic_video_library_test');
+    temp = await Directory.systemTemp.createTemp('music_video_library_test');
     store = File(p.join(temp.path, 'lyric_videos.json'));
   });
 

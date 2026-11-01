@@ -68,6 +68,9 @@ class _SongTileState extends State<SongTile> {
     final downloaded = context.select<PlayerController, bool>(
       (player) => player.isDownloaded(song),
     );
+    final hasDownloadRecord = context.select<LibraryService, bool>(
+      (library) => library.downloadedSong(song.id) != null,
+    );
     final progress = context.select<PlayerController, double?>(
       (player) => player.downloadProgressFor(song),
     );
@@ -255,16 +258,16 @@ class _SongTileState extends State<SongTile> {
                             value: 'playlist',
                             child: _MenuLabel(icon: Icons.library_add_rounded, text: 'Add to playlist'),
                           ),
-                          if (downloaded) ...<PopupMenuEntry<String>>[
+                          if (downloaded)
                             const PopupMenuItem(
                               value: 'share',
                               child: _MenuLabel(icon: Icons.share_rounded, text: 'Share original file'),
                             ),
+                          if (hasDownloadRecord)
                             const PopupMenuItem(
                               value: 'remove',
                               child: _MenuLabel(icon: Icons.delete_outline_rounded, text: 'Remove download'),
                             ),
-                          ],
                         ],
                         icon: Icon(Icons.more_vert_rounded, color: palette.textMuted, size: 19),
                       ),
@@ -293,15 +296,45 @@ class _SongTileState extends State<SongTile> {
       _expanded = !_expanded;
       if (_expanded && _lyricsFuture == null) {
         unawaited(context.read<UsageService>().recordSongEvent('lyrics_check', widget.song));
-        _lyricsFuture = context.read<MusicApiService>().fetchLyrics(widget.song);
+        _lyricsFuture = _checkLyricsAvailability(widget.song);
       }
     });
+  }
+
+  Future<LyricsModel> _checkLyricsAvailability(SongModel song) {
+    final api = context.read<MusicApiService>();
+    final result = Completer<LyricsModel>();
+    final lookup = api.fetchLyricsVariants(
+      song,
+      onUpdate: (bundle) {
+        if (!result.isCompleted && !bundle.isEmpty) {
+          result.complete(
+            bundle.variants.firstWhere((variant) => !variant.isEmpty),
+          );
+        }
+      },
+    );
+    unawaited(lookup.then<void>(
+      (bundle) {
+        if (result.isCompleted) return;
+        result.complete(
+          bundle.variants.firstWhere(
+            (variant) => !variant.isEmpty,
+            orElse: () => const LyricsModel(),
+          ),
+        );
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!result.isCompleted) result.completeError(error, stackTrace);
+      },
+    ));
+    return result.future;
   }
 
   void _retryLyrics() {
     unawaited(context.read<UsageService>().recordSongEvent('lyrics_check', widget.song));
     setState(() {
-      _lyricsFuture = context.read<MusicApiService>().fetchLyrics(widget.song);
+      _lyricsFuture = _checkLyricsAvailability(widget.song);
     });
   }
 
@@ -533,8 +566,27 @@ class _LyricsAvailability extends StatelessWidget {
           value = 'Available';
           color = palette.mint;
         } else {
-          value = 'Not found';
-          color = palette.textMuted;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              children: <Widget>[
+                SizedBox(
+                  width: 105,
+                  child: Text(
+                    'Lyrics',
+                    style: TextStyle(color: palette.textMuted, fontSize: 10),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    'Not found',
+                    style: TextStyle(color: palette.textMuted, fontSize: 10),
+                  ),
+                ),
+                TextButton(onPressed: onRetry, child: const Text('Retry')),
+              ],
+            ),
+          );
         }
         return _InfoRow(label: 'Lyrics', value: value, valueColor: color);
       },

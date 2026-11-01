@@ -9,8 +9,10 @@ on:
     paths-ignore:
       - 'docs/**'
 
+# Build and signing jobs need read-only repository access. Only the release
+# publisher gets write access to create a GitHub Release.
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 # A newer push supersedes a build that is still running for the same ref.
@@ -19,11 +21,147 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  signing-check:
+    name: Check protected Android signing configuration
+    runs-on: ubuntu-24.04
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        name: Check that required secret names are configured
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          MUZIC_RELEASE_KEY_ROTATED: ${{ secrets.MUZIC_RELEASE_KEY_ROTATED }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$MUZIC_RELEASE_KEY_ROTATED" && -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" && -n "$ANDROID_KEY_ALIAS" && -n "$ANDROID_KEY_PASSWORD" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "Protected release signing configuration is present."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Signed APK publication is skipped until a rotated Android signing key is explicitly configured."
+            {
+              echo '## Signed APK publication skipped'
+              echo 'Configure a fresh key in ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD, then set MUZIC_RELEASE_KEY_ROTATED as a private Actions secret to confirm the compromised public key was replaced. Do not reuse the key previously committed to the public branch or commit a keystore/properties file.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # A debug-signed APK is always produced for direct installation. It uses
+  # Android's disposable debug key, never the compromised historical release
+  # key, and remains available even while secure release signing is rotated.
+  build-debug:
+    name: Build installable debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: serverless_music_player
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve Dart and Flutter packages
+        run: flutter pub get
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Verify APK, package ID, and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="build/app/outputs/flutter-apk/app-debug.apk"
+          test -s "$apk"
+          size=$(stat -c%s "$apk")
+          if [[ "$size" -lt 5242880 ]]; then
+            echo "::error title=debug-apk-too-small::debug APK is only ${size} bytes"
+            exit 1
+          fi
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+          "$BT/apksigner" verify "$apk"
+          BADGING=$("$BT/aapt2" dump badging "$apk" | grep -m1 '^package:')
+          app_id=$(echo "$BADGING" | sed -n "s/.*name='\\([^']*\\)'.*/\\1/p")
+          name=$(echo "$BADGING" | sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p")
+          code=$(echo "$BADGING" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
+          if [[ -z "$app_id" || -z "$name" || -z "$code" ]]; then
+            echo "::error title=debug-apk-metadata::APK manifest metadata is incomplete"
+            exit 1
+          fi
+          PUBSPEC_VERSION=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}')
+          BASE_NAME=${PUBSPEC_VERSION%%+*}
+          BASE_CODE=${PUBSPEC_VERSION##*+}
+          if [[ "$app_id" != "com.github.tarungittarun.muzic" ]]; then
+            echo "::error title=applicationId::unexpected package ID ${app_id}"
+            exit 1
+          fi
+          if [[ "$name" != "$BASE_NAME" || $((code % 1000)) -ne "$BASE_CODE" ]]; then
+            echo "::error title=debug-apk-version::manifest does not match pubspec ${PUBSPEC_VERSION}"
+            exit 1
+          fi
+          {
+            echo '## Installable debug APK verified'
+            echo "APK bytes: ${size}"
+            echo "Package: ${app_id}"
+            echo "Version: ${name}+${code}"
+            echo "This APK uses Android's debug signing key, not a release key. It cannot update an APK signed with a different key; remove the older installation before installing this development build."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Encrypt debug APK for password-protected download
+        shell: bash
+        env:
+          MUZIC_ARTIFACT_PASSWORD: ${{ secrets.MUZIC_ARTIFACT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "$MUZIC_ARTIFACT_PASSWORD" ]]; then
+            echo "::error title=artifact-password-missing::Set MUZIC_ARTIFACT_PASSWORD as a private Actions secret to publish the password-protected APK artifact. Do not put the password in source or chat."
+            echo 'Add MUZIC_ARTIFACT_PASSWORD under repository Settings > Secrets and variables > Actions, then rerun this workflow.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          apk="build/app/outputs/flutter-apk/app-debug.apk"
+          encrypted="build/app/outputs/flutter-apk/muzic-debug-apk.apk.gpg"
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 3 --symmetric --cipher-algo AES256 \
+            --s2k-digest-algo SHA512 --output "$encrypted" "$apk" \
+            3<<<"$MUZIC_ARTIFACT_PASSWORD"
+          test -s "$encrypted"
+          rm -f "$apk"
+          sha256sum "$encrypted" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo 'The uploaded file is AES-256 OpenPGP encrypted. The passphrase is supplied only through a private Actions secret and is never printed.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload password-protected debug APK artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: muzic-debug-apk
+          path: serverless_music_player/build/app/outputs/flutter-apk/muzic-debug-apk.apk.gpg
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
   # ---------------------------------------------------------------------------
   # One job per ABI, running in parallel. Previously both ABIs were built
   # sequentially in a single job, which made it the long pole of the pipeline.
   # ---------------------------------------------------------------------------
   build:
+    needs: signing-check
+    if: needs.signing-check.outputs.configured == 'true'
     name: Build ${{ matrix.label }} APK
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -34,9 +172,11 @@ jobs:
           - label: arm64
             platform: android-arm64
             apk: app-arm64-v8a-release.apk
+            asset: muzic-arm64-v8a-release.apk
           - label: armv7
             platform: android-arm
             apk: app-armeabi-v7a-release.apk
+            asset: muzic-armeabi-v7a-release.apk
     defaults:
       run:
         working-directory: serverless_music_player
@@ -61,19 +201,32 @@ jobs:
       - name: Resolve Dart and Flutter packages
         run: flutter pub get
 
-      - name: Verify signing key
+      - name: Configure protected release signing
         shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          ls -la android/key.properties
-          ls -la android/app/*.p12 || echo "no keystore in android/app/"
-          keytool -list -v -keystore android/app/muzic-release.p12 -storetype PKCS12 \
-            -storepass MuZicRelease2026 2>&1 | grep -E "Alias name|Valid|Signature algorithm|error" | head -6
+          set -euo pipefail
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/muzic-release.p12
+          cat > android/key.properties <<EOF
+          storeFile=muzic-release.p12
+          storeType=PKCS12
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          EOF
+          keytool -list -keystore android/app/muzic-release.p12 -storetype PKCS12 \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null
 
       - name: Build ${{ matrix.label }} release APK
         shell: bash
         run: |
           set +e
-          flutter build apk --release --target-platform=${{ matrix.platform }} --split-per-abi 2>&1 | tee build_out.txt
+          flutter build apk --release --target-platform=${{ matrix.platform }} --split-per-abi --obfuscate --split-debug-info="${RUNNER_TEMP}/muzic-symbols-${{ matrix.label }}" 2>&1 | tee build_out.txt
           status=${PIPESTATUS[0]}
           {
             echo '## flutter build apk (${{ matrix.label }})'
@@ -136,6 +289,11 @@ jobs:
           echo "pubspec=$PUBSPEC_VERSION" >> "$GITHUB_STEP_SUMMARY"
           echo "badging=$BADGING" >> "$GITHUB_STEP_SUMMARY"
           echo "::notice title=APK version::pubspec=${PUBSPEC_VERSION} ${BADGING}"
+          app_id=$(echo "$BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")
+          if [ "$app_id" != "com.github.tarungittarun.muzic" ]; then
+            echo "::error title=applicationId::expected com.github.tarungittarun.muzic but found ${app_id}"
+            exit 1
+          fi
           code=$(echo "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
           name=$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           # The Gradle file pins every split APK to 3000 + the pubspec
@@ -161,13 +319,16 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # Collects both ABI artifacts and publishes the same GitHub release as
-  # before (tag apk-build-<run number>, same asset names and notes).
+  # Collects the verified ABI artifacts and publishes a MuZic-branded release.
   # ---------------------------------------------------------------------------
   publish:
     name: Publish APK release
-    needs: build
+    needs: [signing-check, build]
+    if: needs.signing-check.outputs.configured == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
     timeout-minutes: 10
     steps:
       - name: Check out source
@@ -191,9 +352,9 @@ jobs:
           # Copy the exact per-ABI files the build jobs verified - never
           # a `find | head -1` pick, which once published a 1.2MB split
           # stub as the arm64 APK (it cannot install: no native libs).
-          cp "dist/muzic-apk-arm64/app-arm64-v8a-release.apk" app-arm64-v8a-release.apk
-          cp "dist/muzic-apk-armv7/app-armeabi-v7a-release.apk" app-armeabi-v7a-release.apk
-          for f in app-arm64-v8a-release.apk app-armeabi-v7a-release.apk; do
+          cp "dist/muzic-apk-arm64/app-arm64-v8a-release.apk" muzic-arm64-v8a-release.apk
+          cp "dist/muzic-apk-armv7/app-armeabi-v7a-release.apk" muzic-armeabi-v7a-release.apk
+          for f in muzic-arm64-v8a-release.apk muzic-armeabi-v7a-release.apk; do
             size=$(stat -c%s "$f")
             echo "::notice title=release APK::${f} is ${size} bytes"
             if [ "$size" -lt 5242880 ]; then
@@ -202,12 +363,12 @@ jobs:
             fi
           done
           gh release create "apk-build-${RUN_NUMBER}" \
-            app-arm64-v8a-release.apk \
-            app-armeabi-v7a-release.apk \
+            muzic-arm64-v8a-release.apk \
+            muzic-armeabi-v7a-release.apk \
             --repo "${GH_REPOSITORY}" \
             --title "MuZic ${VERSION} (APK build ${RUN_NUMBER})" \
-            --notes "MuZic version ${VERSION}.
+            --notes "MuZic version ${VERSION} (Android package: com.github.tarungittarun.muzic).
 
-          Install **app-arm64-v8a-release.apk** on nearly all current Android phones (arm64). Use **app-armeabi-v7a-release.apk** only on older 32-bit devices.
+          Install **muzic-arm64-v8a-release.apk** on nearly all current Android phones (arm64). Use **muzic-armeabi-v7a-release.apk** only on older 32-bit devices.
 
-          This build installs over previous MuZic builds: it is signed with the same release key as every earlier build, and the version code increases with each release."
+          Android treats this new package ID as a separate app; it does not migrate earlier private data. The APK is signed using protected Actions secrets; signing material is not committed."

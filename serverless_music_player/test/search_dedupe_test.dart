@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/models/song_model.dart';
-import 'package:music_player/services/music_api_service.dart';
+import 'package:muzic/models/song_model.dart';
+import 'package:muzic/services/music_api_service.dart';
 
 SongModel copy(String id, String artist, String album) => SongModel(
       id: id,

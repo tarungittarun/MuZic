@@ -50,6 +50,10 @@ class AudioPlayerService {
       sources,
       initialIndex: initialIndex,
       initialPosition: initialPosition,
+      // Don't block the search tap while the CDN negotiates/warms up. Let
+      // play() start the fetch so PlayerController can watch buffering and
+      // recover a stream that never becomes ready.
+      preload: false,
     );
   }
 

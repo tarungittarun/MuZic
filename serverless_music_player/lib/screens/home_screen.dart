@@ -46,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
   SearchSource _source = SearchSource.automatic;
   bool _loading = false;
   bool _searching = false;
+  int _searchGeneration = 0;
   String _lastQuery = '';
   String _languageSignature = '';
 
@@ -93,6 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _resetToHome() {
+    _searchGeneration++;
     _queryController.clear();
     _searchFocusNode.unfocus();
     setState(() {
@@ -128,12 +130,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _search([String? query]) async {
     final text = (query ?? _queryController.text).trim();
+    final generation = ++_searchGeneration;
     if (text.isEmpty) {
       setState(() {
         _results = <SongModel>[];
         _albums = <AlbumSummary>[];
         _artists = <ArtistSummary>[];
         _searching = false;
+        _loading = false;
         _lastQuery = '';
       });
       return;
@@ -143,34 +147,60 @@ class _HomeScreenState extends State<HomeScreen> {
       _loading = true;
       _searching = true;
       _lastQuery = text;
+      _results = <SongModel>[];
+      _albums = <AlbumSummary>[];
+      _artists = <ArtistSummary>[];
     });
     final api = context.read<MusicApiService>();
+    final directVideoLink = MusicApiService.youtubeVideoIdFromUrl(text) != null;
+    bool isCurrentSearch() => mounted && generation == _searchGeneration;
+
+    // The regular catalogue page only needs a screenful of results. Asking
+    // for 30 triggered several deep catalogue/album requests before any songs
+    // appeared, making otherwise successful searches look stuck.
+    final songsFuture = api.search(
+      text,
+      source: _source,
+      limit: 24,
+      onUpdate: (songs) {
+        if (!isCurrentSearch() || songs.isEmpty) return;
+        setState(() {
+          _results = songs;
+          _loading = false;
+        });
+      },
+    );
+    final albumsFuture = _source == SearchSource.youtube || directVideoLink
+        ? Future<List<AlbumSummary>>.value(const <AlbumSummary>[])
+        : api.searchAlbums(text, limit: 10);
+    final artistsFuture = _source == SearchSource.youtube || directVideoLink
+        ? Future<List<ArtistSummary>>.value(const <ArtistSummary>[])
+        : api.searchArtists(text, limit: 8);
+
+    unawaited(albumsFuture.then<void>((albums) {
+      if (isCurrentSearch()) setState(() => _albums = albums);
+    }).catchError((Object _) {}));
+    unawaited(artistsFuture.then<void>((artists) {
+      if (isCurrentSearch()) setState(() => _artists = artists);
+    }).catchError((Object _) {}));
+
     try {
-      // Start all three lookups before awaiting so artist results do not add
-      // another serial round-trip to an already busy search.
-      final songsFuture = api.search(text, source: _source, limit: 30);
-      final albumsFuture = _source == SearchSource.youtube
-          ? Future<List<AlbumSummary>>.value(const <AlbumSummary>[])
-          : api.searchAlbums(text, limit: 10);
-      final artistsFuture = _source == SearchSource.youtube
-          ? Future<List<ArtistSummary>>.value(const <ArtistSummary>[])
-          : api.searchArtists(text, limit: 8);
       final songs = await songsFuture;
-      final albums = await albumsFuture;
-      final artists = await artistsFuture;
-      if (!mounted) return;
+      if (!isCurrentSearch()) return;
+      // Render playable songs and end the main loading state as soon as the
+      // song lookup completes. Optional panels continue independently.
       setState(() {
         _results = songs;
-        _albums = albums;
-        _artists = artists;
+        _loading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!isCurrentSearch()) return;
+      setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Search failed. Check your connection and try again.')),
+        const SnackBar(
+          content: Text('Search failed. Check your connection and try again.'),
+        ),
       );
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -202,7 +232,7 @@ class _HomeScreenState extends State<HomeScreen> {
       isScrollControlled: true,
       builder: (sheetContext) => _ArtistLibrarySheet(
         artist: artist,
-        songsFuture: api.search('${artist.name} songs', source: _source, limit: 30),
+        songsFuture: api.search('${artist.name} songs', source: _source, limit: 24),
         albumsFuture: api.searchAlbums(artist.name, limit: 20),
         onPlay: (songs, index, {bool shuffle = false}) {
           Navigator.pop(sheetContext);
@@ -273,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.fromLTRB(18, 18, 14, 6),
             child: Row(
               children: <Widget>[
-                MuZicHomeButton(onPressed: _resetToHome),
+                MuzicHomeButton(onPressed: _resetToHome),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -318,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 prefixIcon: Icon(Icons.search_rounded, color: palette.accent),
-                hintText: 'Songs, albums, artists',
+                hintText: 'Songs, artists, or paste a video link',
                 suffixIcon: _queryController.text.isEmpty
                     ? null
                     : IconButton(
@@ -410,6 +440,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Widget> _searchResults() {
     final palette = context.palette;
     if (_results.isEmpty && _albums.isEmpty && _artists.isEmpty && !_loading) {
+      final directVideoLink =
+          MusicApiService.youtubeVideoIdFromUrl(_lastQuery) != null;
       return <Widget>[
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 44, 20, 20),
@@ -423,7 +455,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Check the spelling or switch to Source B.',
+                directVideoLink
+                    ? 'This video link could not be loaded. Make sure it is public and try again.'
+                    : 'Check the spelling or switch to Source B.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: palette.textMuted, fontSize: 12),
               ),

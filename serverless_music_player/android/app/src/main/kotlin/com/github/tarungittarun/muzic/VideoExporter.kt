@@ -1,4 +1,4 @@
-package com.auralis.player
+package com.github.tarungittarun.muzic
 
 import android.content.ContentValues
 import android.content.Context

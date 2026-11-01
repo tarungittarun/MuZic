@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/models/lyrics_model.dart';
-import 'package:music_player/models/song_model.dart';
-import 'package:music_player/services/lyrics_language.dart';
+import 'package:muzic/models/lyrics_model.dart';
+import 'package:muzic/models/song_model.dart';
+import 'package:muzic/services/lyrics_language.dart';
 
 void main() {
   group('detectScript', () {

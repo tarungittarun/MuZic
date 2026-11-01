@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' as foundation;
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -28,7 +30,7 @@ Future<void> main() async {
   // before the AudioPlayer is created.
   // Identical to the main branch: same plugin, same channel, same flags.
   await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.auralis.player.audio',
+    androidNotificationChannelId: 'com.github.tarungittarun.muzic.audio',
     androidNotificationChannelName: 'MuZic playback',
     androidNotificationOngoing: true,
     // Lets Android treat MuZic as a browsable/resumable media source where
@@ -45,10 +47,23 @@ Future<void> main() async {
   // be exported and shared for analysis.
   final previousOnError = foundation.FlutterError.onError;
   foundation.FlutterError.onError = (foundation.FlutterErrorDetails details) {
-    logError('flutter', details.exceptionAsString(), <String, Object?>{
-      'library': details.library ?? '',
+    final safeException = sanitizeLogText(details.exceptionAsString());
+    final rawStack = details.stack?.toString();
+    final safeStack = rawStack == null ? null : sanitizeLogText(rawStack);
+    logError('flutter', safeException, <String, Object?>{
+      'library': sanitizeLogText(details.library ?? ''),
+      if (safeStack != null) 'stack': safeStack,
     });
-    previousOnError?.call(details);
+    // Keep Flutter's normal development diagnostics, but pass only sanitized
+    // text so an exception/stack cannot leak provider labels or signed URLs.
+    previousOnError?.call(
+      foundation.FlutterErrorDetails(
+        exception: safeException,
+        stack: safeStack == null ? null : StackTrace.fromString(safeStack),
+        library: sanitizeLogText(details.library ?? ''),
+        silent: details.silent,
+      ),
+    );
   };
   WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
     logError('zone', '$error', <String, Object?>{
@@ -98,7 +113,7 @@ Future<void> main() async {
 
   logInfo('app', 'application starting');
 
-  runApp(MusicApp(
+  runApp(MuzicApp(
     library: library,
     musicApi: musicApi,
     audio: audio,
@@ -117,6 +132,7 @@ Future<void> main() async {
   // system dialog from a resumed activity, so asking before runApp fails
   // silently — which is why the media notification never appeared.
   WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(downloads.validateSavedDownloads());
     NotificationService.ensurePermission();
   });
 }

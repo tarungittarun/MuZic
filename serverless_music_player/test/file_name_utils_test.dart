@@ -1,11 +1,21 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/utils/file_name_utils.dart';
+import 'package:muzic/utils/file_name_utils.dart';
 
 void main() {
   group('track filenames', () {
     test('uses a sanitized song title plus its extension only', () {
       expect(trackFileName('Naa/Ready: Live?', '.m4a'), 'Naa Ready Live.m4a');
       expect(trackFileName('Aashiqui 2', 'mp4'), 'Aashiqui 2.mp4');
+    });
+
+    test('does not expose provider labels in exported filenames', () {
+      expect(
+        trackFileName('YouTube Music - JioSaavn - Song Name', 'mp3'),
+        'Song Name.mp3',
+      );
+      expect(trackFileName('Radio Paradise', 'mp4'), 'Unknown track.mp4');
+      expect(trackFileName('youtube_explode_dart - Another Song', 'mp3'),
+          'Another Song.mp3');
     });
 
     test('keeps Unicode titles and provides a safe fallback', () {

@@ -10,15 +10,15 @@ screenshots.
 
 | What | How |
 | --- | --- |
-| **Install** | Open the latest MuZic release → **Assets** → download `app-arm64-v8a-release.apk` (most phones) → tap it → *Install anyway* if Android warns about an unknown source. |
-| **Older 32-bit phone** | Use `app-armeabi-v7a-release.apk` instead. |
-| **Update** | Download the newest APK and install it over the old one. Every MuZic build is signed with the same key (`04d6c78f…`) and bumps the version code, so it updates in place — **no uninstall needed**. |
-| **If you ever see "package conflicts"** | You are installing over an old build from before the signing fix. Uninstall MuZic once, then install the new APK. This will not happen again. |
-| **Version** | Settings → About shows the version (for example, `1.5.43+52`). |
+| **Install** | Open the latest MuZic release → **Assets** → download `muzic-arm64-v8a-release.apk` (most phones) → tap it → *Install anyway* if Android warns about an unknown source. |
+| **Older 32-bit phone** | Use `muzic-armeabi-v7a-release.apk` instead. |
+| **First install of this package** | MuZic `1.5.47+56` uses Android package `com.github.tarungittarun.muzic`. Android treats the new package ID as a separate app, so earlier private app data is not transferred. |
+| **Update MuZic** | Later builds with package `com.github.tarungittarun.muzic` update in place when signed with the same protected release key and a higher version code. |
+| **Version** | Settings → About shows the installed version, currently `1.5.47+56`. |
 
 ---
 
-## What's new in 1.5.43
+## What's new in 1.5.47
 
 - **Player actions are aligned:** Lyrics and Show artwork share the artwork's
   bottom-right corner. Quality stays at the far left while Previous, Play/Pause
@@ -399,7 +399,7 @@ in its exported report).
 
 Timeline:
 
-1. Music plays with **no activity** in the app for the chosen duration.
+1. MuZic plays with **no activity** in the app for the chosen duration.
 2. A warning notification (**"Still listening?"**) is posted and a banner
    appears above the mini player with an **I'm here** button.
 3. If nothing happens for **5 more minutes**, playback **pauses** and a
@@ -486,11 +486,12 @@ shows `FLAC (local file)` etc.
 
 ![Diagnostics](img/diagnostics.svg)
 
-**Nothing is recorded unless you turn it on.**
+**Routine event capture is off by default.**
 
 *Settings → Diagnostics →* **Capture diagnostics**, or the master switch at the
-top of the Diagnostics screen. Turning it off also **deletes** whatever was
-captured.
+top of the Diagnostics screen. Turning it off stops routine capture and clears
+the captured log buffer. The separate simulated-check button is manual: it
+makes live network requests and adds sanitized results to the current report.
 
 While capture is on, MuZic records: search and stream-resolution steps with
 timings, playback and fallback errors, lyrics lookups, notification/session
@@ -509,7 +510,9 @@ uncaught errors.
 
 The log list is **live** (`live · N entries`). Tap the flag icon to drop a
 marker into the log before you reproduce a problem — that makes the report much
-easier to read.
+easier to read. App-owned source labels are generic, but the contacted services
+remain identifiable through network traffic or APK inspection; obfuscation is
+not secrecy.
 
 ---
 

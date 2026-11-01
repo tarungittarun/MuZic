@@ -1,6 +1,6 @@
 # MuZic — end-to-end test findings
 
-Date: 2026-10-23 · Branch: `arena/dd1906b8-muzic`
+Date: 2026-10-23 · Branch: `arena/dd1906b8-music`
 Latest run report: the E2E workflow summary and its 30-day `e2e-report` artifact.
 
 The strict E2E workflow drives the real app on Android emulators. It now runs
@@ -177,7 +177,7 @@ emulator matrix produced no results at first.
 | `android-emulator-runner` exited silently | action swallowed the failure | replaced with explicit `sdkmanager` / `avdmanager` / `emulator` steps |
 | `exit 127: sdkmanager: command not found` | `sdkmanager` is not on `PATH` on the runner image | discover `$ANDROID_SDK_ROOT/cmdline-tools/*/bin` and export it |
 | `qemu-system-x86_64: error while loading shared libraries: libpulse.so.0` | emulator 37.x links libpulse **even in `-no-window` mode** | `apt-get install libpulse0 libxcomposite1 libxcursor1 libxi6 libxtst6 libnss3 libgbm1 libxdamage1 libxrandr2` |
-| `Unknown AVD name [muzic-34]` right after a successful create | `avdmanager` wrote the AVD outside `$HOME/.android/avd` | create **and** launch with an explicit `ANDROID_AVD_HOME` |
+| `Unknown AVD name [music-34]` right after a successful create | `avdmanager` wrote the AVD outside `$HOME/.android/avd` | create **and** launch with an explicit `ANDROID_AVD_HOME` |
 | Device facts all blank / `package=not installed` | every CI step is a fresh shell — `PATH` exports do not persist | export the SDK paths inside each step that needs ADB; capture package facts *before* `flutter test` (it uninstalls the app afterwards) |
 | One matrix leg failed to compile while the other passed on the same commit | transient Gradle failure, and the step only printed its last 20 lines | retry once, annotate the compiler errors, keep `build-debug.log` as an artefact |
 | Emulator boots in 40–100 s but occasionally needs longer | cold boot with `-wipe-data` | 15-minute bounded poll with a 20 s per-`adb` timeout |

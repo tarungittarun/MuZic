@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/theme/app_theme.dart';
-import 'package:music_player/widgets/visualizer_bars.dart';
+import 'package:muzic/theme/app_theme.dart';
+import 'package:muzic/widgets/visualizer_bars.dart';
 
 void main() {
   test('waveform smoothing follows loud and quiet audio bands', () {

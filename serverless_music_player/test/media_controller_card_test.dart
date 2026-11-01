@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/models/song_model.dart';
-import 'package:music_player/widgets/media_controller_card.dart';
-import 'package:music_player/widgets/muzic_home_button.dart';
+import 'package:muzic/models/song_model.dart';
+import 'package:muzic/widgets/media_controller_card.dart';
+import 'package:muzic/widgets/muzic_home_button.dart';
 
 const SongModel _song = SongModel(
   id: 'card-1',
@@ -43,7 +43,7 @@ void main() {
 
     // Same chrome as Android's system media card: MuZic icon top-left,
     // "This phone" output pill, title/artist overlaid on the artwork.
-    expect(find.byType(MuZicAppIcon), findsOneWidget);
+    expect(find.byType(MuzicAppIcon), findsOneWidget);
     expect(find.byType(ArtworkBackdrop), findsOneWidget);
     expect(find.text('This phone'), findsOneWidget);
     expect(find.text('Chhod Diya'), findsOneWidget);

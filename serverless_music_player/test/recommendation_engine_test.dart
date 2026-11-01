@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/models/song_model.dart';
-import 'package:music_player/services/recommendation_engine.dart';
+import 'package:muzic/models/song_model.dart';
+import 'package:muzic/services/recommendation_engine.dart';
 
 SongModel song(
   String id,

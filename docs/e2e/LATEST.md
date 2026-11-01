@@ -5,7 +5,7 @@
 > GitHub Actions workflow (see [FINDINGS.md](FINDINGS.md)); this file is kept
 > only as a historical run record.
 
-Generated: 2026-10-21 07:02 UTC  
+Generated: 2026-10-21 07:02 UTC
 Commit: `6d122a4` · Run: `41`
 
 What this suite covers, why it exists and what it has found: [FINDINGS.md](FINDINGS.md).

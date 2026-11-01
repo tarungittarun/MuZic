@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:music_player/services/app_settings_service.dart';
+import 'package:muzic/services/app_settings_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';

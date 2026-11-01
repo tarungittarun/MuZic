@@ -5,13 +5,16 @@ plugins {
 }
 
 def keystoreProperties = new Properties()
+def releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.toLowerCase().contains('release')
+}
 def keystorePropertiesFile = rootProject.file('key.properties')
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
 android {
-    namespace = "com.auralis.player"
+    namespace = "com.github.tarungittarun.muzic"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -25,7 +28,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.auralis.player"
+        applicationId = "com.github.tarungittarun.muzic"
         minSdk = 23
         targetSdk = 35
         // Take the version from pubspec.yaml (`version: 1.4.2+7`) through the
@@ -70,11 +73,16 @@ android {
 
     buildTypes {
         release {
+            debuggable = false
             minifyEnabled = true
             shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.release
+            } else if (releaseTaskRequested) {
+                throw new GradleException(
+                    'Release builds require protected signing configuration; refusing to publish a debug-signed APK.'
+                )
             } else {
                 signingConfig = signingConfigs.debug
             }

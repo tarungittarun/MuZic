@@ -144,7 +144,7 @@ class SleepTimerService extends ChangeNotifier with WidgetsBindingObserver {
         'id': id,
         'title': title,
         'body': body,
-        'channelId': 'muzic_sleep_alerts',
+        'channelId': 'music_sleep_alerts',
         'channelName': 'MuZic sleep timer',
       });
     } on MissingPluginException {

@@ -90,7 +90,7 @@ class NotificationService {
         'title': 'MuZic notifications work',
         'body': 'If you can read this, MuZic notifications are working. '
             'Play a song to check the system media player.',
-        'channelId': 'muzic_test',
+        'channelId': 'music_test',
         'channelName': 'MuZic test',
       });
       logInfo('notification', 'test notification posted', <String, Object?>{
@@ -139,7 +139,7 @@ class NotificationService {
       final postedEntries = raw['posted'];
       final playerShowing = postedEntries is List &&
           postedEntries.any(
-              (entry) => entry.toString().contains('com.auralis.player.audio'));
+              (entry) => entry.toString().contains('com.github.tarungittarun.muzic.audio'));
       lines.add('${playerShowing ? '✅' : '⚠️'} System media notification '
           '${playerShowing ? 'posted for the system to render' : 'not posted — play a song, then check again'}');
       final tokenDetails = raw['sessionTokenDetails'];

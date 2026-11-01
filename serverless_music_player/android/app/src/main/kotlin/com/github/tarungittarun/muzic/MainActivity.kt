@@ -1,4 +1,4 @@
-package com.auralis.player
+package com.github.tarungittarun.muzic
 
 import android.app.Activity
 import android.app.ActivityManager
@@ -77,7 +77,7 @@ class MainActivity : AudioServiceActivity() {
          * just_audio_background with the same id passed to
          * JustAudioBackground.init in main.dart; diagnostics only reads it.
          */
-        const val AUDIO_CHANNEL_ID = "com.auralis.player.audio"
+        const val AUDIO_CHANNEL_ID = "com.github.tarungittarun.muzic.audio"
         const val AUDIO_SERVICE_CLASS = "com.ryanheise.audioservice.AudioService"
     }
 
@@ -192,7 +192,7 @@ class MainActivity : AudioServiceActivity() {
                         call.argument<Int>("id") ?: 1001,
                         call.argument<String>("title") ?: "MuZic",
                         call.argument<String>("body") ?: "",
-                        call.argument<String>("channelId") ?: "muzic_alerts",
+                        call.argument<String>("channelId") ?: "music_alerts",
                         call.argument<String>("channelName") ?: "MuZic alerts",
                     )
                     result.success(true)
@@ -212,7 +212,7 @@ class MainActivity : AudioServiceActivity() {
                 }
                 "saveText" -> result.success(
                     saveTextToDownloads(
-                        call.argument<String>("fileName") ?: "muzic_report.txt",
+                        call.argument<String>("fileName") ?: "music_report.txt",
                         call.argument<String>("text") ?: "",
                     ),
                 )
@@ -681,7 +681,7 @@ class MainActivity : AudioServiceActivity() {
         val title = call.argument<String>("title") ?: "MuZic"
         val artist = call.argument<String>("artist") ?: ""
         val durationMs = call.argument<Int>("durationMs")?.toLong() ?: 0L
-        val outputName = call.argument<String>("outputName") ?: "muzic_video"
+        val outputName = call.argument<String>("outputName") ?: "music_video"
         val outputFolderUri = call.argument<String>("outputFolderUri")
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
@@ -729,7 +729,7 @@ class MainActivity : AudioServiceActivity() {
                 val audioFile = when (audioSourceType) {
                     "content_uri" -> {
                         exportStage = "prepare_private_audio"
-                        val tempDirectory = File(filesDir, "muzic_video_audio")
+                        val tempDirectory = File(filesDir, "music_video_audio")
                         if (!tempDirectory.exists() && !tempDirectory.mkdirs() && !tempDirectory.exists()) {
                             throw IllegalStateException("Could not prepare private video audio storage.")
                         }
@@ -835,7 +835,7 @@ class MainActivity : AudioServiceActivity() {
                 temporaryAudio?.delete()
                 videoExportRunning = false
             }
-        }, "muzic-video-export").start()
+        }, "music-video-export").start()
     }
 
     private fun shareText(subject: String, text: String, result: MethodChannel.Result) {

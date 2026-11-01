@@ -1,0 +1,6 @@
+# Android signing material must never be committed.
+/serverless_music_player/android/key.properties
+/serverless_music_player/android/app/*.p12
+/serverless_music_player/android/app/*.jks
+/serverless_music_player/android/app/*.keystore
+/serverless_music_player/android/app/*.pem

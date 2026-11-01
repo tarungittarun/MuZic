@@ -4,7 +4,17 @@
 /// duplicate titles is added by the download/export destination as a numeric
 /// suffix, never with a provider slug or source ID.
 String trackFileBase(String title) {
+  // Provider names can occasionally be included in upstream display titles.
+  // Keep those labels out of user-visible media filenames.
   var base = title
+      .replaceAll(
+        RegExp(
+          r'jio[\s_-]*saavn|saavn|youtube(?:[\s_-]*(?:music|explode(?:[\s_-]*dart)?))?|googlevideo|ytimg|lrclib|radio[\s_-]*paradise|spotify',
+          caseSensitive: false,
+        ),
+        ' ',
+      )
+      .replaceAll(RegExp(r'^[\s\-–—|:]+|[\s\-–—|:]+$'), '')
       .replaceAll(RegExp(r'[\\/:*?"<>|]'), ' ')
       .replaceAll(RegExp(r'[\u0000-\u001f\u007f]'), '')
       .replaceAll(RegExp(r'\s+'), ' ')

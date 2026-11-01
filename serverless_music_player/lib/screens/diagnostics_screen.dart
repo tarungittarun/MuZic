@@ -182,10 +182,9 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
               title: const Text('Capture diagnostics'),
               subtitle: Text(
                 captureOn
-                    ? 'Recording this device\'s playback activity. Turn off to '
-                        'stop capturing and delete what was recorded.'
-                    : 'Off — nothing is recorded. Turn on to capture playback, '
-                        'network and player events for troubleshooting.',
+                    ? 'Routine event capture is on. Turn off to stop and clear captured logs.'
+                    : 'Routine capture is off. Simulated checks are manual and '
+                        'may add temporary results to reports.',
                 style: TextStyle(color: palette.textMuted, fontSize: 12),
               ),
               onChanged: (value) async {
@@ -222,12 +221,10 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'MuZic records nothing unless you switch capture on. '
-                      'When enabled it records search and stream resolution '
-                      'steps, playback and fallback errors, lyrics lookups, '
-                      'queue and settings state — everything needed to '
-                      'reproduce a bug. Everything stays on this device until '
-                      'you export and share it.',
+                      'Routine app events are not recorded unless capture is on. '
+                      'If you run simulated checks, they create temporary '
+                      'results here and make live network requests. Results '
+                      'stay on this device until you export and share a report.',
                       style: TextStyle(
                         color: palette.textSecondary,
                         height: 1.5,
@@ -282,9 +279,9 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    'Run simulated checks to exercise the same pipeline a song '
-                    'uses (search → stream URL → CDN reachability → lyrics → '
-                    'Source B) and capture what happens at each step.',
+                    'Run a live network test only when you choose. It checks search, stream '
+                    'resolution, connectivity, lyrics, and Source B, then adds '
+                    'sanitized step results to the report.',
                     style: TextStyle(
                       color: palette.textMuted,
                       height: 1.45,
@@ -606,36 +603,8 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   }
 }
 
-/// Keeps provider URLs and brand names out of diagnostics displayed in the UI.
-/// The full technical details remain available in the exported diagnostics file.
-String neutralizeProviderNames(String value) {
-  return value
-      .replaceAll(RegExp(r'https?://\S+', caseSensitive: false), 'network link')
-      .replaceAll(
-        RegExp(
-          r'\b(?:[\w-]+\.)*(?:saavncdn\.com|jiosaavn\.com|googlevideo\.com|youtube\.com|ytimg\.com|lrclib\.net|radioparadise\.com)\b',
-          caseSensitive: false,
-        ),
-        'media host',
-      )
-      .replaceAll(
-        RegExp(r'radio\s*paradise', caseSensitive: false),
-        'radio source',
-      )
-      .replaceAll(RegExp('googlevideo', caseSensitive: false), 'media host')
-      .replaceAll(RegExp('jiosaavn', caseSensitive: false), 'Source A')
-      .replaceAll(RegExp('youtube', caseSensitive: false), 'Source B')
-      .replaceAll(RegExp('lrclib', caseSensitive: false), 'lyrics source')
-      .replaceAll(RegExp('spotify', caseSensitive: false), 'radio mix')
-      .replaceAll(
-        RegExp(
-          r'\b(?:motorola|samsung|xiaomi|oppo|vivo|oneplus|miui|color\s*os|funtouch\s*os|hyper\s*os|one\s*ui|hello\s*ui|google|apple|amazon|microsoft|chrome|safari|iphone|ipad|ios)\b',
-          caseSensitive: false,
-        ),
-        'device',
-      )
-      .replaceAll(RegExp('android', caseSensitive: false), 'system');
-}
+/// Redacts provider-specific names and network URLs from live diagnostics.
+String neutralizeProviderNames(String value) => sanitizeLogText(value);
 
 class _LogTile extends StatelessWidget {
   const _LogTile({required this.entry});

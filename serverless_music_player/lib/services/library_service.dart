@@ -6,6 +6,11 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/song_model.dart';
 
 class LibraryService extends ChangeNotifier {
+  LibraryService({Future<void> Function()? initializeHive})
+      : _initializeHive = initializeHive;
+
+  final Future<void> Function()? _initializeHive;
+
   late Box<dynamic> _favorites;
   late Box<dynamic> _downloads;
   late Box<dynamic> _recents;
@@ -13,7 +18,12 @@ class LibraryService extends ChangeNotifier {
   late Box<dynamic> _localTracks;
 
   Future<void> init() async {
-    await Hive.initFlutter();
+    final initializeHive = _initializeHive;
+    if (initializeHive == null) {
+      await Hive.initFlutter();
+    } else {
+      await initializeHive();
+    }
     _favorites = await Hive.openBox<dynamic>('favorites');
     _downloads = await Hive.openBox<dynamic>('downloads');
     _recents = await Hive.openBox<dynamic>('recently_played');
@@ -56,9 +66,18 @@ class LibraryService extends ChangeNotifier {
   bool isDownloaded(String songId) {
     final path = downloadedSong(songId)?.localPath;
     if (path == null || path.isEmpty) return false;
-    // Downloads in a user-picked folder use Android content URIs.
+    // Downloads in a user-picked folder use Android content URIs. Their
+    // validity is checked asynchronously by DownloadService.
     if (path.startsWith('content://')) return true;
     return File(path).existsSync();
+  }
+
+  bool hasUnavailableDownload(String songId) {
+    final saved = downloadedSong(songId);
+    if (saved == null) return false;
+    final path = saved.localPath;
+    if (path == null || path.isEmpty) return true;
+    return !path.startsWith('content://') && !File(path).existsSync();
   }
 
   SongModel? downloadedSong(String songId) {
@@ -73,13 +92,10 @@ class LibraryService extends ChangeNotifier {
 
   List<SongModel> get favoriteSongs => _songsFrom(_favorites.values);
 
-  List<SongModel> get downloadedSongs => _songsFrom(_downloads.values)
-      .where((song) {
-        final path = song.localPath;
-        if (path == null || path.isEmpty) return false;
-        return path.startsWith('content://') || File(path).existsSync();
-      })
-      .toList(growable: false);
+  /// Includes saved records even when the file has disappeared. Hiding those
+  /// rows made downloads look deleted and prevented listeners from restoring
+  /// an offline copy; the tile now marks unavailable files and offers retry.
+  List<SongModel> get downloadedSongs => _songsFrom(_downloads.values);
 
   List<SongModel> get recentSongs {
     final value = _recents.get('items', defaultValue: <dynamic>[]);
@@ -118,6 +134,16 @@ class LibraryService extends ChangeNotifier {
 
   Future<void> saveDownload(SongModel song) async {
     await _downloads.put(song.id, song.toMap());
+    notifyListeners();
+  }
+
+  /// Keeps the library entry but drops a dead URI/path so the track can be
+  /// downloaded again instead of remaining falsely marked as offline-ready.
+  Future<void> markDownloadUnavailable(String songId) async {
+    final saved = downloadedSong(songId);
+    if (saved == null || saved.localPath == null) return;
+    final map = saved.toMap()..['localPath'] = null;
+    await _downloads.put(songId, map);
     notifyListeners();
   }
 

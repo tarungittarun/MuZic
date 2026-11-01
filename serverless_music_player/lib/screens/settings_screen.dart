@@ -44,14 +44,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (widget.embedded) ...<Widget>[
           Row(
             children: <Widget>[
-              MuZicHomeButton(onPressed: widget.onHome ?? () {}),
+              MuzicHomeButton(onPressed: widget.onHome ?? () {}),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      'MUZIC',
+                      'MUSIC',
                       style: TextStyle(
                         fontSize: 10,
                         letterSpacing: 2,
@@ -741,8 +741,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Diagnostics capture'),
                   subtitle: Text(
                     settings.diagnosticsEnabled
-                        ? 'Recording — turn off to stop and delete captured data.'
-                        : 'Off — nothing is recorded.',
+                        ? 'Capture on — turning it off clears captured log entries.'
+                        : 'Routine event capture is off. Simulated checks are manual.',
                     style: TextStyle(color: palette.textMuted, fontSize: 12),
                   ),
                   onChanged: (value) async {
@@ -787,11 +787,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(width: 13),
                   Expanded(
                     child: Text(
-                      'Your Usage history and diagnostics logs are saved only '
-                      'on this device; ${AppInfo.displayName} does not upload '
-                      'them. Search terms are sent to the selected music '
-                      'provider when you search. Clear local history from the '
-                      'Usage tab at any time.',
+                      'No account, ads, or analytics. Your library, history, '
+                      'and settings stay on this device. Search, playback, '
+                      'artwork, and lyrics requests go directly to third-party '
+                      'services, which receive your IP address and request data. '
+                      'Source labels are generic, but the integrations remain '
+                      'identifiable through network traffic or APK inspection. '
+                      'Diagnostics capture is off by default; simulated checks '
+                      'run only when tapped. Reports can include track and device '
+                      'details and leave this phone only if you choose to share them.',
                       style: TextStyle(
                         color: palette.textSecondary,
                         height: 1.5,

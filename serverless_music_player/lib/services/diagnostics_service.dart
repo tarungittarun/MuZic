@@ -32,7 +32,9 @@ class SimulationStep {
   @override
   String toString() {
     final status = ok ? 'OK' : 'FAILED';
-    return '[$status] $name (${elapsed.inMilliseconds} ms): $detail';
+    return sanitizeLogText(
+      '[$status] $name (${elapsed.inMilliseconds} ms): $detail',
+    );
   }
 }
 
@@ -125,8 +127,8 @@ class DiagnosticsService extends ChangeNotifier {
     await _timed('Player state snapshot', () async {
       final song = player.currentSong;
       return 'playing=${player.isPlaying} buffering=${player.isBuffering} '
-          'resolving=${player.isResolving} queue=${player.queue.length} '
-          'current=${song?.title ?? '(none)'} '
+          'resolving=${player.isResolving} error=${player.playbackError ?? '(none)'} '
+          'queue=${player.queue.length} current=${song?.title ?? '(none)'} '
           'position=${player.position.inSeconds}s';
     });
 
@@ -145,10 +147,10 @@ class DiagnosticsService extends ChangeNotifier {
   ) async {
     final stopwatch = Stopwatch()..start();
     try {
-      final detail = await body();
+      final detail = sanitizeLogText(await body());
       stopwatch.stop();
       _steps.add(SimulationStep(
-        name: name,
+        name: sanitizeLogText(name),
         ok: true,
         elapsed: stopwatch.elapsed,
         detail: detail,
@@ -160,16 +162,17 @@ class DiagnosticsService extends ChangeNotifier {
       });
     } catch (error) {
       stopwatch.stop();
+      final safeError = sanitizeLogText('$error');
       _steps.add(SimulationStep(
-        name: name,
+        name: sanitizeLogText(name),
         ok: false,
         elapsed: stopwatch.elapsed,
-        detail: '$error',
+        detail: safeError,
       ));
       logError('diagnostics', 'sim: $name', <String, Object?>{
         'status': 'failed',
         'ms': stopwatch.elapsedMilliseconds,
-        'error': '$error',
+        'error': safeError,
       });
     }
     notifyListeners();
@@ -182,14 +185,17 @@ class DiagnosticsService extends ChangeNotifier {
     buffer.writeln('Generated: ${DateTime.now().toIso8601String()}');
     buffer.writeln(
         'App: ${AppInfo.displayName} ${AppInfo.version}+${AppInfo.buildNumber}');
-    buffer.writeln(
-        'Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
+    buffer.writeln(sanitizeLogText(
+      'Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+    ));
     buffer.writeln('Processors: ${Platform.numberOfProcessors}');
-    buffer.writeln('Notifications: ${NotificationService.lastStatus}');
+    buffer.writeln(
+      'Notifications: ${sanitizeLogText(NotificationService.lastStatus)}',
+    );
     if (NotificationService.lastHealth.isNotEmpty) {
       buffer.writeln('--- Media notification health ---');
       for (final line in NotificationService.lastHealth) {
-        buffer.writeln(line);
+        buffer.writeln(sanitizeLogText(line));
       }
     }
     buffer.writeln('Capture enabled: ${settings.diagnosticsEnabled}');
@@ -215,23 +221,33 @@ class DiagnosticsService extends ChangeNotifier {
     buffer.writeln();
     buffer.writeln('--- Player ---');
     final song = player.currentSong;
-    buffer.writeln('currentSong: ${song == null ? '(none)' : song.title}');
+    buffer.writeln(
+      'currentSong: ${song == null ? '(none)' : sanitizeLogText(song.title)}',
+    );
     if (song != null) {
-      buffer.writeln('currentSongId: ${song.id}');
-      buffer.writeln('currentSource: ${song.source.name}');
-      buffer.writeln('currentStreamUrl: ${song.streamUrl ?? '(unresolved)'}');
+      buffer.writeln('currentSongId: ${sanitizeLogText(song.id)}');
+      buffer.writeln('currentSource: ${sanitizeLogText(song.source.name)}');
+      buffer.writeln(
+        'currentStreamUrl: ${song.streamUrl == null ? '(unresolved)' : '[redacted for privacy]'}',
+      );
     }
     buffer.writeln('playing: ${player.isPlaying}');
     buffer.writeln('buffering: ${player.isBuffering}');
     buffer.writeln('resolving: ${player.isResolving}');
+    final playbackError = player.playbackError;
+    final playbackErrorText = playbackError == null
+        ? '(none)'
+        : sanitizeLogText(playbackError);
+    buffer.writeln('playbackError: $playbackErrorText');
     buffer.writeln('position: ${player.position}');
     buffer.writeln('duration: ${player.duration}');
     buffer.writeln('queueLength: ${player.queue.length}');
     for (var i = 0; i < player.queue.length; i++) {
       final item = player.queue[i];
       final marker = i == player.currentIndex ? '*' : ' ';
-      buffer.writeln(
-          '  $marker [$i] ${item.title} — ${item.artist} (${item.source.name})');
+      buffer.writeln(sanitizeLogText(
+        '  $marker [$i] ${item.title} — ${item.artist} (${item.source.name})',
+      ));
     }
     buffer.writeln();
     buffer.writeln('--- Usage summary (local) ---');
@@ -243,7 +259,7 @@ class DiagnosticsService extends ChangeNotifier {
     if (_steps.isNotEmpty) {
       buffer.writeln('--- Simulation steps ---');
       for (final step in _steps) {
-        buffer.writeln(step.toString());
+        buffer.writeln(sanitizeLogText(step.toString()));
       }
       buffer.writeln();
     }

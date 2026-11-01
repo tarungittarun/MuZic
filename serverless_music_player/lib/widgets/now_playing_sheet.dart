@@ -690,6 +690,44 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                             onPrevious: player.previous,
                             onSeek: player.seek,
                           ),
+                          if (player.playbackError != null)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: palette.surfaceRaised,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: palette.outline),
+                                ),
+                                child: Row(
+                                  children: <Widget>[
+                                    Icon(
+                                      Icons.wifi_off_rounded,
+                                      size: 17,
+                                      color: palette.textMuted,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        player.playbackError!,
+                                        style: TextStyle(
+                                          color: palette.textSecondary,
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: player.retryCurrentPlayback,
+                                      child: const Text('Retry'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                           _buildControlStrip(context, player, song, palette),
                           const SizedBox(height: 8),
                         ],
@@ -731,7 +769,8 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
   ) {
     final favorite = player.isFavorite(song);
     final repeatEnabled = player.repeatMode != LoopMode.off;
-    final repeatTooltip = 'Repeat mode: ${_repeatLabel(player.repeatMode)}';
+    final repeatTooltip =
+        PlayerController.repeatModeDescription(player.repeatMode);
 
     return SizedBox(
       height: 80,
@@ -766,9 +805,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                   icon: player.repeatMode == LoopMode.one
                       ? Icons.repeat_one_rounded
                       : Icons.repeat_rounded,
-                  label: player.repeatMode == LoopMode.one
-                      ? 'Repeat 1'
-                      : 'Repeat',
+                  label: PlayerController.repeatModeLabel(player.repeatMode),
                   tooltip: repeatTooltip,
                   selected: repeatEnabled,
                   color: repeatEnabled ? palette.mint : palette.textSecondary,
@@ -935,11 +972,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     );
   }
 
-  static String _repeatLabel(LoopMode mode) => switch (mode) {
-    LoopMode.off => 'off',
-    LoopMode.all => 'all',
-    LoopMode.one => 'one',
-  };
 }
 
 class _PlayerActionButton extends StatelessWidget {
@@ -1134,7 +1166,6 @@ class _LyricsPanel extends StatefulWidget {
 }
 
 class _LyricsPanelState extends State<_LyricsPanel> {
-  LyricsModel? _primary;
   List<LyricsModel> _variants = const <LyricsModel>[];
   bool _loading = true;
   bool _failed = false;
@@ -1150,7 +1181,6 @@ class _LyricsPanelState extends State<_LyricsPanel> {
   void didUpdateWidget(covariant _LyricsPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.song.id != widget.song.id) {
-      _primary = null;
       _variants = const <LyricsModel>[];
       _loading = true;
       _failed = false;
@@ -1165,34 +1195,40 @@ class _LyricsPanelState extends State<_LyricsPanel> {
     bool stillCurrent() =>
         mounted && generation == _loadGeneration && song.id == widget.song.id;
 
-    LyricsModel? primary;
     try {
-      primary = await api.fetchLyrics(song);
-      if (!stillCurrent()) return;
-      setState(() {
-        _primary = primary;
-        if (primary != null && !primary.isEmpty) _loading = false;
-      });
-    } catch (_) {
-      // The full variant fetch below can still recover through catalogue or
-      // Source A fallbacks, so do not show an error yet.
-    }
-
-    try {
-      final bundle = await api.fetchLyricsVariants(song);
+      final bundle = await api.fetchLyricsVariants(
+        song,
+        onUpdate: (partial) {
+          if (!stillCurrent() || partial.isEmpty) return;
+          setState(() {
+            _variants = partial.variants;
+            _loading = false;
+            _failed = false;
+          });
+        },
+      );
       if (!stillCurrent()) return;
       setState(() {
         _variants = bundle.variants;
         _loading = false;
-        _failed = bundle.isEmpty && (primary?.isEmpty ?? true);
+        _failed = bundle.isEmpty;
       });
     } catch (_) {
       if (!stillCurrent()) return;
       setState(() {
         _loading = false;
-        _failed = _primary?.isEmpty ?? true;
+        _failed = _variants.isEmpty;
       });
     }
+  }
+
+  void _retryLyrics() {
+    setState(() {
+      _variants = const <LyricsModel>[];
+      _loading = true;
+      _failed = false;
+    });
+    unawaited(_load(widget.song));
   }
 
   @override
@@ -1203,19 +1239,26 @@ class _LyricsPanelState extends State<_LyricsPanel> {
     final loadedVariants = _variants
         .where((variant) => !variant.isEmpty)
         .toList(growable: false);
-    final variants = loadedVariants.isNotEmpty
-        ? loadedVariants
-        : (_primary != null && !_primary!.isEmpty
-              ? <LyricsModel>[_primary!]
-              : const <LyricsModel>[]);
+    final variants = loadedVariants;
     if (_loading && variants.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_failed && variants.isEmpty) {
       return Center(
-        child: Text(
-          'Lyrics are unavailable right now.',
-          style: TextStyle(color: palette.textMuted),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              'Lyrics are unavailable right now.',
+              style: TextStyle(color: palette.textMuted),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: _retryLyrics,
+              icon: const Icon(Icons.refresh_rounded, size: 17),
+              label: const Text('Try again'),
+            ),
+          ],
         ),
       );
     }

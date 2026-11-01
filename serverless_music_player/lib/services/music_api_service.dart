@@ -51,17 +51,32 @@ class MusicApiService {
     String query, {
     SearchSource source = SearchSource.automatic,
     int limit = 18,
+    void Function(List<SongModel> songs)? onUpdate,
   }) async {
     final cleanQuery = query.trim();
     if (cleanQuery.isEmpty) return const <SongModel>[];
 
+    // A pasted video link is an exact-ID lookup, not a text search. Resolve it
+    // before honoring the selected search lane so the same video is returned
+    // even when the user normally searches in Auto or Source A.
+    final directVideoId = youtubeVideoIdFromUrl(cleanQuery);
+    if (directVideoId != null) {
+      final songs = await _searchYouTubeVideoId(directVideoId);
+      onUpdate?.call(songs);
+      return songs;
+    }
+
     if (source == SearchSource.youtube) {
-      return searchYouTube(cleanQuery, limit: limit);
+      final songs = await searchYouTube(cleanQuery, limit: limit);
+      onUpdate?.call(songs);
+      return songs;
     }
     if (source == SearchSource.jioSaavn) {
-      return limit >= 30
-          ? _searchSaavnExpanded(cleanQuery, limit: limit)
-          : searchJioSaavn(cleanQuery, limit: limit);
+      final songs = limit >= 30
+          ? await _searchSaavnExpanded(cleanQuery, limit: limit)
+          : await searchJioSaavn(cleanQuery, limit: limit);
+      onUpdate?.call(songs);
+      return songs;
     }
 
     var merged = const <SongModel>[];
@@ -72,19 +87,27 @@ class MusicApiService {
     } catch (_) {
       // Automatic mode intentionally continues to the independent source.
     }
+    if (merged.isNotEmpty) onUpdate?.call(merged);
     if (merged.length >= limit) return merged;
-    if (merged.isEmpty) return searchYouTube(cleanQuery, limit: limit);
+    if (merged.isEmpty) {
+      final youtubeResults = await searchYouTube(cleanQuery, limit: limit);
+      onUpdate?.call(youtubeResults);
+      return youtubeResults;
+    }
 
     // A catalogue search can know the artist but only return a handful of
-    // unique tracks. Fill the page from YouTube rather than showing six
-    // results for a mainstream artist, then collapse cross-provider copies.
+    // unique tracks. Publish those immediately, then fill the page from the
+    // independent source. The caller can act on these rows during that
+    // second round-trip instead of waiting for a complete merged page.
     try {
       final youtubeResults = await searchYouTube(cleanQuery, limit: limit);
       merged = dedupeSearchResults(<SongModel>[...merged, ...youtubeResults]);
     } catch (_) {
       // Keep the catalogue results if the supplement is unavailable.
     }
-    return merged.take(limit).toList(growable: false);
+    final results = merged.take(limit).toList(growable: false);
+    onUpdate?.call(results);
+    return results;
   }
 
   Future<List<SongModel>> searchJioSaavn(
@@ -610,18 +633,7 @@ class MusicApiService {
       final rawSongs = videos
           .where((video) => !video.isLive)
           .take(limit)
-          .map((video) => SongModel(
-                id: 'youtube:${video.id.value}',
-                sourceId: video.id.value,
-                title: _cleanText(video.title),
-                artist: _cleanText(video.author),
-                album: '',
-                artworkUrl: video.thumbnails.highResUrl,
-                source: SongSource.youtube,
-                durationMs: video.duration?.inMilliseconds,
-                releaseDate: _formatDate(video.publishDate ?? video.uploadDate),
-                sourceUrl: video.url,
-              ))
+          .map(_songFromYouTubeVideo)
           .toList(growable: false);
       final songs = dedupeSearchResults(rawSongs);
       logInfo('api', 'Source B search', <String, Object?>{
@@ -641,6 +653,85 @@ class MusicApiService {
       // keeps working instead of surfacing a FormatException.
       return const <SongModel>[];
     }
+  }
+
+  Future<List<SongModel>> _searchYouTubeVideoId(String videoId) async {
+    final stopwatch = Stopwatch()..start();
+    try {
+      final video = await _youtube.videos.get(videoId).timeout(_timeout);
+      if (video.isLive) return const <SongModel>[];
+      final song = _songFromYouTubeVideo(video);
+      logInfo('api', 'direct video link resolved', <String, Object?>{
+        'videoId': videoId,
+        'ms': stopwatch.elapsedMilliseconds,
+      });
+      return <SongModel>[song];
+    } catch (error) {
+      logWarn('api', 'direct video link lookup failed', <String, Object?>{
+        'videoId': videoId,
+        'error': '$error',
+        'ms': stopwatch.elapsedMilliseconds,
+      });
+      return const <SongModel>[];
+    }
+  }
+
+  SongModel _songFromYouTubeVideo(Video video) => SongModel(
+        id: 'youtube:${video.id.value}',
+        sourceId: video.id.value,
+        title: _cleanText(video.title),
+        artist: _cleanText(video.author),
+        album: '',
+        artworkUrl: video.thumbnails.highResUrl,
+        source: SongSource.youtube,
+        durationMs: video.duration?.inMilliseconds,
+        releaseDate: _formatDate(video.publishDate ?? video.uploadDate),
+        sourceUrl: video.url,
+      );
+
+  /// Extracts a video ID from a pasted YouTube URL, including watch, short,
+  /// Shorts, live and embed links. Playlist parameters are ignored so a link
+  /// always resolves to the video the user actually pasted.
+  static String? youtubeVideoIdFromUrl(String input) {
+    final value = input.trim();
+    if (value.isEmpty || value.contains(RegExp(r'\s'))) return null;
+    final parsed = Uri.tryParse(value);
+    final uri = parsed != null && parsed.hasScheme
+        ? parsed
+        : Uri.tryParse('https://$value');
+    if (uri == null) return null;
+
+    final host = uri.host.toLowerCase();
+    const allowedHosts = <String>{
+      'youtube.com',
+      'www.youtube.com',
+      'm.youtube.com',
+      'music.youtube.com',
+      'youtu.be',
+      'www.youtu.be',
+      'youtube-nocookie.com',
+      'www.youtube-nocookie.com',
+    };
+    if (!allowedHosts.contains(host)) return null;
+
+    final segments = uri.pathSegments.where((part) => part.isNotEmpty).toList();
+    String? videoId;
+    if (host == 'youtu.be' || host == 'www.youtu.be') {
+      if (segments.isNotEmpty) videoId = segments.first;
+    } else if (segments.length == 1 && segments.first == 'watch') {
+      videoId = uri.queryParameters['v'];
+    } else if (segments.length >= 2 &&
+        const <String>{'shorts', 'live', 'embed', 'v'}
+            .contains(segments.first)) {
+      videoId = segments[1];
+    }
+
+    final cleanId = videoId?.trim();
+    if (cleanId == null ||
+        !RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(cleanId)) {
+      return null;
+    }
+    return cleanId;
   }
 
   /// Collapses provider copies of the same recording into one search
@@ -818,6 +909,44 @@ class MusicApiService {
     }
   }
 
+  /// Discards a possibly expired or unplayable URL before a user-initiated
+  /// retry. The next resolution starts from the catalogue/video ID again.
+  void invalidateStream(String songId) {
+    _streamCache.remove(songId);
+  }
+
+  /// Fetches a fresh catalogue URL for a Source A result after its current
+  /// stream errors or stalls. Returns null if no matching playable copy exists.
+  Future<String?> refreshSourceAStream(
+    SongModel song, {
+    bool preferLowerBitrate = false,
+  }) async {
+    if (song.source != SongSource.jioSaavn) return null;
+    final matches = await searchJioSaavn(
+      '${song.title} ${song.artist}',
+      limit: 10,
+    );
+    SongModel? candidate;
+    for (final match in matches) {
+      if (match.sourceId == song.sourceId && match.streamUrl != null) {
+        candidate = match;
+        break;
+      }
+    }
+    candidate ??= _bestTitleMatch(matches, song);
+    final url = candidate?.streamUrl;
+    if (url == null || !MusicApiService._isHttpUrl(url)) return null;
+    final selectedUrl = preferLowerBitrate
+        ? url.replaceFirst('_320.mp4', '_96.mp4')
+        : url;
+    _streamCache[song.id] = _CachedStream(
+      selectedUrl,
+      DateTime.now(),
+      _isEphemeralUrl(selectedUrl),
+    );
+    return selectedUrl;
+  }
+
   Future<String> resolveYouTube(SongModel song, {bool lowestBitrate = false}) =>
       _youtubeStreamUrl(song.sourceId, lowestBitrate: lowestBitrate);
 
@@ -859,12 +988,21 @@ class MusicApiService {
     return url;
   }
 
-  /// Fetches every known lyrics variant for [song] (LRCLIB and JioSaavn),
-  /// annotated with language/script metadata.
-  Future<LyricsBundle> fetchLyricsVariants(SongModel song) {
+  /// Fetches lyrics from LRCLIB and Source A in parallel. [onUpdate] publishes
+  /// each usable result as soon as it arrives, so a slow source cannot keep a
+  /// faster set of lyrics hidden behind its loading spinner.
+  Future<LyricsBundle> fetchLyricsVariants(
+    SongModel song, {
+    void Function(LyricsBundle bundle)? onUpdate,
+  }) {
     final cached = _variantsCache[song.id];
-    if (cached != null) return cached;
-    final request = _fetchLyricsVariants(song).then((bundle) {
+    if (cached != null) {
+      return cached.then((bundle) {
+        onUpdate?.call(bundle);
+        return bundle;
+      });
+    }
+    final request = _fetchLyricsVariants(song, onUpdate: onUpdate).then((bundle) {
       // A transient 503/network failure must not pin an empty result for the
       // rest of the app session; the next lyrics open should retry.
       if (bundle.isEmpty) _variantsCache.remove(song.id);
@@ -874,43 +1012,49 @@ class MusicApiService {
     return request;
   }
 
-  Future<LyricsBundle> _fetchLyricsVariants(SongModel song) async {
-    final variants = <LyricsModel>[];
-
-    // JioSaavn is independent of LRCLIB. Start it now so it does not add its
-    // network time after the (sometimes slow/rate-limited) LRCLIB calls.
-    final saavnFuture = _fetchSaavnLyricsVariant(song);
-
+  Future<LyricsBundle> _fetchLyricsVariants(
+    SongModel song, {
+    void Function(LyricsBundle bundle)? onUpdate,
+  }) async {
     LyricsModel? primary;
-    try {
-      primary = await fetchLyrics(song);
-      if (!primary.isEmpty) {
-        variants.add(annotateLyrics(primary, song, source: primary.source));
+    LyricsModel? saavn;
+
+    void publishAvailable() {
+      final available = <LyricsModel>[
+        if (primary != null && !primary!.isEmpty) primary!,
+        if (saavn != null && !saavn!.isEmpty) saavn!,
+      ];
+      if (available.isNotEmpty) {
+        onUpdate?.call(LyricsBundle(songId: song.id, variants: available));
       }
-    } catch (error) {
-      logWarn('api', 'lyrics: primary fetch failed', <String, Object?>{
-        'song': song.title,
-        'error': '$error',
-      });
     }
 
-    // Extra LRCLIB catalogue matches are only worth their extra request when
-    // we still need lyrics or a synced version. When the primary already has
-    // synced lines, returning immediately keeps the lyrics screen fast.
-    if (primary == null || primary.isEmpty || !primary.hasSynced) {
+    // Both lookups start immediately. In particular, a Source A lyrics match
+    // can appear while a slow/rate-limited LRCLIB request is still running.
+    final primaryFuture = () async {
       try {
-        final extra = await _extraLrclibCandidates(song, variants);
-        variants.addAll(extra);
+        final fetched = await fetchLyrics(song);
+        if (!fetched.isEmpty) {
+          primary = annotateLyrics(fetched, song, source: fetched.source);
+          publishAvailable();
+        }
       } catch (error) {
-        logDebug('api', 'lyrics: extra lyrics source candidates failed', <String, Object?>{
+        logWarn('api', 'lyrics: primary fetch failed', <String, Object?>{
           'song': song.title,
           'error': '$error',
         });
       }
-    }
+    }();
+    final saavnFuture = () async {
+      saavn = await _fetchSaavnLyricsVariant(song);
+      publishAvailable();
+    }();
 
-    final saavn = await saavnFuture;
-    if (saavn != null && !saavn.isEmpty) variants.add(saavn);
+    await Future.wait<void>(<Future<void>>[primaryFuture, saavnFuture]);
+    final variants = <LyricsModel>[
+      if (primary != null && !primary!.isEmpty) primary!,
+      if (saavn != null && !saavn!.isEmpty) saavn!,
+    ];
     logInfo('api', 'lyrics variants collected', <String, Object?>{
       'song': song.title,
       'variants': variants.length,
@@ -921,9 +1065,26 @@ class MusicApiService {
 
   Future<LyricsModel?> _fetchSaavnLyricsVariant(SongModel song) async {
     try {
-      final saavn = await fetchSaavnLyrics(song);
-      if (saavn == null || saavn.isEmpty) return null;
-      return annotateLyrics(saavn, song, source: 'jiosaavn');
+      var lyricSong = song;
+      if (song.source != SongSource.jioSaavn) {
+        if (song.source == SongSource.radio || song.title.trim().isEmpty) {
+          return null;
+        }
+        // Video and imported tracks can still match Source A's lyric
+        // catalogue; this is especially useful for regional tracks that
+        // are not indexed by LRCLIB.
+        final searchTitle =
+            RecommendationEngine.canonicalTitleKey(song.title);
+        final matches = await searchJioSaavn(
+          '$searchTitle ${song.artist}'.trim(),
+          limit: 10,
+        ).timeout(_lyricsTimeout);
+        lyricSong = _bestSaavnLyricsMatch(matches, song) ?? song;
+        if (lyricSong.source != SongSource.jioSaavn) return null;
+      }
+      final fetched = await fetchSaavnLyrics(lyricSong);
+      if (fetched == null || fetched.isEmpty) return null;
+      return annotateLyrics(fetched, song, source: 'jiosaavn');
     } catch (error) {
       logDebug('api', 'lyrics: Source A lyrics failed', <String, Object?>{
         'song': song.title,
@@ -933,61 +1094,53 @@ class MusicApiService {
     }
   }
 
-  /// Up to two additional LRCLIB matches (different releases/languages),
-  /// excluding duplicates of [existing].
-  Future<List<LyricsModel>> _extraLrclibCandidates(
+  SongModel? _bestSaavnLyricsMatch(
+    List<SongModel> candidates,
     SongModel song,
-    List<LyricsModel> existing,
-  ) async {
-    final artists = _artistCandidates(song.artist);
-    final fallbackArtist = artists.length > 1 ? artists[1] : artists.first;
-    final headers = <String, String>{
-      'Accept': 'application/json',
-      'User-Agent': AppInfo.userAgent,
-    };
-    final searchUri = Uri.https('lrclib.net', '/api/search', <String, String>{
-      'track_name': song.title,
-      'artist_name': fallbackArtist,
-      if (song.album.trim().isNotEmpty) 'album_name': song.album,
-    });
-    final response = await _getLyrics(searchUri, headers);
-    if (response.statusCode != 200) return const <LyricsModel>[];
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Iterable) return const <LyricsModel>[];
-    final matches = decoded.whereType<Map>().map(
-          (value) => Map<String, dynamic>.from(value),
-        );
-    final scored = <Map<String, dynamic>>[];
-    for (final match in matches) {
-      if (match['instrumental'] == true) continue;
-      final lyrics = _lyricsFromMap(match);
-      if (lyrics.isEmpty) continue;
-      scored.add(match);
-      if (scored.length >= 4) break;
-    }
-    final seenFirstLines = existing
-        .map((variant) => _firstLine(variant))
-        .where((line) => line.isNotEmpty)
+  ) {
+    final wantedTitle = _normalizeForMatch(
+      RecommendationEngine.canonicalTitleKey(song.title),
+    );
+    if (wantedTitle.isEmpty) return null;
+    final wantedArtists = _artistCandidates(song.artist)
+        .map(_normalizeForMatch)
+        .where((artist) => artist.isNotEmpty)
         .toSet();
-    final extras = <LyricsModel>[];
-    for (final match in scored) {
-      final lyrics = annotateLyrics(_lyricsFromMap(match), song,
-          source: 'lrclib');
-      final key = _firstLine(lyrics);
-      if (key.isEmpty || seenFirstLines.contains(key)) continue;
-      seenFirstLines.add(key);
-      extras.add(lyrics);
-      if (extras.length >= 2) break;
+    final wantedDuration = song.duration?.inSeconds;
+    SongModel? best;
+    var bestScore = 0;
+
+    for (final candidate in candidates) {
+      final candidateTitle = _normalizeForMatch(
+        RecommendationEngine.canonicalTitleKey(candidate.title),
+      );
+      if (candidateTitle.isEmpty ||
+          !(candidateTitle == wantedTitle ||
+              candidateTitle.contains(wantedTitle) ||
+              wantedTitle.contains(candidateTitle))) {
+        continue;
+      }
+      var score = candidateTitle == wantedTitle ? 5 : 3;
+      final candidateArtists = _artistCandidates(candidate.artist)
+          .map(_normalizeForMatch)
+          .where((artist) => artist.isNotEmpty);
+      if (candidateArtists.any((artist) => wantedArtists.contains(artist))) {
+        score += 2;
+      }
+      final candidateDuration = candidate.duration?.inSeconds;
+      if (wantedDuration != null && candidateDuration != null &&
+          (wantedDuration - candidateDuration).abs() <= 8) {
+        score++;
+      }
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
     }
-    return extras;
+    return best;
   }
 
-  String _firstLine(LyricsModel lyrics) {
-    if (lyrics.hasSynced) return lyrics.syncedLines.first.text.trim();
-    return lyrics.plainLyrics.split('\n').first.trim();
-  }
-
-  /// Lyrics published by JioSaavn (usually Latin transliteration for Indian
+  /// Lyrics published by Source A (usually Latin transliteration for Indian
   /// tracks). Returns null when unavailable.
   Future<LyricsModel?> fetchSaavnLyrics(SongModel song) async {
     if (song.source != SongSource.jioSaavn || song.sourceId.isEmpty) {
@@ -1034,7 +1187,12 @@ class MusicApiService {
     }
     try {
       final annotated = await request;
-      if (annotated.isEmpty) return annotated;
+      if (annotated.isEmpty) {
+        if (preference == 'auto' && (override ?? '').isEmpty) {
+          _lyricsCache.remove(song.id);
+        }
+        return annotated;
+      }
       final selected = selectLyricsVariant(
         variants: <LyricsModel>[annotated],
         song: song,
@@ -1057,13 +1215,15 @@ class MusicApiService {
       'User-Agent': AppInfo.userAgent,
     };
     final duration = song.duration?.inSeconds;
+    final trackName = RecommendationEngine.canonicalTitleKey(song.title);
 
     // LRCLIB's exact matcher needs the correct track duration whenever it is
-    // available. Try the credited artist first, then a cleaned lead-artist
-    // variant for catalogues that append channel or feature credits.
-    for (final artist in artists.take(2)) {
+    // available. Try the credited artist once, then use the catalogue search
+    // below with a cleaned lead-artist variant rather than serially repeating
+    // another potentially slow exact request.
+    for (final artist in artists.take(1)) {
       final params = <String, String>{
-        'track_name': song.title,
+        'track_name': trackName.isEmpty ? song.title : trackName,
         'artist_name': artist,
         if (song.album.trim().isNotEmpty) 'album_name': song.album,
         if (duration != null && duration > 0 && duration <= 3600)
@@ -1094,7 +1254,7 @@ class MusicApiService {
     // punctuation, or artist credit can still find usable lyrics.
     final fallbackArtist = artists.length > 1 ? artists[1] : artists.first;
     final searchUri = Uri.https('lrclib.net', '/api/search', <String, String>{
-      'track_name': song.title,
+      'track_name': trackName.isEmpty ? song.title : trackName,
       'artist_name': fallbackArtist,
       if (song.album.trim().isNotEmpty) 'album_name': song.album,
     });
@@ -1175,7 +1335,9 @@ class MusicApiService {
     SongModel song,
     List<String> artistCandidates,
   ) {
-    final wantedTitle = _normalizeForMatch(song.title);
+    final wantedTitle = _normalizeForMatch(
+      RecommendationEngine.canonicalTitleKey(song.title),
+    );
     final wantedAlbum = _normalizeForMatch(song.album);
     final wantedArtists = artistCandidates.map(_normalizeForMatch).toSet();
     final wantedDuration = song.duration?.inSeconds;
@@ -1186,8 +1348,9 @@ class MusicApiService {
       if (match['instrumental'] == true) continue;
       final lyrics = _lyricsFromMap(match);
       if (lyrics.isEmpty) continue;
+      final titleRaw = _cleanText(match['trackName'] ?? match['name'] ?? '');
       final title = _normalizeForMatch(
-        match['trackName'] ?? match['name'] ?? '',
+        RecommendationEngine.canonicalTitleKey(titleRaw),
       );
       final artist = _normalizeForMatch(match['artistName'] ?? '');
       final album = _normalizeForMatch(match['albumName'] ?? '');

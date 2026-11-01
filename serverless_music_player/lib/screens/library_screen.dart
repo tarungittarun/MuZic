@@ -188,7 +188,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           padding: const EdgeInsets.fromLTRB(18, 20, 16, 7),
           child: Row(
             children: <Widget>[
-              MuZicHomeButton(onPressed: widget.onHome ?? () {}),
+              MuzicHomeButton(onPressed: widget.onHome ?? () {}),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -355,7 +355,8 @@ class _DownloadedSongsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final songs = context.watch<LibraryService>().downloadedSongs;
+    final library = context.watch<LibraryService>();
+    final songs = library.downloadedSongs;
     if (songs.isEmpty) {
       return const EmptyState(
         icon: Icons.download_for_offline_rounded,
@@ -369,12 +370,18 @@ class _DownloadedSongsPage extends StatelessWidget {
     return ListView.builder(
       padding: const EdgeInsets.only(top: 8, bottom: 18),
       itemCount: songs.length,
-      itemBuilder: (context, index) => SongTile(
-        song: songs[index],
-        onTap: () => context
-            .read<PlayerController>()
-            .playQueue(songs, initialIndex: index),
-      ),
+      itemBuilder: (context, index) {
+        final song = songs[index];
+        return SongTile(
+          song: song,
+          subtitleOverride: library.hasUnavailableDownload(song.id)
+              ? 'Offline copy unavailable · tap download to restore'
+              : null,
+          onTap: () => context
+              .read<PlayerController>()
+              .playQueue(songs, initialIndex: index),
+        );
+      },
     );
   }
 }

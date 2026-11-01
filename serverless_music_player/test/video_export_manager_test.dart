@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/models/lyrics_model.dart';
-import 'package:music_player/models/song_model.dart';
-import 'package:music_player/services/download_service.dart';
-import 'package:music_player/services/video_export_manager.dart';
-import 'package:music_player/services/video_export_service.dart';
+import 'package:muzic/models/lyrics_model.dart';
+import 'package:muzic/models/song_model.dart';
+import 'package:muzic/services/download_service.dart';
+import 'package:muzic/services/video_export_manager.dart';
+import 'package:muzic/services/video_export_service.dart';
 
 class _FakeVideoExportService extends VideoExportService {
   _FakeVideoExportService() : super();
@@ -62,7 +62,7 @@ void main() {
 
       final result = await manager.start(
         song: _song,
-        outputFolderUri: 'content://downloads/tree/muzic',
+        outputFolderUri: 'content://downloads/tree/music',
         prepareAudio: (onProgress, isCancelled) async {
           onProgress(0.5);
           return '/tmp/example-audio.m4a';
@@ -74,7 +74,7 @@ void main() {
       );
 
       expect(result?.path, 'content://video/result');
-      expect(service.lastOutputFolderUri, 'content://downloads/tree/muzic');
+      expect(service.lastOutputFolderUri, 'content://downloads/tree/music');
       expect(manager.state, VideoExportState.done);
       expect(manager.percent, 100);
       expect(cleanedPath, '/tmp/example-audio.m4a');

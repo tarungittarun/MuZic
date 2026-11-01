@@ -11,16 +11,16 @@ import '../theme/app_theme.dart';
 /// note from `res/mipmap-anydpi/ic_launcher.xml`) so what you tap in-app is
 /// the same mark as on the home screen. Tapping it acts as Home; the icon
 /// gives a short vibration-like shake (plus a light haptic) when tapped.
-class MuZicHomeButton extends StatefulWidget {
-  const MuZicHomeButton({required this.onPressed, super.key});
+class MuzicHomeButton extends StatefulWidget {
+  const MuzicHomeButton({required this.onPressed, super.key});
 
   final VoidCallback onPressed;
 
   @override
-  State<MuZicHomeButton> createState() => _MuZicHomeButtonState();
+  State<MuzicHomeButton> createState() => _MuzicHomeButtonState();
 }
 
-class _MuZicHomeButtonState extends State<MuZicHomeButton>
+class _MuzicHomeButtonState extends State<MuzicHomeButton>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
@@ -77,7 +77,7 @@ class _MuZicHomeButtonState extends State<MuZicHomeButton>
                 ],
               ),
               child: const CustomPaint(
-                painter: _MuZicAppIconPainter(),
+                painter: _MuzicAppIconPainter(),
                 size: Size(42, 42),
               ),
             ),
@@ -92,8 +92,8 @@ class _MuZicHomeButtonState extends State<MuZicHomeButton>
 /// brand a surface with the app mark — e.g. the lock-screen-style media
 /// card, which shows the app icon at its top-left just like Android's
 /// system media player does.
-class MuZicAppIcon extends StatelessWidget {
-  const MuZicAppIcon({this.size = 42, super.key});
+class MuzicAppIcon extends StatelessWidget {
+  const MuzicAppIcon({this.size = 42, super.key});
 
   final double size;
 
@@ -103,7 +103,7 @@ class MuZicAppIcon extends StatelessWidget {
       width: size,
       height: size,
       child: CustomPaint(
-        painter: const _MuZicAppIconPainter(),
+        painter: const _MuzicAppIconPainter(),
         size: Size(size, size),
       ),
     );
@@ -113,8 +113,8 @@ class MuZicAppIcon extends StatelessWidget {
 /// Paints the shipped launcher icon: a #11121B disc with the lavender and
 /// mint double-note paths from the Android vector, scaled from its 48-unit
 /// viewport, so it reads as the app icon rather than a generic note glyph.
-class _MuZicAppIconPainter extends CustomPainter {
-  const _MuZicAppIconPainter();
+class _MuzicAppIconPainter extends CustomPainter {
+  const _MuzicAppIconPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -161,5 +161,5 @@ class _MuZicAppIconPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _MuZicAppIconPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _MuzicAppIconPainter oldDelegate) => false;
 }

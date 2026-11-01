@@ -9,13 +9,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:music_player/main.dart' as app;
-import 'package:music_player/screens/home_screen.dart';
-import 'package:music_player/widgets/media_controller_card.dart';
-import 'package:music_player/widgets/mini_player.dart';
-import 'package:music_player/widgets/muzic_home_button.dart';
-import 'package:music_player/widgets/song_tile.dart';
-import 'package:music_player/widgets/visualizer_bars.dart';
+import 'package:muzic/main.dart' as app;
+import 'package:muzic/screens/home_screen.dart';
+import 'package:muzic/widgets/media_controller_card.dart';
+import 'package:muzic/widgets/mini_player.dart';
+import 'package:muzic/widgets/muzic_home_button.dart';
+import 'package:muzic/widgets/song_tile.dart';
+import 'package:muzic/widgets/visualizer_bars.dart';
 
 final List<String> _failureLog = <String>[];
 int _currentStepIndex = 0;
@@ -293,7 +293,7 @@ void main() {
         await waitFor(tester, find.byType(MediaControllerCard),
             timeout: const Duration(seconds: 8));
         expect(find.text('This phone'), findsOneWidget);
-        expect(find.byType(MuZicAppIcon), findsOneWidget);
+        expect(find.byType(MuzicAppIcon), findsOneWidget);
         expect(find.byType(ArtworkBackdrop), findsWidgets,
             reason: 'the song face card is not rendered behind the controls');
         expect(find.byType(WavySeekBar), findsWidgets);

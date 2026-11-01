@@ -1,12 +1,60 @@
 import 'dart:convert';
 
-import 'package:music_player/models/song_model.dart';
-import 'package:music_player/services/music_api_service.dart';
+import 'package:muzic/models/lyrics_model.dart';
+import 'package:muzic/models/song_model.dart';
+import 'package:muzic/services/music_api_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  group('YouTube link parsing', () {
+    test('extracts the exact video from watch, short, Shorts, and embed URLs', () {
+      const videoId = 'dQw4w9WgXcQ';
+      expect(
+        MusicApiService.youtubeVideoIdFromUrl(
+          'https://www.youtube.com/watch?v=$videoId&list=PL123',
+        ),
+        videoId,
+      );
+      expect(
+        MusicApiService.youtubeVideoIdFromUrl('youtu.be/$videoId?t=23'),
+        videoId,
+      );
+      expect(
+        MusicApiService.youtubeVideoIdFromUrl(
+          'https://m.youtube.com/shorts/$videoId',
+        ),
+        videoId,
+      );
+      expect(
+        MusicApiService.youtubeVideoIdFromUrl(
+          'https://www.youtube-nocookie.com/embed/$videoId',
+        ),
+        videoId,
+      );
+    });
+
+    test('rejects non-video links and lookalike hosts', () {
+      expect(
+        MusicApiService.youtubeVideoIdFromUrl(
+          'https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ',
+        ),
+        isNull,
+      );
+      expect(
+        MusicApiService.youtubeVideoIdFromUrl(
+          'https://www.youtube.com/playlist?list=PL123',
+        ),
+        isNull,
+      );
+      expect(
+        MusicApiService.youtubeVideoIdFromUrl('https://youtu.be/short'),
+        isNull,
+      );
+    });
+  });
+
   group('MusicApiService metadata parsing', () {
     test('parses optional JioSaavn metadata defensively', () async {
       final client = MockClient((request) async => http.Response(
@@ -64,6 +112,39 @@ void main() {
     });
   });
 
+  group('MusicApiService search updates', () {
+    test('publishes catalogue results to the caller as soon as they arrive', () async {
+      final client = MockClient((request) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'results': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'id': 'search-song',
+                  'title': 'Search Song',
+                  'primary_artists': 'Example Artist',
+                  'more_info': <String, dynamic>{'duration': '180'},
+                },
+              ],
+            }),
+            200,
+            headers: const <String, String>{'content-type': 'application/json'},
+          ));
+      final api = MusicApiService(httpClient: client);
+      addTearDown(api.dispose);
+      final updates = <List<SongModel>>[];
+
+      final songs = await api.search(
+        'Search Song',
+        source: SearchSource.jioSaavn,
+        limit: 10,
+        onUpdate: updates.add,
+      );
+
+      expect(songs, hasLength(1));
+      expect(updates, hasLength(1));
+      expect(updates.single.single.id, songs.single.id);
+    });
+  });
+
   group('MusicApiService artist search', () {
     test('parses artist results for the artist library', () async {
       Uri? requestedUri;
@@ -99,6 +180,54 @@ void main() {
       expect(artists.single.name, 'Example Artist');
       expect(artists.single.imageUrl, contains('artist'));
     });
+  });
+
+  group('MusicApiService stream refresh', () {
+    test(
+      'refreshes a Source A URL by ID and downgrades an unresponsive 320 link',
+      () async {
+        const encryptedUrl =
+            'iPPGVzyogeiPwpro65A0eUaQggN+8+J4mteJdeaEeFiCL4nTGWnI3F16SIjtZBIxsc7WJNlKm0HtZ754aGgzDIPzFaL/aK97';
+        var requestCount = 0;
+        final client = MockClient((request) async {
+          requestCount++;
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'results': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'id': 'track-123',
+                  'title': 'Track title',
+                  'primary_artists': 'Main artist',
+                  'more_info': <String, dynamic>{
+                    'encrypted_media_url': encryptedUrl,
+                    '320kbps': 'true',
+                  },
+                },
+              ],
+            }),
+            200,
+            headers: const <String, String>{'content-type': 'application/json'},
+          );
+        });
+        final api = MusicApiService(httpClient: client);
+        addTearDown(api.dispose);
+        const song = SongModel(
+          id: 'saavn:track-123',
+          sourceId: 'track-123',
+          title: 'Track title',
+          artist: 'Main artist',
+          source: SongSource.jioSaavn,
+        );
+
+        final refreshed = await api.refreshSourceAStream(
+          song,
+          preferLowerBitrate: true,
+        );
+
+        expect(refreshed, endsWith('_96.mp4'));
+        expect(requestCount, 1);
+      },
+    );
   });
 
   group('MusicApiService lyrics', () {
@@ -141,6 +270,45 @@ void main() {
       expect(lyrics.syncedLines, hasLength(2));
       expect(lyrics.syncedLines.first.time, const Duration(seconds: 1, milliseconds: 200));
       expect(cachedLyrics.plainLyrics, lyrics.plainLyrics);
+    });
+
+    test('retries lyrics after an empty result instead of caching a miss', () async {
+      var exactCalls = 0;
+      final client = MockClient((request) async {
+        if (request.url.path == '/api/get') {
+          exactCalls++;
+          if (exactCalls == 1) return http.Response('not found', 404);
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'instrumental': false,
+              'plainLyrics': 'Lyrics appeared on retry',
+            }),
+            200,
+            headers: const <String, String>{'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode(<Map<String, dynamic>>[]),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      });
+      final api = MusicApiService(httpClient: client);
+      addTearDown(api.dispose);
+      const song = SongModel(
+        id: 'youtube:retry-video',
+        sourceId: 'retry-video',
+        title: 'Retryable Song (Official Audio)',
+        artist: 'Example Artist',
+        source: SongSource.youtube,
+      );
+
+      final first = await api.fetchLyrics(song);
+      final second = await api.fetchLyrics(song);
+
+      expect(first.isEmpty, isTrue);
+      expect(second.plainLyrics, 'Lyrics appeared on retry');
+      expect(exactCalls, 2);
     });
 
     test('returns fast when primary lyrics are already synced', () async {
@@ -196,10 +364,71 @@ void main() {
         bundle.variants.any((variant) => variant.plainLyrics.contains('JioSaavn')),
         isTrue,
       );
-      // The extra LRCLIB catalogue search is deliberately skipped: the
-      // primary already gave us synced lyrics, so waiting for it only made
-      // the lyrics screen feel slow.
+      // A synced primary result does not trigger a redundant catalogue
+      // request; Source A is fetched concurrently as a separate variant.
       expect(lrclibSearchCount, 0);
+    });
+
+    test('finds Source A lyrics for a YouTube result', () async {
+      final client = MockClient((request) async {
+        if (request.url.host == 'www.jiosaavn.com') {
+          if (request.url.queryParameters['__call'] == 'search.getResults') {
+            return http.Response(
+              jsonEncode(<String, dynamic>{
+                'results': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'catalogue-track-1',
+                    'title': 'Regional Song',
+                    'primary_artists': 'Example Artist',
+                    'more_info': <String, dynamic>{'duration': '220'},
+                  },
+                ],
+              }),
+              200,
+              headers: const <String, String>{'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode(<String, dynamic>{'lyrics': 'A regional lyric line'}),
+            200,
+            headers: const <String, String>{'content-type': 'application/json'},
+          );
+        }
+        if (request.url.path == '/api/get') {
+          return http.Response('not found', 404);
+        }
+        return http.Response(
+          jsonEncode(<Map<String, dynamic>>[]),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      });
+      final api = MusicApiService(httpClient: client);
+      addTearDown(api.dispose);
+      const song = SongModel(
+        id: 'youtube:video1234567',
+        sourceId: 'video1234567',
+        title: 'Regional Song (Official Video)',
+        artist: 'Example Artist',
+        source: SongSource.youtube,
+        durationMs: 220000,
+      );
+
+      final updates = <LyricsBundle>[];
+      final bundle = await api.fetchLyricsVariants(song, onUpdate: updates.add);
+
+      expect(
+        bundle.variants.any((variant) =>
+            variant.source == 'jiosaavn' &&
+            variant.plainLyrics == 'A regional lyric line'),
+        isTrue,
+      );
+      expect(
+        updates.any((update) => update.variants.any(
+              (variant) => variant.plainLyrics == 'A regional lyric line',
+            )),
+        isTrue,
+      );
     });
 
     test('honors LRCLIB Retry-After before a later request', () async {
@@ -267,11 +496,11 @@ void main() {
       final api = MusicApiService(httpClient: client);
       addTearDown(api.dispose);
       const song = SongModel(
-        id: 'saavn:target-song',
-        sourceId: 'target-song',
-        title: 'Target Song',
+        id: 'youtube:target-video',
+        sourceId: 'target-video',
+        title: 'Target Song (Official Video)',
         artist: 'Example Artist',
-        source: SongSource.jioSaavn,
+        source: SongSource.youtube,
         durationMs: 200000,
       );
 

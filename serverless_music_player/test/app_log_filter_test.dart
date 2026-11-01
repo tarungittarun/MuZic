@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/services/app_log.dart';
+import 'package:muzic/services/app_log.dart';
 
 void main() {
   LogEntry at(String time, LogLevel level) => LogEntry(

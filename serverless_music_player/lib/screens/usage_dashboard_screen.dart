@@ -17,6 +17,8 @@ class UsageDashboardScreen extends StatelessWidget {
     final usage = context.watch<UsageService>();
     final palette = context.palette;
     final recentEvents = usage.recentEvents;
+    final activityEvents = usage.recentActivityEvents;
+    final recommendationEvents = usage.recentRecommendations;
     final topTracks = usage.topTracks;
     final topSearches = usage.topSearches;
 
@@ -26,7 +28,7 @@ class UsageDashboardScreen extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(18, 20, 14, 12),
           child: Row(
             children: <Widget>[
-              MuZicHomeButton(onPressed: onHome ?? () {}),
+              MuzicHomeButton(onPressed: onHome ?? () {}),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -169,7 +171,7 @@ class UsageDashboardScreen extends StatelessWidget {
                     child: _SectionHeading(title: 'Recent activity'),
                   ),
                   Text(
-                    '${recentEvents.length} EVENTS',
+                    '${activityEvents.length} ACTIONS',
                     style: TextStyle(
                       color: palette.textMuted,
                       fontSize: 9,
@@ -180,8 +182,22 @@ class UsageDashboardScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 9),
-              if (recentEvents.isEmpty)
+              if (activityEvents.isEmpty && recommendationEvents.isEmpty)
                 _EmptyActivity(onHome: onHome)
+              else if (activityEvents.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    color: palette.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: palette.outline),
+                  ),
+                  child: Text(
+                    'No manual actions in the recent activity window.',
+                    style: TextStyle(color: palette.textMuted, fontSize: 11),
+                  ),
+                )
               else
                 Container(
                   decoration: BoxDecoration(
@@ -191,14 +207,52 @@ class UsageDashboardScreen extends StatelessWidget {
                   ),
                   child: Column(
                     children: <Widget>[
-                      for (var index = 0; index < recentEvents.length; index++)
+                      for (var index = 0; index < activityEvents.length; index++)
                         _ActivityTile(
-                          event: recentEvents[index],
-                          isLast: index == recentEvents.length - 1,
+                          event: activityEvents[index],
+                          isLast: index == activityEvents.length - 1,
                         ),
                     ],
                   ),
                 ),
+              if (recommendationEvents.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 20),
+                Row(
+                  children: <Widget>[
+                    const Expanded(
+                      child: _SectionHeading(title: 'Auto-play recommendations'),
+                    ),
+                    Text(
+                      '${recommendationEvents.length} EVENTS',
+                      style: TextStyle(
+                        color: palette.textMuted,
+                        fontSize: 9,
+                        letterSpacing: 1.1,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 9),
+                Container(
+                  decoration: BoxDecoration(
+                    color: palette.surface,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: palette.outline),
+                  ),
+                  child: Column(
+                    children: <Widget>[
+                      for (var index = 0;
+                          index < recommendationEvents.length;
+                          index++)
+                        _ActivityTile(
+                          event: recommendationEvents[index],
+                          isLast: index == recommendationEvents.length - 1,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 15),
               Container(
                 padding: const EdgeInsets.all(13),
@@ -216,7 +270,7 @@ class UsageDashboardScreen extends StatelessWidget {
                       child: Text(
                         'Private to this device. MuZic keeps the last 1,200 '
                         'activity events locally; totals are cumulative. '
-                        'Music searches still contact the selected provider.',
+                        'MuZic searches still contact the selected provider.',
                         style: TextStyle(
                           color: palette.textSecondary,
                           fontSize: 10.5,
@@ -639,6 +693,9 @@ class _ActivityTile extends StatelessWidget {
     final title = switch (event.type) {
       'search' => 'Searched “${event.query}”',
       'play' => 'Played ${event.title}',
+      'recommendation' => 'Recommended by MuZic: ${event.title}',
+      'recommendation_play' =>
+        'Auto-played recommendation: ${event.title}',
       'favorite_added' => 'Liked ${event.title}',
       'favorite_removed' => 'Unliked ${event.title}',
       'download' => 'Downloaded ${event.title}',
@@ -648,10 +705,14 @@ class _ActivityTile extends StatelessWidget {
       'playlist_create' => 'Created playlist ${event.detail}',
       'playlist_add' => 'Added ${event.title} to ${event.detail}',
       'playlist_delete' => 'Deleted playlist ${event.detail}',
-      _ => event.title.isEmpty ? 'Music activity' : event.title,
+      _ => event.title.isEmpty ? 'MuZic activity' : event.title,
     };
     final subtitleParts = <String>[
       _formatTime(event.timestamp),
+      if (event.type == 'recommendation')
+        'Added automatically · not a manual action',
+      if (event.type == 'recommendation_play')
+        'Played automatically · separate from manual activity',
       if (event.type == 'search' && event.resultCount != null)
         '${event.resultCount} results · ${_prettySource(event.source)}',
       if (event.type != 'search' && event.source.isNotEmpty)
@@ -723,6 +784,7 @@ class _ActivityTile extends StatelessWidget {
 IconData _eventIcon(String type) => switch (type) {
       'search' => Icons.search_rounded,
       'play' => Icons.play_arrow_rounded,
+      'recommendation' || 'recommendation_play' => Icons.auto_awesome_rounded,
       'favorite_added' => Icons.favorite_rounded,
       'favorite_removed' => Icons.favorite_border_rounded,
       'download' || 'download_removed' => Icons.download_done_rounded,
@@ -737,7 +799,9 @@ String _prettySource(String value) => switch (value) {
       'jioSaavn' => 'Source A',
       'youtube' => 'Source B',
       'automatic' => 'Auto',
-      _ => value,
+      'radio' => 'Lossless radio',
+      'local' => 'Local file',
+      _ => 'Other source',
     };
 
 String _formatTime(DateTime value) {

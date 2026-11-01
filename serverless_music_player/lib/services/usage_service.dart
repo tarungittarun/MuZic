@@ -99,7 +99,7 @@ class UsageService extends ChangeNotifier {
   }
 
   int get searches => _count('search');
-  int get playStarts => _count('play');
+  int get playStarts => _count('play') + _count('recommendation_play');
   int get favoritesAdded => _count('favorite_added');
   int get downloads => _count('download');
   int get queueAdds => _count('queue_add');
@@ -127,6 +127,20 @@ class UsageService extends ChangeNotifier {
   List<UsageEvent> get recentEvents =>
       _allEvents.take(100).toList(growable: false);
 
+  /// Recent listener actions, excluding events caused by autoplay.
+  /// Filter before limiting so recommendations cannot crowd actions out.
+  List<UsageEvent> get recentActivityEvents => _allEvents
+      .where((event) => !event.type.startsWith('recommendation'))
+      .take(100)
+      .toList(growable: false);
+
+  /// Recommendations and their automatic starts live in a separate section.
+  List<UsageEvent> get recentRecommendations => _allEvents
+      .where((event) => event.type.startsWith('recommendation'))
+      .take(100)
+      .toList(growable: false);
+
+  /// Most-played tracks from explicit starts; autoplay starts stay separate.
   List<UsageTrackSummary> get topTracks {
     final aggregates = <String, UsageTrackSummary>{};
     for (final event in _allEvents) {
@@ -263,7 +277,9 @@ class UsageService extends ChangeNotifier {
   Future<void> _enqueue(Future<void> Function() action) {
     final pending = _recordQueue.then((_) => action());
     _recordQueue = pending.catchError((Object error) {
-      debugPrint('Could not save local usage: $error');
+      logWarn('usage', 'could not save local usage', <String, Object?>{
+        'error': '$error',
+      });
     });
     return _recordQueue;
   }

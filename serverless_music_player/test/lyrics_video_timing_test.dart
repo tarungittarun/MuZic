@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/models/lyrics_model.dart';
-import 'package:music_player/services/lyrics_video_timing.dart';
+import 'package:muzic/models/lyrics_model.dart';
+import 'package:muzic/services/lyrics_video_timing.dart';
 
 void main() {
   group('lyrics video timing fallback', () {

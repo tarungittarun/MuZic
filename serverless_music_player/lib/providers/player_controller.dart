@@ -12,10 +12,13 @@ import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/library_service.dart';
 import '../services/music_api_service.dart';
+import '../services/playback_recovery.dart';
 import '../services/recommendation_engine.dart';
 import '../services/usage_service.dart';
 
 class PlayerController extends ChangeNotifier {
+  static const Duration _bufferingTimeout = Duration(seconds: 15);
+
   PlayerController({
     required AudioPlayerService audio,
     required MusicApiService musicApi,
@@ -35,6 +38,7 @@ class PlayerController extends ChangeNotifier {
       } else {
         _flushListeningTime();
       }
+      _refreshBufferingWatchdog();
       notifyListeners();
     }));
     _subscriptions.add(_audio.player.positionStream.listen((value) {
@@ -59,11 +63,18 @@ class PlayerController extends ChangeNotifier {
       final song = _queue[value];
       if (_currentSong?.id != song.id) {
         _currentSong = song;
-        unawaited(_library.addRecent(song));
-        _recordPlaybackStart(song);
+        _playbackError = null;
+        final automaticRecommendation =
+            _recommendationReasons.containsKey(song.id);
+        if (!automaticRecommendation) unawaited(_library.addRecent(song));
+        _recordPlaybackStart(
+          song,
+          isRecommendation: automaticRecommendation,
+        );
       } else {
         _currentSong = song;
       }
+      _refreshBufferingWatchdog();
       notifyListeners();
     }));
     _subscriptions.add(_audio.player.loopModeStream.listen((value) {
@@ -106,6 +117,10 @@ class PlayerController extends ChangeNotifier {
   int _pendingListeningMs = 0;
   String? _lastUsageTrackId;
   int _playGeneration = 0;
+  Timer? _bufferingWatchdog;
+  String? _watchdogSongId;
+  int _watchdogGeneration = -1;
+  String? _playbackError;
   final Map<String, Set<String>> _fallbackAttempts = <String, Set<String>>{};
 
   SongModel? get currentSong => _currentSong;
@@ -129,9 +144,11 @@ class PlayerController extends ChangeNotifier {
   bool get shuffleEnabled => _shuffleEnabled;
   bool get isPlaying => _audio.player.playing;
   bool get isBuffering =>
-      _audio.player.processingState == ProcessingState.loading ||
-      _audio.player.processingState == ProcessingState.buffering;
-  bool get isResolving => _isResolving;
+      _playbackError == null &&
+      (_audio.player.processingState == ProcessingState.loading ||
+          _audio.player.processingState == ProcessingState.buffering);
+  bool get isResolving => _isResolving || _isRecovering;
+  String? get playbackError => _playbackError;
   bool get isDownloading => _downloadingId != null;
   String? get downloadingSongId => _downloadingId;
 
@@ -140,6 +157,62 @@ class PlayerController extends ChangeNotifier {
 
   double? downloadProgressFor(SongModel song) =>
       _downloadingId == song.id ? _downloadProgress : null;
+
+  void _cancelBufferingWatchdog() {
+    _bufferingWatchdog?.cancel();
+    _bufferingWatchdog = null;
+    _watchdogSongId = null;
+    _watchdogGeneration = -1;
+  }
+
+  void _refreshBufferingWatchdog() {
+    final song = _currentSong;
+    final processingState = _audio.player.processingState;
+    final stalledState = processingState == ProcessingState.loading ||
+        processingState == ProcessingState.buffering;
+    final shouldWatch = song != null &&
+        _playbackError == null &&
+        !_isResolving &&
+        !_isRecovering &&
+        _audio.player.playing &&
+        stalledState;
+
+    if (!shouldWatch || song == null) {
+      _cancelBufferingWatchdog();
+      return;
+    }
+    if (_bufferingWatchdog != null &&
+        _watchdogSongId == song.id &&
+        _watchdogGeneration == _playGeneration) {
+      return;
+    }
+
+    _cancelBufferingWatchdog();
+    final songId = song.id;
+    final generation = _playGeneration;
+    _watchdogSongId = songId;
+    _watchdogGeneration = generation;
+    _bufferingWatchdog = Timer(_bufferingTimeout, () {
+      _bufferingWatchdog = null;
+      _watchdogSongId = null;
+      _watchdogGeneration = -1;
+      if (generation != _playGeneration ||
+          _currentSong?.id != songId ||
+          _playbackError != null) {
+        return;
+      }
+      final state = _audio.player.processingState;
+      final stillStalled = state == ProcessingState.loading ||
+          state == ProcessingState.buffering;
+      if (!stillStalled ||
+          !_audio.player.playing ||
+          _isResolving ||
+          _isRecovering) {
+        return;
+      }
+      unawaited(_recoverStalledPlayback(songId, generation));
+    });
+  }
 
   /// Starts playback of [songs] beginning at [initialIndex].
   ///
@@ -152,8 +225,11 @@ class PlayerController extends ChangeNotifier {
   }) async {
     if (songs.isEmpty) return;
     final generation = ++_playGeneration;
+    _cancelBufferingWatchdog();
+    _playbackError = null;
     final requestedIndex = initialIndex.clamp(0, songs.length - 1).toInt();
     final requestedSong = songs[requestedIndex];
+    _fallbackAttempts.remove(requestedSong.id);
     _isResolving = true;
     notifyListeners();
     logInfo('player', 'playQueue requested', <String, Object?>{
@@ -190,6 +266,7 @@ class PlayerController extends ChangeNotifier {
       _currentSong = first.song;
       _position = Duration.zero;
       _duration = first.song.duration ?? Duration.zero;
+      if (_audio.player.playing) await _audio.player.pause();
       await _audio.setQueue(_sources, initialIndex: 0);
       if (generation != _playGeneration) return;
       _recordPlaybackStart(first.song);
@@ -211,6 +288,7 @@ class PlayerController extends ChangeNotifier {
     } finally {
       if (generation == _playGeneration) {
         _isResolving = false;
+        _refreshBufferingWatchdog();
       }
       notifyListeners();
     }
@@ -315,9 +393,19 @@ class PlayerController extends ChangeNotifier {
         }
         _queue.add(track.song);
         _sources.add(track.source);
-        await _audio.append(track.source);
+        // Publish the automatic origin before append: playback may already be
+        // at the queue boundary and advance as soon as the source is added.
         _recommendations.add(track.song);
         _recommendationReasons[track.song.id] = recommendation.reason;
+        try {
+          await _audio.append(track.source);
+        } catch (_) {
+          _queue.removeLast();
+          _sources.removeLast();
+          _recommendations.removeWhere((song) => song.id == track.song.id);
+          _recommendationReasons.remove(track.song.id);
+          rethrow;
+        }
         unawaited(_usage.recordSongEvent('recommendation', track.song));
         appended++;
         notifyListeners();
@@ -501,6 +589,11 @@ class PlayerController extends ChangeNotifier {
   /// Starts playback at an existing queue position (used by Up next).
   Future<void> playAtQueueIndex(int index) async {
     if (index < 0 || index >= _queue.length) return;
+    // A listener selecting a suggested queue item turns it into an explicit
+    // play, so subsequent history belongs in Recent Activity, not autoplay.
+    final selected = _queue[index];
+    _recommendationReasons.remove(selected.id);
+    _recommendations.removeWhere((song) => song.id == selected.id);
     try {
       await _audio.player.seek(Duration.zero, index: index);
       if (!_audio.player.playing) _startPlayback();
@@ -563,9 +656,38 @@ class PlayerController extends ChangeNotifier {
     if (_audio.player.playing) {
       await _audio.player.pause();
     } else if (_queue.isNotEmpty) {
-      _startPlayback();
+      if (_playbackError != null) {
+        await retryCurrentPlayback();
+      } else {
+        _startPlayback();
+      }
     }
     notifyListeners();
+  }
+
+  /// Retries the selected result from its stable ID instead of reusing a
+  /// possibly expired or unresponsive media URL.
+  Future<void> retryCurrentPlayback() async {
+    final index = _currentIndex;
+    if (index == null || index < 0 || index >= _queue.length) return;
+    final song = _queue[index];
+    _musicApi.invalidateStream(song.id);
+    _fallbackAttempts.remove(song.id);
+    final songs = List<SongModel>.of(_queue);
+    songs[index] = song.copyWith(streamUrl: '');
+    _playbackError = null;
+    try {
+      await playQueue(songs, initialIndex: index);
+    } catch (error) {
+      _failCurrentPlayback(
+        song.id,
+        'Could not reload this track. Check your connection or choose another result.',
+      );
+      logWarn('player', 'manual stream retry failed', <String, Object?>{
+        'song': song.title,
+        'error': '$error',
+      });
+    }
   }
 
   /// Pauses playback (used by the sleep timer).
@@ -609,6 +731,19 @@ class PlayerController extends ChangeNotifier {
         LoopMode.off => LoopMode.all,
         LoopMode.all => LoopMode.one,
         LoopMode.one => LoopMode.off,
+      };
+
+  static String repeatModeLabel(LoopMode mode) => switch (mode) {
+        LoopMode.off => 'Repeat off',
+        LoopMode.all => 'Repeat all',
+        LoopMode.one => 'Repeat 1',
+      };
+
+  static String repeatModeDescription(LoopMode mode) => switch (mode) {
+        LoopMode.off => 'Repeat is off',
+        LoopMode.all =>
+          'Repeat every track in the queue, then start the queue again',
+        LoopMode.one => 'Repeat the current track until you choose another mode',
       };
 
   Future<void> toggleShuffle() async {
@@ -678,6 +813,7 @@ class PlayerController extends ChangeNotifier {
     _recommendationReasons.clear();
     _currentSong = keepSong;
     _currentIndex = 0;
+    if (wasPlaying) await _audio.player.pause();
     await _audio.setQueue(
       _sources,
       initialIndex: 0,
@@ -817,7 +953,10 @@ class PlayerController extends ChangeNotifier {
         _audio.sourceFor(resolvedSong, remoteUrl: streamUrl),
       );
     } catch (error) {
-      debugPrint('Track resolver failed for ${song.title}: $error');
+      logWarn('player', 'track resolver failed', <String, Object?>{
+        'song': song.title,
+        'error': '$error',
+      });
       failures?.add('$error');
       return null;
     }
@@ -835,10 +974,16 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  void _recordPlaybackStart(SongModel song) {
+  void _recordPlaybackStart(
+    SongModel song, {
+    bool isRecommendation = false,
+  }) {
     if (_lastUsageTrackId == song.id) return;
     _lastUsageTrackId = song.id;
-    unawaited(_usage.recordSongEvent('play', song));
+    unawaited(_usage.recordSongEvent(
+      isRecommendation ? 'recommendation_play' : 'play',
+      song,
+    ));
   }
 
   void _flushListeningTime() {
@@ -859,40 +1004,145 @@ class PlayerController extends ChangeNotifier {
       'error': '$error',
       'song': _currentSong?.title,
     });
+    if (_isRecovering || _playbackError != null) return;
+    final song = _currentSong;
+    if (song == null) return;
+    unawaited(_recoverStalledPlayback(song.id, _playGeneration));
+  }
+
+  Future<void> _recoverStalledPlayback(String songId, int generation) async {
+    if (generation != _playGeneration ||
+        _currentSong?.id != songId ||
+        _isRecovering ||
+        _playbackError != null) {
+      return;
+    }
     final index = _currentIndex;
     if (index == null || index < 0 || index >= _queue.length) return;
     final song = _queue[index];
-    if (_isRecovering) return;
     final attempts = _fallbackAttempts.putIfAbsent(song.id, () => <String>{});
-
-    // First cheap retry: the 320 kbps guess is missing on some CDN entries,
-    // so drop back to the standard 96 kbps URL before moving sources.
-    final currentUrl = song.streamUrl ?? '';
-    if (currentUrl.contains('_320.mp4') && !attempts.contains('quality')) {
-      attempts.add('quality');
-      unawaited(_replaceCurrentSource(
-        song,
-        index,
-        currentUrl.replaceFirst('_320.mp4', '_96.mp4'),
-        label: 'quality-96',
-      ));
-      return;
-    }
-    if (!attempts.contains('youtube')) {
-      if (song.source == SongSource.radio || song.source == SongSource.local) {
-        logError('player', 'no automatic fallback for this source', <String, Object?>{
-          'song': song.title,
-          'source': song.source.name,
-        });
-        return;
-      }
-      attempts.add('youtube');
-      unawaited(_recoverCurrentWithYouTube(song, index));
-      return;
-    }
-    logError('player', 'all fallbacks exhausted for track', <String, Object?>{
+    final action = nextPlaybackRecoveryAction(song: song, attempts: attempts);
+    logWarn('player', 'trying bounded stream recovery', <String, Object?>{
       'song': song.title,
+      'action': action.name,
     });
+
+    switch (action) {
+      case PlaybackRecoveryAction.lowerSourceAQuality:
+        attempts.add('quality');
+        final url = (song.streamUrl ?? '').replaceFirst('_320.mp4', '_96.mp4');
+        await _replaceCurrentSource(
+          song,
+          index,
+          url,
+          label: 'source-a-96-after-stall',
+          generation: generation,
+        );
+        break;
+      case PlaybackRecoveryAction.refreshSourceA:
+        attempts.add('source-a-refresh');
+        await _refreshSourceA(song, index, generation, attempts);
+        break;
+      case PlaybackRecoveryAction.lowerSourceBBitrate:
+        attempts.add('youtube-low');
+        await _recoverWithLowerBitrate(song, index, generation);
+        break;
+      case PlaybackRecoveryAction.alternateSource:
+        attempts.add('youtube');
+        await _recoverCurrentWithYouTube(
+          song,
+          index,
+          generation: generation,
+        );
+        break;
+      case PlaybackRecoveryAction.stop:
+        _failCurrentPlayback(
+          song.id,
+          'This stream is not responding. Tap Retry or choose another result.',
+        );
+        break;
+    }
+  }
+
+  Future<void> _refreshSourceA(
+    SongModel song,
+    int index,
+    int generation,
+    Set<String> attempts,
+  ) async {
+    String? url;
+    Object? failure;
+    _isRecovering = true;
+    _cancelBufferingWatchdog();
+    notifyListeners();
+    try {
+      _musicApi.invalidateStream(song.id);
+      url = await _musicApi.refreshSourceAStream(
+        song,
+        preferLowerBitrate: attempts.contains('quality'),
+      );
+    } catch (error) {
+      failure = error;
+      logWarn('player', 'Source A stream refresh failed', <String, Object?>{
+        'song': song.title,
+        'error': '$error',
+      });
+    } finally {
+      _isRecovering = false;
+      _refreshBufferingWatchdog();
+      notifyListeners();
+    }
+
+    if (!_isCurrentRecoveryTarget(song.id, index, generation)) return;
+    if (url == null || failure != null) {
+      await _recoverStalledPlayback(song.id, generation);
+      return;
+    }
+    await _replaceCurrentSource(
+      song,
+      index,
+      url,
+      label: 'source-a-refreshed',
+      generation: generation,
+    );
+  }
+
+  Future<void> _recoverWithLowerBitrate(
+    SongModel song,
+    int index,
+    int generation,
+  ) async {
+    String? url;
+    Object? failure;
+    _isRecovering = true;
+    _cancelBufferingWatchdog();
+    notifyListeners();
+    try {
+      url = await _musicApi.resolveYouTube(song, lowestBitrate: true);
+    } catch (error) {
+      failure = error;
+      logWarn('player', 'lower-bitrate stream lookup failed', <String, Object?>{
+        'song': song.title,
+        'error': '$error',
+      });
+    } finally {
+      _isRecovering = false;
+      _refreshBufferingWatchdog();
+      notifyListeners();
+    }
+
+    if (!_isCurrentRecoveryTarget(song.id, index, generation)) return;
+    if (url == null || failure != null) {
+      await _recoverStalledPlayback(song.id, generation);
+      return;
+    }
+    await _replaceCurrentSource(
+      song,
+      index,
+      url,
+      label: 'source-b-low-bitrate',
+      generation: generation,
+    );
   }
 
   Future<void> _replaceCurrentSource(
@@ -900,66 +1150,137 @@ class PlayerController extends ChangeNotifier {
     int index,
     String url, {
     required String label,
+    int? generation,
   }) async {
+    if (!_isCurrentRecoveryTarget(song.id, index, generation)) return;
     _isRecovering = true;
+    _cancelBufferingWatchdog();
     notifyListeners();
+    String? failure;
     try {
       final fallbackSong = song.copyWith(streamUrl: url);
       _queue[index] = fallbackSong;
       _sources[index] = _audio.sourceFor(fallbackSong, remoteUrl: url);
       if (_currentSong?.id == song.id) _currentSong = fallbackSong;
+      if (_audio.player.playing) await _audio.player.pause();
       await _audio.setQueue(
         _sources,
         initialIndex: index,
         initialPosition: Duration.zero,
       );
+      if (!_isCurrentRecoveryTarget(song.id, index, generation)) return;
       _position = Duration.zero;
+      _playbackError = null;
       _startPlayback();
       logInfo('player', 'fallback applied', <String, Object?>{
         'song': song.title,
         'via': label,
       });
     } catch (fallbackError) {
-      logError('player', 'fallback failed', <String, Object?>{
-        'song': song.title,
-        'via': label,
-        'error': '$fallbackError',
-      });
+      failure = '$fallbackError';
+      logError(
+        'player',
+        'fallback source could not be installed',
+        <String, Object?>{
+          'song': song.title,
+          'via': label,
+          'error': failure,
+        },
+      );
     } finally {
       _isRecovering = false;
+      _refreshBufferingWatchdog();
       notifyListeners();
+    }
+    if (failure != null && _isCurrentRecoveryTarget(song.id, index, generation)) {
+      final attempts = _fallbackAttempts.putIfAbsent(song.id, () => <String>{});
+      if (!attempts.contains('youtube')) {
+        attempts.add('youtube');
+        await _recoverCurrentWithYouTube(
+          song,
+          index,
+          generation: generation,
+        );
+      } else {
+        _failCurrentPlayback(
+          song.id,
+          'This stream could not be started. Tap Retry or choose another result.',
+        );
+      }
     }
   }
 
-  Future<void> _recoverCurrentWithYouTube(SongModel song, int index) async {
+  Future<void> _recoverCurrentWithYouTube(
+    SongModel song,
+    int index, {
+    int? generation,
+  }) async {
+    if (!_isCurrentRecoveryTarget(song.id, index, generation)) return;
+    String? url;
+    Object? failure;
     _isRecovering = true;
+    _cancelBufferingWatchdog();
     notifyListeners();
     try {
-      String url;
-      if (song.source == SongSource.youtube) {
-        try {
-          url = await _musicApi.resolveYouTube(song, lowestBitrate: true);
-        } catch (_) {
-          url = await _musicApi.resolveYouTubeFallback(song);
-        }
-      } else {
-        url = await _musicApi.resolveYouTubeFallback(song);
-      }
-      await _replaceCurrentSource(song, index, url, label: 'source-b-fallback');
-    } catch (fallbackError) {
+      url = await _musicApi.resolveYouTubeFallback(
+        song,
+        lowestBitrate: true,
+      );
+    } catch (error) {
+      failure = error;
       logError('player', 'Source B fallback failed', <String, Object?>{
         'song': song.title,
-        'error': '$fallbackError',
+        'error': '$error',
       });
     } finally {
       _isRecovering = false;
+      _refreshBufferingWatchdog();
       notifyListeners();
     }
+
+    if (!_isCurrentRecoveryTarget(song.id, index, generation)) return;
+    if (url == null || failure != null) {
+      _failCurrentPlayback(
+        song.id,
+        'No working stream was found. Tap Retry or choose another result.',
+      );
+      return;
+    }
+    await _replaceCurrentSource(
+      song,
+      index,
+      url,
+      label: 'source-b-fallback',
+      generation: generation,
+    );
+  }
+
+  bool _isCurrentRecoveryTarget(String songId, int index, int? generation) =>
+      (generation == null || generation == _playGeneration) &&
+      _currentSong?.id == songId &&
+      _currentIndex == index &&
+      index >= 0 &&
+      index < _queue.length;
+
+  void _failCurrentPlayback(String songId, String message) {
+    if (_currentSong?.id != songId) return;
+    _playbackError = message;
+    _cancelBufferingWatchdog();
+    logError('player', 'stream recovery exhausted', <String, Object?>{
+      'song': _currentSong?.title,
+      'message': message,
+    });
+    unawaited(_audio.player.pause().catchError((Object error) {
+      logDebug('player', 'pause after stream failure did not complete',
+          <String, Object?>{'error': '$error'});
+    }));
+    notifyListeners();
   }
 
   @override
   void dispose() {
     _playGeneration++;
+    _cancelBufferingWatchdog();
     _flushListeningTime();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());

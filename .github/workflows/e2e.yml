@@ -24,7 +24,7 @@ concurrency:
 
 env:
   APP_DIR: serverless_music_player
-  APP_ID: com.auralis.player
+  APP_ID: com.github.tarungittarun.muzic
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -412,7 +412,7 @@ jobs:
           # Android's own view of the media notification is diagnostic context;
           # no matching log lines are acceptable when Android logs no failures.
           adb logcat -d -v brief \
-            | grep -aiE "audioservice|audio_service|NotificationService|MediaSession|muZic.*notif|Bad notification|not valid|crash" \
+            | grep -aiE "audioservice|audio_service|NotificationService|MediaSession|muzic.*notif|Bad notification|not valid|crash" \
             | tail -80 > "logcat-${{ matrix.api-level }}.txt" || true
           echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
           exit "$status"

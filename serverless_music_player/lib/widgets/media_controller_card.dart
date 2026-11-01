@@ -73,7 +73,7 @@ class MediaControllerCard extends StatelessWidget {
               children: <Widget>[
                 const Row(
                   children: <Widget>[
-                    MuZicAppIcon(size: 34),
+                    MuzicAppIcon(size: 34),
                     Spacer(),
                     _ThisPhonePill(),
                   ],
@@ -218,7 +218,7 @@ class MediaArtworkCard extends StatelessWidget {
               children: <Widget>[
                 const Row(
                   children: <Widget>[
-                    MuZicAppIcon(size: 34),
+                    MuzicAppIcon(size: 34),
                     Spacer(),
                     _ThisPhonePill(),
                   ],

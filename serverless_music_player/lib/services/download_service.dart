@@ -50,7 +50,7 @@ class DownloadService {
   Future<void> deleteTemporaryAudio(String path) async {
     final support = await getApplicationSupportDirectory();
     final exportDirectory =
-        Directory(p.join(support.path, 'muzic_video_audio'));
+        Directory(p.join(support.path, 'music_video_audio'));
     final normalizedPath = p.normalize(path);
     final normalizedDirectory = p.normalize(exportDirectory.path);
     if (!p.isWithin(normalizedDirectory, normalizedPath)) return;
@@ -71,7 +71,26 @@ class DownloadService {
     final song = _library.downloadedSong(songId);
     final path = song?.localPath;
     if (path == null || path.isEmpty) return null;
-    return await _localPathExists(path) ? path : null;
+    if (await _localPathExists(path)) return path;
+    try {
+      await _library.markDownloadUnavailable(songId);
+    } catch (_) {
+      // Online playback can still proceed if the storage metadata is read-only.
+    }
+    return null;
+  }
+
+  /// Validates saved paths after startup without dropping their library rows.
+  /// Missing files become re-downloadable entries rather than disappearing.
+  Future<void> validateSavedDownloads() async {
+    final songs = _library.downloadedSongs;
+    for (final song in songs) {
+      try {
+        await localPathFor(song.id);
+      } catch (_) {
+        // A storage/provider check must not block normal app startup.
+      }
+    }
   }
 
   Future<SongModel> downloadSong(
@@ -252,7 +271,7 @@ class DownloadService {
     if (isCancelled?.call() == true) {
       throw const DownloadCancelledException();
     }
-    final directory = Directory(p.join(support.path, 'muzic_video_audio'));
+    final directory = Directory(p.join(support.path, 'music_video_audio'));
     await directory.create(recursive: true);
     if (isCancelled?.call() == true) {
       throw const DownloadCancelledException();

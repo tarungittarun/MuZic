@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:music_player/models/audio_quality.dart';
-import 'package:music_player/models/lyrics_model.dart';
-import 'package:music_player/models/song_model.dart';
-import 'package:music_player/screens/diagnostics_screen.dart';
+import 'package:muzic/models/audio_quality.dart';
+import 'package:muzic/models/lyrics_model.dart';
+import 'package:muzic/models/song_model.dart';
+import 'package:muzic/screens/diagnostics_screen.dart';
 
 void main() {
   test('quality details use the app-owned source labels', () {
