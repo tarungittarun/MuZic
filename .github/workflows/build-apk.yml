@@ -50,11 +50,11 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # A debug-signed APK is always produced for direct installation. It uses
+  # A debug-signed arm64 APK is produced for direct download. It uses
   # Android's disposable debug key, never the compromised historical release
   # key, and remains available even while secure release signing is rotated.
   build-debug:
-    name: Build installable debug APK
+    name: Build installable arm64 debug APK
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -80,8 +80,8 @@ jobs:
       - name: Resolve Dart and Flutter packages
         run: flutter pub get
 
-      - name: Build debug APK
-        run: flutter build apk --debug
+      - name: Build arm64 debug APK
+        run: flutter build apk --debug --target-platform=android-arm64
 
       - name: Verify APK, package ID, and version
         shell: bash
@@ -92,6 +92,15 @@ jobs:
           size=$(stat -c%s "$apk")
           if [[ "$size" -lt 5242880 ]]; then
             echo "::error title=debug-apk-too-small::debug APK is only ${size} bytes"
+            exit 1
+          fi
+          apk_entries=$(unzip -Z1 "$apk")
+          if ! grep -q '^lib/arm64-v8a/' <<<"$apk_entries"; then
+            echo "::error title=debug-apk-abi::APK does not contain arm64-v8a libraries"
+            exit 1
+          fi
+          if grep -Eq '^lib/(armeabi-v7a|x86|x86_64)/' <<<"$apk_entries"; then
+            echo "::error title=debug-apk-abi::APK unexpectedly contains non-arm64 native libraries"
             exit 1
           fi
           BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
@@ -120,13 +129,14 @@ jobs:
             echo "APK bytes: ${size}"
             echo "Package: ${app_id}"
             echo "Version: ${name}+${code}"
+            echo 'Architecture: arm64-v8a only'
             echo "This APK uses Android's debug signing key, not a release key. It cannot update an APK signed with a different key; remove the older installation before installing this development build."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload debug APK artifact
+      - name: Upload arm64 debug APK artifact
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: muzic-debug-apk
+          name: muzic-arm64-debug-apk
           path: serverless_music_player/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           compression-level: 0
