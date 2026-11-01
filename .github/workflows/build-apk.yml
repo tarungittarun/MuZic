@@ -85,7 +85,22 @@ jobs:
           # Flutter's target-platform selects the engine; the ABI split also
           # keeps native libraries bundled by plugins to arm64 only.
           ORG_GRADLE_PROJECT_muzicArm64Profile: 'true'
-        run: flutter build apk --profile --target-platform=android-arm64 --split-per-abi
+        shell: bash
+        run: |
+          set +e
+          flutter build apk --profile --target-platform=android-arm64 --split-per-abi 2>&1 | tee profile-build.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo '## flutter build apk (profile, arm64)'
+            echo '```'
+            tail -80 profile-build.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -aE "^e: |^w: |FAILURE:|What went wrong|Caused by|error:|Exception|FAILED|Execution failed|> Task .*FAILED" profile-build.txt \
+            | head -40 | while IFS= read -r line; do
+            echo "::error title=profile-build::${line}"
+          done
+          exit "$status"
 
       - name: Verify profile APK, package ID, and version
         shell: bash
